@@ -64,6 +64,26 @@ validate-values: check-values
 # Validate public source and private values wiring
 validate: validate-public validate-values
 
+# Show recent Forgejo Actions runs for the private values repo
+[private]
+actions-status limit="10":
+    INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh python scripts/forgejo-actions-monitor.py status --limit "{{limit}}"
+
+# Watch a Forgejo Actions run until it reaches a terminal state
+[private]
+actions-watch run="latest":
+    INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh python scripts/forgejo-actions-monitor.py watch "{{run}}"
+
+# Show redacted logs for a Forgejo Actions run
+[private]
+actions-logs run="latest" tail="200":
+    INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh python scripts/forgejo-actions-monitor.py logs "{{run}}" --tail "{{tail}}"
+
+# Show Forgejo Actions runner registration and service status
+[private]
+actions-runners:
+    INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh python scripts/forgejo-actions-monitor.py runners
+
 # Remove saved plan artifacts
 [private]
 clean-plans:

@@ -27,7 +27,7 @@
         DEBIAN_FRONTEND=noninteractive apt-get update;
         DEBIAN_FRONTEND=noninteractive apt-get install -y
         ca-certificates curl docker.io fuse-overlayfs git gnupg jq
-        nodejs npm openssh-client python3 tar;
+        nodejs npm openssh-client python3 rsync tar;
         systemctl enable --now docker
   changed_when: false
 
@@ -142,7 +142,7 @@
           useradd --system --home-dir /var/lib/forgejo-runner --shell /bin/bash --user-group --comment 'Forgejo Actions Runner' runner;
         fi;
         usermod -aG docker runner;
-        install -d -m 0750 -o runner -g runner /var/lib/forgejo-runner /var/lib/forgejo-runner/work;
+        install -d -m 0750 -o runner -g runner /var/lib/forgejo-runner /var/lib/forgejo-runner/work /var/lib/forgejo-runner/cache;
         install -d -m 0750 -o root -g runner /etc/forgejo-runner
   changed_when: false
 

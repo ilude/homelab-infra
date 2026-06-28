@@ -58,6 +58,21 @@
     mode: "0600"
   no_log: true
 
+- name: Check Forgejo Caddy env drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/forgejo-caddy.env.{{ forgejo_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ forgejo_vmid | quote }} -- sha256sum /etc/caddy/env 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: forgejo_caddy_env_drift
+  changed_when: false
+  failed_when: false
+  no_log: true
+
 - name: Push Forgejo Caddy env into LXC
   ansible.builtin.command:
     argv:
@@ -66,6 +81,8 @@
       - "{{ forgejo_vmid | string }}"
       - /tmp/forgejo-caddy.env.{{ forgejo_vmid }}
       - /etc/caddy/env
+  when: forgejo_caddy_env_drift.rc != 0
+  changed_when: true
   no_log: true
   notify: Restart caddy
 
@@ -87,6 +104,20 @@
     dest: /tmp/forgejo-Caddyfile.{{ forgejo_vmid }}
     mode: "0644"
 
+- name: Check Forgejo Caddyfile drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/forgejo-Caddyfile.{{ forgejo_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ forgejo_vmid | quote }} -- sha256sum /etc/caddy/Caddyfile 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: forgejo_caddyfile_drift
+  changed_when: false
+  failed_when: false
+
 - name: Push Forgejo Caddyfile into LXC
   ansible.builtin.command:
     argv:
@@ -95,6 +126,8 @@
       - "{{ forgejo_vmid | string }}"
       - /tmp/forgejo-Caddyfile.{{ forgejo_vmid }}
       - /etc/caddy/Caddyfile
+  when: forgejo_caddyfile_drift.rc != 0
+  changed_when: true
   notify: Restart caddy
 
 - name: Stage Forgejo Caddy systemd override on Proxmox host
@@ -117,6 +150,20 @@
       - /etc/systemd/system/caddy.service.d
   changed_when: false
 
+- name: Check Forgejo Caddy systemd override drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/forgejo-caddy-override.conf.{{ forgejo_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ forgejo_vmid | quote }} -- sha256sum /etc/systemd/system/caddy.service.d/override.conf 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: forgejo_caddy_override_drift
+  changed_when: false
+  failed_when: false
+
 - name: Push Forgejo Caddy systemd override into LXC
   ansible.builtin.command:
     argv:
@@ -125,6 +172,8 @@
       - "{{ forgejo_vmid | string }}"
       - /tmp/forgejo-caddy-override.conf.{{ forgejo_vmid }}
       - /etc/systemd/system/caddy.service.d/override.conf
+  when: forgejo_caddy_override_drift.rc != 0
+  changed_when: true
   notify: Restart caddy
 
 - name: Validate Forgejo Caddy config

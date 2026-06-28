@@ -102,6 +102,20 @@
     dest: /tmp/forgejo.service.{{ forgejo_vmid }}
     mode: "0644"
 
+- name: Check Forgejo systemd service drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/forgejo.service.{{ forgejo_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ forgejo_vmid | quote }} -- sha256sum /etc/systemd/system/forgejo.service 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: forgejo_service_drift
+  changed_when: false
+  failed_when: false
+
 - name: Push Forgejo systemd service into LXC
   ansible.builtin.command:
     argv:
@@ -110,6 +124,8 @@
       - "{{ forgejo_vmid | string }}"
       - /tmp/forgejo.service.{{ forgejo_vmid }}
       - /etc/systemd/system/forgejo.service
+  when: forgejo_service_drift.rc != 0
+  changed_when: true
   notify: Restart forgejo
 
 - name: Check Forgejo app.ini presence
@@ -133,6 +149,21 @@
     mode: "0640"
   when: forgejo_write_initial_config | default(false) | bool or forgejo_app_ini_check.rc != 0
 
+- name: Check initial Forgejo app.ini drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/forgejo-app.ini.{{ forgejo_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ forgejo_vmid | quote }} -- sha256sum /etc/forgejo/app.ini 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: forgejo_app_ini_drift
+  changed_when: false
+  failed_when: false
+  when: forgejo_write_initial_config | default(false) | bool or forgejo_app_ini_check.rc != 0
+
 - name: Push initial Forgejo app.ini into LXC
   ansible.builtin.command:
     argv:
@@ -141,7 +172,10 @@
       - "{{ forgejo_vmid | string }}"
       - /tmp/forgejo-app.ini.{{ forgejo_vmid }}
       - /etc/forgejo/app.ini
-  when: forgejo_write_initial_config | default(false) | bool or forgejo_app_ini_check.rc != 0
+  when:
+    - forgejo_write_initial_config | default(false) | bool or forgejo_app_ini_check.rc != 0
+    - forgejo_app_ini_drift.rc | default(1) != 0
+  changed_when: true
   notify: Restart forgejo
 
 - name: Secure Forgejo app.ini
@@ -163,6 +197,21 @@
     mode: "0644"
   when: forgejo_configure_system_ssh | default(true) | bool
 
+- name: Check Forgejo SSH integration config drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/forgejo-sshd.conf.{{ forgejo_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ forgejo_vmid | quote }} -- sha256sum /etc/ssh/sshd_config.d/forgejo.conf 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: forgejo_sshd_config_drift
+  changed_when: false
+  failed_when: false
+  when: forgejo_configure_system_ssh | default(true) | bool
+
 - name: Push Forgejo SSH integration config into LXC
   ansible.builtin.command:
     argv:
@@ -171,7 +220,10 @@
       - "{{ forgejo_vmid | string }}"
       - /tmp/forgejo-sshd.conf.{{ forgejo_vmid }}
       - /etc/ssh/sshd_config.d/forgejo.conf
-  when: forgejo_configure_system_ssh | default(true) | bool
+  when:
+    - forgejo_configure_system_ssh | default(true) | bool
+    - forgejo_sshd_config_drift.rc | default(1) != 0
+  changed_when: true
   notify: Restart ssh
 
 - name: Configure Caddy on Forgejo LXC

@@ -61,6 +61,21 @@
     mode: "0600"
   no_log: true
 
+- name: Check DNS LXC Caddy env drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/dns-caddy.env.{{ technitium_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ technitium_vmid | quote }} -- sha256sum /etc/caddy/env 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: caddy_proxy_env_drift
+  changed_when: false
+  failed_when: false
+  no_log: true
+
 - name: Push DNS LXC Caddy env
   ansible.builtin.command:
     argv:
@@ -69,6 +84,8 @@
       - "{{ technitium_vmid | string }}"
       - /tmp/dns-caddy.env.{{ technitium_vmid }}
       - /etc/caddy/env
+  when: caddy_proxy_env_drift.rc != 0
+  changed_when: true
   no_log: true
   notify: Restart caddy
 
@@ -90,6 +107,20 @@
     dest: /tmp/dns-Caddyfile.{{ technitium_vmid }}
     mode: "0644"
 
+- name: Check DNS LXC Caddyfile drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/dns-Caddyfile.{{ technitium_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ technitium_vmid | quote }} -- sha256sum /etc/caddy/Caddyfile 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: caddy_proxy_caddyfile_drift
+  changed_when: false
+  failed_when: false
+
 - name: Push DNS LXC Caddyfile
   ansible.builtin.command:
     argv:
@@ -98,6 +129,8 @@
       - "{{ technitium_vmid | string }}"
       - /tmp/dns-Caddyfile.{{ technitium_vmid }}
       - /etc/caddy/Caddyfile
+  when: caddy_proxy_caddyfile_drift.rc != 0
+  changed_when: true
   notify: Restart caddy
 
 - name: Stage DNS LXC Caddy systemd override on Proxmox host
@@ -120,6 +153,20 @@
       - /etc/systemd/system/caddy.service.d
   changed_when: false
 
+- name: Check DNS LXC Caddy systemd override drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/dns-caddy-override.conf.{{ technitium_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ technitium_vmid | quote }} -- sha256sum /etc/systemd/system/caddy.service.d/override.conf 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: caddy_proxy_override_drift
+  changed_when: false
+  failed_when: false
+
 - name: Push DNS LXC Caddy systemd override
   ansible.builtin.command:
     argv:
@@ -128,6 +175,8 @@
       - "{{ technitium_vmid | string }}"
       - /tmp/dns-caddy-override.conf.{{ technitium_vmid }}
       - /etc/systemd/system/caddy.service.d/override.conf
+  when: caddy_proxy_override_drift.rc != 0
+  changed_when: true
   notify: Restart caddy
 
 - name: Validate DNS LXC Caddy config

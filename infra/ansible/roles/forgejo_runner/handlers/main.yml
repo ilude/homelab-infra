@@ -1,0 +1,12 @@
+---
+- name: Restart forgejo-runner
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - systemctl
+      - restart
+      - forgejo-runner
+  changed_when: true

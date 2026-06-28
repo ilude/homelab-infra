@@ -69,6 +69,19 @@ class SettingsTests(unittest.TestCase):
             path.unlink()
         self.assertEqual(settings["services"], ["tailscale_client"])
 
+    def test_forgejo_runner_adds_runner_playbook(self) -> None:
+        path = self.write_settings({"services": ["forgejo_runner"]})
+        try:
+            settings = settings_script.load_settings(path)
+        finally:
+            path.unlink()
+        playbooks = [
+            playbook
+            for service in settings["services"]
+            for playbook in settings_script.SERVICE_PLAYBOOKS[service]
+        ]
+        self.assertEqual(playbooks, ["infra/ansible/playbooks/forgejo-runner.yml"])
+
     def test_playbooks_follow_service_order(self) -> None:
         path = self.write_settings({"services": ["technitium", "forgejo", "tailscale_client"]})
         try:

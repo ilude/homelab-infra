@@ -5,9 +5,9 @@ variable "enabled_services" {
 
   validation {
     condition = alltrue([
-      for service in var.enabled_services : contains(["technitium", "forgejo", "tailscale_client"], service)
+      for service in var.enabled_services : contains(["technitium", "forgejo", "tailscale_client", "forgejo_runner"], service)
     ])
-    error_message = "enabled_services may contain only technitium, forgejo, and tailscale_client."
+    error_message = "enabled_services may contain only technitium, forgejo, tailscale_client, and forgejo_runner."
   }
 }
 
@@ -309,6 +309,124 @@ variable "forgejo_startup_down_delay" {
   description = "Seconds to wait after shutting down the Forgejo LXC before shutting down the next guest."
   type        = string
   default     = "20"
+}
+
+variable "forgejo_runner_vmid" {
+  description = "Proxmox VMID for the Forgejo Actions runner LXC."
+  type        = number
+  default     = 109
+}
+
+variable "forgejo_runner_hostname" {
+  description = "Hostname for the Forgejo Actions runner LXC."
+  type        = string
+  default     = "forgejo-runner"
+}
+
+variable "forgejo_runner_description" {
+  description = "Description for the Forgejo Actions runner LXC."
+  type        = string
+  default     = "Forgejo Actions runner managed by OpenTofu."
+}
+
+variable "forgejo_runner_ipv4_address" {
+  description = "IPv4 address/CIDR for the Forgejo Actions runner LXC, or dhcp when the router supplies a static DHCP reservation."
+  type        = string
+  default     = "dhcp"
+
+  validation {
+    condition     = var.forgejo_runner_ipv4_address == "dhcp" || can(cidrhost(var.forgejo_runner_ipv4_address, 0))
+    error_message = "forgejo_runner_ipv4_address must be dhcp or a valid IPv4 CIDR address."
+  }
+}
+
+variable "forgejo_runner_ipv4_gateway" {
+  description = "IPv4 gateway for the Forgejo Actions runner LXC. Use null when forgejo_runner_ipv4_address is dhcp."
+  type        = string
+  default     = null
+}
+
+variable "forgejo_runner_mac_address" {
+  description = "MAC address for the Forgejo Actions runner LXC, useful when the router supplies a static DHCP reservation."
+  type        = string
+  default     = "BC:24:11:00:00:02"
+
+  validation {
+    condition     = can(regex("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$", var.forgejo_runner_mac_address))
+    error_message = "forgejo_runner_mac_address must use colon-separated hex octets, for example BC:24:11:00:00:02."
+  }
+}
+
+variable "forgejo_runner_dns_servers" {
+  description = "DNS servers used by the Forgejo Actions runner LXC."
+  type        = list(string)
+  default     = ["1.1.1.1", "9.9.9.9"]
+}
+
+variable "forgejo_runner_search_domain" {
+  description = "DNS search domain for the Forgejo Actions runner LXC."
+  type        = string
+  default     = "example.internal"
+}
+
+variable "forgejo_runner_bridge" {
+  description = "Proxmox bridge for the Forgejo Actions runner LXC interface."
+  type        = string
+  default     = "vmbr0"
+}
+
+variable "forgejo_runner_cores" {
+  description = "CPU cores for the Forgejo Actions runner LXC."
+  type        = number
+  default     = 2
+}
+
+variable "forgejo_runner_memory_mb" {
+  description = "Dedicated memory for the Forgejo Actions runner LXC."
+  type        = number
+  default     = 2048
+}
+
+variable "forgejo_runner_swap_mb" {
+  description = "Swap for the Forgejo Actions runner LXC."
+  type        = number
+  default     = 512
+}
+
+variable "forgejo_runner_disk_gb" {
+  description = "Root filesystem size in GB for the Forgejo Actions runner LXC."
+  type        = number
+  default     = 16
+}
+
+variable "forgejo_runner_started" {
+  description = "Whether OpenTofu should start the Forgejo Actions runner LXC after creation."
+  type        = bool
+  default     = true
+}
+
+variable "forgejo_runner_start_on_boot" {
+  description = "Whether Proxmox should start the Forgejo Actions runner LXC on host boot."
+  type        = bool
+  default     = true
+}
+
+variable "forgejo_runner_startup_order" {
+  description = "Proxmox startup order for the Forgejo Actions runner LXC."
+  type        = string
+  default     = "4"
+}
+
+variable "forgejo_runner_startup_up_delay" {
+  description = "Seconds to wait after starting the Forgejo Actions runner LXC before starting the next guest."
+  type        = string
+  default     = "10"
+}
+
+variable "forgejo_runner_startup_down_delay" {
+  description = "Seconds to wait after shutting down the Forgejo Actions runner LXC before shutting down the next guest."
+  type        = string
+  default     = "10"
 }
 
 variable "tailscale_client_enabled" {

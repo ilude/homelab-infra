@@ -16,6 +16,7 @@ services:
       TF_PLUGIN_CACHE_DIR: /root/.terraform.d/plugin-cache
       ANSIBLE_CONFIG: /workspace/ansible.cfg
       ANSIBLE_HOST_KEY_CHECKING: "true"
+      INFRA_COPY_SSH_KEYS: ${INFRA_COPY_SSH_KEYS:-false}
 
 volumes:
   tofu-plugin-cache:

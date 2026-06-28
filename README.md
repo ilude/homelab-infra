@@ -34,7 +34,7 @@ From a fresh checkout, optionally copy the local settings template:
 cp settings.example.json settings.local.json
 ```
 
-Edit `settings.local.json` if you want `just setup` to clone your private `values/` Git repo. For example, set `values_repo.remote` to your Forgejo SSH URL. The file is ignored by Git. Supported services are `technitium`, `forgejo`, and `tailscale_client`; `technitium` includes its Caddy proxy, and `forgejo` includes its in-LXC Caddy configuration when enabled in inventory.
+Edit `settings.local.json` if you want `just setup` to clone your private `values/` Git repo. For example, set `values_repo.remote` to your Forgejo SSH URL. The file is ignored by Git. Supported services are `technitium`, `forgejo`, `tailscale_client`, and `forgejo_runner`; `technitium` includes its Caddy proxy, `forgejo` includes its in-LXC Caddy configuration when enabled in inventory, and `forgejo_runner` creates/configures a separate Forgejo Actions runner LXC.
 
 Then run:
 
@@ -83,6 +83,20 @@ just apply
 
 `just plan` writes `tfplan` plus `tfplan.meta.json`. `just apply` refuses to run if the saved plan or its inputs changed, then removes plan artifacts after the apply attempt.
 
+## Forgejo Actions deployment
+
+The optional `forgejo_runner` service creates a separate Forgejo Actions runner LXC. Keep the runner repository-scoped to the private `values/` repository and use the `homelab-deploy` label for deployment workflows. The runner uses a host execution label so it can run the repo's Docker-backed `just validate`, `just plan`, and `just apply` workflow; do not share it with untrusted repositories.
+
+Bootstrap order:
+
+1. Add `forgejo_runner` to `settings.local.json` services.
+2. Set `FORGEJO_RUNNER_REGISTRATION_SECRET` in `values/.env` to a persistent 40-character hex secret.
+3. Configure `forgejo_runner_scope` in private inventory as the private values repo owner/name.
+4. Run `just validate`, review `just plan`, then run `just apply` after approval.
+5. Commit and push `values/.forgejo/workflows/deploy.yml` in the private values repo.
+
+After bootstrap, pushes to the private values repo can run the deployment workflow automatically when a matching runner is online.
+
 ## Private values repo
 
 `values/` is a separate Git repository nested inside this checkout. It is ignored by the public runbook repo and should be pushed only to a private remote, such as your Forgejo instance. `just setup` either clones that repo from `settings.local.json` / the CLI argument, or initializes a new local `values/` repo from `scaffold/`.
@@ -110,6 +124,7 @@ OpenTofu manages:
 
 - Proxmox LXC resources
 - Optional Tailscale client LXC shape, disabled by default until `tailscale_client_enabled` is set in private values
+- Optional Forgejo Actions runner LXC when `forgejo_runner` is enabled in local settings
 - Forgejo ZFS bind mount shape
 - Technitium DNS records/settings through `infra/opentofu/scripts/apply-technitium-dns.py`
 
@@ -117,8 +132,9 @@ Ansible manages:
 
 - Technitium installation
 - Caddy installation/configuration on the Technitium LXC
-- Forgejo installation/configuration
+- Forgejo installation/configuration, including Actions settings
 - Caddy and OpenSSH integration on the Forgejo LXC
+- Forgejo Actions runner installation/registration on a separate LXC
 - Optional Tailscale installation and private backup restore on the Tailscale client LXC
 
 ## Safety

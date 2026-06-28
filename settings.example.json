@@ -4,6 +4,7 @@
   },
   "services": [
     "technitium",
-    "forgejo"
+    "forgejo",
+    "forgejo_runner"
   ]
 }

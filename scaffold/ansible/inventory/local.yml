@@ -14,6 +14,21 @@ all:
     forgejo_enable_caddy: true
     forgejo_configure_system_ssh: true
     forgejo_write_initial_config: false
+    forgejo_actions_enabled: true
+    forgejo_actions_default_url: https://data.forgejo.org
+    forgejo_runner_vmid: 109
+    forgejo_runner_version: "12.7.3"
+    forgejo_runner_url: "https://git.example.internal/"
+    forgejo_runner_name: homelab-deploy
+    forgejo_runner_scope: owner/homelab-infra-values
+    forgejo_runner_registration_secret: "{{ lookup('env', 'FORGEJO_RUNNER_REGISTRATION_SECRET') }}"
+    forgejo_runner_label: homelab-deploy
+    forgejo_runner_labels:
+      - homelab-deploy:host
+    forgejo_runner_dns_servers: [192.0.2.1]
+    forgejo_runner_hosts:
+      - name: git.example.internal
+        address: 192.0.2.62
     tailscale_client_enabled: false
     tailscale_client_vmid: 108
     tailscale_client_restore_backup: false

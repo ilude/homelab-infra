@@ -1,0 +1,333 @@
+---
+- name: Validate Forgejo Actions runner variables
+  ansible.builtin.assert:
+    that:
+      - forgejo_runner_vmid is defined
+      - forgejo_vmid is defined
+      - forgejo_runner_url is defined
+      - forgejo_runner_scope is defined
+      - forgejo_runner_registration_secret is defined
+      - forgejo_runner_registration_secret | length >= 40
+      - forgejo_runner_label is defined
+    fail_msg: >-
+      forgejo_runner_vmid, forgejo_vmid, forgejo_runner_url, forgejo_runner_scope,
+      forgejo_runner_registration_secret, and forgejo_runner_label are required.
+
+- name: Install Forgejo Actions runner dependencies in LXC
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        DEBIAN_FRONTEND=noninteractive apt-get update;
+        DEBIAN_FRONTEND=noninteractive apt-get install -y
+        ca-certificates curl docker.io fuse-overlayfs git gnupg jq
+        openssh-client python3 tar;
+        systemctl enable --now docker
+  changed_when: false
+
+- name: Configure Forgejo runner resolver
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        tmp="$(mktemp)";
+        printf '%s\n' {% for server in forgejo_runner_dns_servers | default([]) %}
+        'nameserver {{ server }}' {% endfor %} > "${tmp}";
+        if cmp -s /etc/resolv.conf "${tmp}"; then
+          rm -f "${tmp}";
+          exit 0;
+        fi;
+        cat "${tmp}" > /etc/resolv.conf;
+        rm -f "${tmp}";
+        exit 1
+  register: forgejo_runner_resolver
+  changed_when: forgejo_runner_resolver.rc == 1
+  failed_when: forgejo_runner_resolver.rc not in [0, 1]
+  when: forgejo_runner_dns_servers is defined and forgejo_runner_dns_servers | length > 0
+
+- name: Configure Forgejo runner host aliases
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        file=/etc/hosts;
+        changed=0;
+        {% for host in forgejo_runner_hosts | default([]) %}
+        if grep -Eq '^[0-9.]+[[:space:]]+{{ host.name }}([[:space:]]|$)' "${file}"; then
+          if ! grep -Eq '^{{ host.address }}[[:space:]]+{{ host.name }}([[:space:]]|$)' "${file}"; then
+            sed -i -E 's#^[0-9.]+([[:space:]]+){{ host.name }}([[:space:]]|$)#{{ host.address }}\1{{ host.name }}\2#' "${file}";
+            changed=1;
+          fi;
+        else
+          printf '%s\t%s\n' '{{ host.address }}' '{{ host.name }}' >> "${file}";
+          changed=1;
+        fi;
+        {% endfor %}
+        exit "${changed}"
+  register: forgejo_runner_hosts_config
+  changed_when: forgejo_runner_hosts_config.rc == 1
+  failed_when: forgejo_runner_hosts_config.rc not in [0, 1]
+
+- name: Install Docker Compose CLI plugin
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        version="{{ forgejo_runner_compose_version | default('2.39.4') }}";
+        arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
+        install -d -m 0755 /usr/local/lib/docker/cli-plugins;
+        curl -fsSL "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}"
+        -o /usr/local/lib/docker/cli-plugins/docker-compose;
+        chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+  changed_when: false
+
+- name: Install just command runner
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        version="{{ forgejo_runner_just_version | default('1.42.4') }}";
+        arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
+        target="${arch}-unknown-linux-musl";
+        tmp="$(mktemp -d)";
+        curl -fsSL "https://github.com/casey/just/releases/download/${version}/just-${version}-${target}.tar.gz"
+        -o "${tmp}/just.tar.gz";
+        tar -xzf "${tmp}/just.tar.gz" -C "${tmp}" just;
+        install -m 0755 "${tmp}/just" /usr/local/bin/just;
+        rm -rf "${tmp}"
+  changed_when: false
+
+- name: Ensure runner user and directories exist
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        if ! id runner >/dev/null 2>&1; then
+          useradd --system --home-dir /var/lib/forgejo-runner --shell /bin/bash --user-group --comment 'Forgejo Actions Runner' runner;
+        fi;
+        usermod -aG docker runner;
+        install -d -m 0750 -o runner -g runner /var/lib/forgejo-runner /var/lib/forgejo-runner/work;
+        install -d -m 0750 -o root -g runner /etc/forgejo-runner
+  changed_when: false
+
+- name: Check installed Forgejo runner version
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - /usr/local/bin/forgejo-runner --version 2>/dev/null | grep -oE 'v?[0-9]+[.][0-9]+[.][0-9]+' | head -n1 | sed 's/^v//'
+  register: forgejo_runner_installed_version
+  changed_when: false
+  failed_when: false
+
+- name: Install requested Forgejo runner binary
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')";
+        version="{{ forgejo_runner_version | default('12.7.3') }}";
+        base="https://code.forgejo.org/forgejo/runner/releases/download/v${version}";
+        curl -fsSL -o /usr/local/bin/forgejo-runner
+        "${base}/forgejo-runner-${version}-linux-${arch}";
+        chmod 0755 /usr/local/bin/forgejo-runner
+  when: forgejo_runner_installed_version.stdout | trim != forgejo_runner_version | default('12.7.3')
+  changed_when: true
+  notify: Restart forgejo-runner
+
+- name: Register Forgejo Actions runner with Forgejo
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        runuser -u git -- env FORGEJO_RUNNER_SECRET="${FORGEJO_RUNNER_SECRET}"
+        /usr/local/bin/forgejo --config /etc/forgejo/app.ini --work-path /var/lib/forgejo forgejo-cli actions register
+        --name "$1" --scope "$2" --secret "${FORGEJO_RUNNER_SECRET}" | tail -n1
+      - --
+      - "{{ forgejo_runner_name | default('homelab-deploy') }}"
+      - "{{ forgejo_runner_scope }}"
+  environment:
+    FORGEJO_RUNNER_SECRET: "{{ forgejo_runner_registration_secret }}"
+  register: forgejo_runner_registration
+  changed_when: false
+
+- name: Stage Forgejo runner env on Proxmox host
+  ansible.builtin.template:
+    src: runner.env.j2
+    dest: /tmp/forgejo-runner.env.{{ forgejo_runner_vmid }}
+    mode: "0640"
+
+- name: Check Forgejo runner env drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/forgejo-runner.env.{{ forgejo_runner_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ forgejo_runner_vmid | quote }} -- sha256sum /etc/forgejo-runner/env 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: forgejo_runner_env_drift
+  changed_when: false
+  failed_when: false
+
+- name: Push Forgejo runner env into LXC
+  ansible.builtin.command:
+    argv:
+      - pct
+      - push
+      - "{{ forgejo_runner_vmid | string }}"
+      - /tmp/forgejo-runner.env.{{ forgejo_runner_vmid }}
+      - /etc/forgejo-runner/env
+  when: forgejo_runner_env_drift.rc != 0
+  changed_when: true
+  notify: Restart forgejo-runner
+
+- name: Stage Forgejo runner config on Proxmox host
+  ansible.builtin.template:
+    src: runner-config.yml.j2
+    dest: /tmp/forgejo-runner-config.{{ forgejo_runner_vmid }}.yml
+    mode: "0640"
+  vars:
+    forgejo_runner_uuid: "{{ forgejo_runner_registration.stdout | trim }}"
+  no_log: true
+
+- name: Check Forgejo runner config drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/forgejo-runner-config.{{ forgejo_runner_vmid }}.yml | awk '{print $1}')";
+        remote_hash="$(pct exec {{ forgejo_runner_vmid | quote }} -- sha256sum /etc/forgejo-runner/config.yml 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: forgejo_runner_config_drift
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Push Forgejo runner config into LXC
+  ansible.builtin.command:
+    argv:
+      - pct
+      - push
+      - "{{ forgejo_runner_vmid | string }}"
+      - /tmp/forgejo-runner-config.{{ forgejo_runner_vmid }}.yml
+      - /etc/forgejo-runner/config.yml
+  when: forgejo_runner_config_drift.rc != 0
+  changed_when: true
+  no_log: true
+  notify: Restart forgejo-runner
+
+- name: Secure Forgejo runner config
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        chown -R root:runner /etc/forgejo-runner &&
+        chmod 0750 /etc/forgejo-runner &&
+        chmod 0640 /etc/forgejo-runner/config.yml /etc/forgejo-runner/env
+  changed_when: false
+  no_log: true
+
+- name: Stage Forgejo runner systemd service on Proxmox host
+  ansible.builtin.template:
+    src: forgejo-runner.service.j2
+    dest: /tmp/forgejo-runner.service.{{ forgejo_runner_vmid }}
+    mode: "0644"
+
+- name: Check Forgejo runner systemd service drift
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        local_hash="$(sha256sum /tmp/forgejo-runner.service.{{ forgejo_runner_vmid }} | awk '{print $1}')";
+        remote_hash="$(pct exec {{ forgejo_runner_vmid | quote }} -- sha256sum /etc/systemd/system/forgejo-runner.service 2>/dev/null | awk '{print $1}')";
+        test "${local_hash}" = "${remote_hash}"
+  register: forgejo_runner_service_drift
+  changed_when: false
+  failed_when: false
+
+- name: Push Forgejo runner systemd service into LXC
+  ansible.builtin.command:
+    argv:
+      - pct
+      - push
+      - "{{ forgejo_runner_vmid | string }}"
+      - /tmp/forgejo-runner.service.{{ forgejo_runner_vmid }}
+      - /etc/systemd/system/forgejo-runner.service
+  when: forgejo_runner_service_drift.rc != 0
+  changed_when: true
+  notify: Restart forgejo-runner
+
+- name: Enable Forgejo runner service
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_runner_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - systemctl daemon-reload && systemctl enable --now forgejo-runner
+  changed_when: false

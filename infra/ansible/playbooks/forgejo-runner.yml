@@ -1,0 +1,6 @@
+---
+- name: Bootstrap Forgejo Actions runner LXC
+  hosts: pve
+  gather_facts: false
+  roles:
+    - forgejo_runner

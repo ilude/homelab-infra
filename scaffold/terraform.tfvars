@@ -57,6 +57,25 @@ forgejo_data_dataset    = "tank/forgejo"
 forgejo_data_host_path  = "/tank/forgejo"
 forgejo_data_mount_path = "/var/lib/forgejo"
 
+# Optional Forgejo Actions runner LXC. Enable by adding forgejo_runner to settings.local.json services.
+forgejo_runner_vmid          = 109
+forgejo_runner_hostname      = "forgejo-runner"
+forgejo_runner_description   = "Forgejo Actions runner managed by OpenTofu."
+forgejo_runner_ipv4_address  = "dhcp"
+forgejo_runner_ipv4_gateway  = null
+forgejo_runner_mac_address   = "BC:24:11:00:00:02"
+forgejo_runner_dns_servers   = ["192.0.2.1"]
+forgejo_runner_search_domain = "example.internal"
+forgejo_runner_bridge        = "vmbr0"
+
+forgejo_runner_cores     = 2
+forgejo_runner_memory_mb = 2048
+forgejo_runner_swap_mb   = 512
+forgejo_runner_disk_gb   = 16
+
+forgejo_runner_started       = true
+forgejo_runner_start_on_boot = true
+
 # Optional Tailscale client LXC. Leave disabled until a reviewed plan should create it.
 tailscale_client_enabled       = false
 tailscale_client_vmid          = 108

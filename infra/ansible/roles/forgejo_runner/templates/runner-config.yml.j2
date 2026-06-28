@@ -1,0 +1,31 @@
+log:
+  level: info
+
+runner:
+  file: /var/lib/forgejo-runner/runner-file
+  capacity: {{ forgejo_runner_capacity | default(1) }}
+  env_file: /etc/forgejo-runner/env
+  timeout: {{ forgejo_runner_job_timeout | default('3h') }}
+  labels:
+{% for label in forgejo_runner_labels | default([forgejo_runner_label ~ ':host']) %}
+    - {{ label }}
+{% endfor %}
+
+cache:
+  enabled: {{ forgejo_runner_cache_enabled | default(false) | bool | lower }}
+
+container:
+  network: bridge
+  privileged: false
+  options:
+  workdir_parent:
+
+host:
+  workdir_parent: /var/lib/forgejo-runner/work
+
+server:
+  connections:
+    {{ forgejo_runner_connection_name | default('forgejo') }}:
+      url: {{ forgejo_runner_url }}
+      uuid: {{ forgejo_runner_uuid }}
+      token: {{ forgejo_runner_registration_secret }}

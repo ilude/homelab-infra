@@ -190,6 +190,73 @@
       - chown root:git /etc/forgejo/app.ini && chmod 0640 /etc/forgejo/app.ini
   changed_when: false
 
+- name: Configure Forgejo Actions settings
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_vmid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        file=/etc/forgejo/app.ini;
+        tmp="$(mktemp)";
+        awk -v enabled="true" -v url="{{ forgejo_actions_default_url | default('https://data.forgejo.org') }}" '
+        function emit_missing() {
+          if (in_actions) {
+            if (!seen_enabled) print "ENABLED = " enabled;
+            if (!seen_url) print "DEFAULT_ACTIONS_URL = " url;
+          }
+        }
+        /^\[.*\]$/ {
+          if (in_actions) emit_missing();
+          in_actions = ($0 == "[actions]");
+          if (in_actions) {
+            seen_actions = 1;
+            seen_enabled = 0;
+            seen_url = 0;
+          }
+          print;
+          next;
+        }
+        in_actions && /^[[:space:]]*ENABLED[[:space:]]*=/ {
+          print "ENABLED = " enabled;
+          seen_enabled = 1;
+          next;
+        }
+        in_actions && /^[[:space:]]*DEFAULT_ACTIONS_URL[[:space:]]*=/ {
+          print "DEFAULT_ACTIONS_URL = " url;
+          seen_url = 1;
+          next;
+        }
+        { print }
+        END {
+          if (in_actions) emit_missing();
+          if (!seen_actions) {
+            print "";
+            print "[actions]";
+            print "ENABLED = " enabled;
+            print "DEFAULT_ACTIONS_URL = " url;
+          }
+        }
+        ' "${file}" > "${tmp}";
+        if cmp -s "${file}" "${tmp}"; then
+          rm -f "${tmp}";
+          exit 0;
+        fi;
+        cat "${tmp}" > "${file}";
+        rm -f "${tmp}";
+        chown root:git "${file}";
+        chmod 0640 "${file}";
+        exit 1
+  register: forgejo_actions_settings
+  changed_when: forgejo_actions_settings.rc == 1
+  failed_when: forgejo_actions_settings.rc not in [0, 1]
+  notify: Restart forgejo
+  when: forgejo_actions_enabled | default(true) | bool
+
 - name: Stage Forgejo SSH integration config on Proxmox host
   ansible.builtin.template:
     src: forgejo-sshd.conf.j2

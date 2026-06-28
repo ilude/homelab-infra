@@ -18,6 +18,7 @@ SERVICE_PLAYBOOKS = {
     ),
     "forgejo": ("infra/ansible/playbooks/forgejo.yml",),
     "tailscale_client": (),
+    "forgejo_runner": ("infra/ansible/playbooks/forgejo-runner.yml",),
 }
 SERVICE_NAMES = set(SERVICE_PLAYBOOKS)
 

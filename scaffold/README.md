@@ -33,3 +33,5 @@ just validate
 ```
 
 Keep `.env` in dotenv-style `KEY=value` or `export KEY=value` format. The runbooks parse it as data and reject shell execution patterns.
+
+For Forgejo Actions deployment, set `FORGEJO_RUNNER_REGISTRATION_SECRET` to a persistent 40-character hex secret and enable `forgejo_runner` in `settings.local.json` services before planning the runner LXC.

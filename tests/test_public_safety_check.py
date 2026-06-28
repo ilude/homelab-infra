@@ -19,15 +19,15 @@ class PublicSafetyScanTests(unittest.TestCase):
         self.assertEqual(findings, [])
 
     def test_rfc1918_address_fails(self) -> None:
-        findings = public_safety.scan_ips("README.md", 1, "host 192.168.1.10")
+        findings = public_safety.scan_ips("README.md", 1, "host 192.168.1.10")  # public-safety: allow-ip
         self.assertEqual(len(findings), 1)
 
     def test_cgnat_address_fails(self) -> None:
-        findings = public_safety.scan_ips("README.md", 1, "host 100.64.1.10")
+        findings = public_safety.scan_ips("README.md", 1, "host 100.64.1.10")  # public-safety: allow-ip
         self.assertEqual(len(findings), 1)
 
     def test_ipv6_ula_fails(self) -> None:
-        findings = public_safety.scan_ips("README.md", 1, "host fd00::1")
+        findings = public_safety.scan_ips("README.md", 1, "host fd00::1")  # public-safety: allow-ip
         self.assertEqual(len(findings), 1)
 
     def test_allow_comment_skips_ip_scan(self) -> None:
@@ -43,7 +43,7 @@ class PublicSafetyScanTests(unittest.TestCase):
         self.assertEqual(findings, [])
 
     def test_real_secret_assignment_is_redacted(self) -> None:
-        secret_line = "TECHNITIUM_ADMIN_PASSWORD=" + "supersecretvalue"
+        secret_line = "TECHNITIUM_ADMIN_PASSWORD=" + "supersecretvalue"  # public-safety: allow-secret
         findings = public_safety.scan_secrets("README.md", 1, secret_line)
         self.assertEqual(len(findings), 1)
         self.assertIn("<redacted>", findings[0].message)
@@ -51,7 +51,7 @@ class PublicSafetyScanTests(unittest.TestCase):
 
     def test_private_key_header_fails(self) -> None:
         findings = public_safety.scan_secrets(
-            "README.md", 1, "-----BEGIN OPENSSH PRIVATE KEY-----"
+            "README.md", 1, "-----BEGIN OPENSSH PRIVATE KEY-----"  # public-safety: allow-secret
         )
         self.assertEqual(len(findings), 1)
 

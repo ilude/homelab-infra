@@ -1,8 +1,8 @@
 # homelab-infra values template
 
-This directory is a public-safe template for a private `values/` repo.
+This directory is a public-safe template for `values/`, the nested private Git repo that stores site values and state.
 
-`values/` should be a separate private Git repository, normally hosted on your private Forgejo instance, and is ignored by the public runbooks repo.
+`values/` is ignored by the public runbooks repo. In normal use it has its own private remote, such as a Forgejo repository, and is committed/pushed separately from this repo.
 
 ## Files
 
@@ -20,7 +20,7 @@ cp settings.example.json settings.local.json  # optional local setup defaults
 just setup
 ```
 
-Or clone an existing private values repo during setup:
+Or clone an existing private values repo, such as the Forgejo-hosted values repo, during setup:
 
 ```bash
 just setup git@git.example.internal:owner/homelab-infra-values.git

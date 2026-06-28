@@ -8,7 +8,9 @@ This repo is a generic, reusable homelab infrastructure runbook for Proxmox LXCs
 
 Tracked source must stay public-safe and free of the operator's real network/domain specifics. Use placeholders such as `example.internal`, `git.example.internal`, `apps.example.net`, and RFC 5737 addresses like `192.0.2.0/24` in tracked files.
 
-Real Proxmox endpoints, LAN IPs, DNS zones/records, hostnames, credentials, and state belong in the ignored nested private `values/` repo:
+Real Proxmox endpoints, LAN IPs, DNS zones/records, hostnames, credentials, and state belong in `values/`, an ignored nested private Git repo. In this deployment, expect `values/` to have its own private Forgejo remote; do not treat it as part of the public runbook repo.
+
+Private values files include:
 
 - `values/.env`
 - `values/terraform.tfvars`
@@ -16,7 +18,7 @@ Real Proxmox endpoints, LAN IPs, DNS zones/records, hostnames, credentials, and 
 - `values/ansible/inventory/local.yml`
 - `values/terraform.tfstate*`
 
-`scaffold/` is the public-safe starter template copied into `values/`; keep it generic and sanitized. `settings.example.json` documents the ignored local `settings.local.json` operator settings file used for the values repo remote and enabled service list.
+`scaffold/` is the public-safe starter template copied into `values/`; keep it generic and sanitized. `settings.example.json` documents the ignored local `settings.local.json` operator settings file used for the private values repo remote and enabled service list.
 
 ## Layout
 
@@ -25,7 +27,7 @@ Real Proxmox endpoints, LAN IPs, DNS zones/records, hostnames, credentials, and 
 - `scaffold/` — public-safe values repo starter files.
 - `scripts/` — workflow helpers and explicit live-mutation helpers.
 - `tools/` — Docker tooling image files.
-- `values/` — ignored private values repo.
+- `values/` — ignored nested private Git repo for site values/state.
 
 ## Safety Rules
 
@@ -54,7 +56,7 @@ Containerized tooling is used for Windows/local consistency. Project commands pa
 ## Workflow
 
 1. Keep tracked edits generic/public-safe.
-2. Put site-specific changes in `values/` only.
+2. Put site-specific changes in `values/` only; commit/push them with `git -C values ...` to the private values remote when requested.
 3. Run `just validate` after source or scaffold changes.
 4. If a plan is requested, run `just plan` and summarize creates/changes/destroys.
 5. Apply only after explicit approval using `just apply`; it verifies `tfplan.meta.json` before applying.

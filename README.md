@@ -2,7 +2,7 @@
 
 Reusable OpenTofu and Ansible runbooks for Proxmox LXCs running Technitium DNS, Caddy, Forgejo, and an optional Tailscale client.
 
-This public repo is intentionally generic. Real domains, LAN IPs, DNS records, Proxmox endpoints, credentials, and state belong in the ignored private `values/` repo.
+This public repo is intentionally generic. Real domains, LAN IPs, DNS records, Proxmox endpoints, credentials, and state belong in `values/`, an ignored nested Git repo. In a typical install, `values/` is pushed to a private Forgejo repository while this runbook repo stays public-safe.
 
 ## Layout
 
@@ -19,7 +19,7 @@ tools/             Docker tooling image
 Ignored site/local state:
 
 ```text
-values/            Private site values repo
+values/            Nested private Git repo for site values/state
 .terraform/        OpenTofu/Terraform working data
 tfplan             Local plan artifact
 ```
@@ -34,7 +34,7 @@ From a fresh checkout, optionally copy the local settings template:
 cp settings.example.json settings.local.json
 ```
 
-Edit `settings.local.json` if you want `just setup` to clone a private values repo or if you want only selected services maintained. The file is ignored by Git. Supported services are `technitium`, `forgejo`, and `tailscale_client`; `technitium` includes its Caddy proxy, and `forgejo` includes its in-LXC Caddy configuration when enabled in inventory.
+Edit `settings.local.json` if you want `just setup` to clone your private `values/` Git repo. For example, set `values_repo.remote` to your Forgejo SSH URL. The file is ignored by Git. Supported services are `technitium`, `forgejo`, and `tailscale_client`; `technitium` includes its Caddy proxy, and `forgejo` includes its in-LXC Caddy configuration when enabled in inventory.
 
 Then run:
 
@@ -85,7 +85,9 @@ just apply
 
 ## Private values repo
 
-`values/` is ignored by this public repo and can be its own private Git repo. The scaffold defines this shape:
+`values/` is a separate Git repository nested inside this checkout. It is ignored by the public runbook repo and should be pushed only to a private remote, such as your Forgejo instance. `just setup` either clones that repo from `settings.local.json` / the CLI argument, or initializes a new local `values/` repo from `scaffold/`.
+
+The scaffold defines this shape:
 
 ```text
 values/
@@ -95,7 +97,12 @@ values/
   ansible/inventory/local.yml
 ```
 
-Use `git -C values status --short --branch` if you need to inspect the nested private repo directly.
+Use normal Git commands against the nested repo when you need to inspect, commit, or push private values:
+
+```bash
+git -C values status --short --branch
+git -C values remote -v
+```
 
 ## Responsibilities
 

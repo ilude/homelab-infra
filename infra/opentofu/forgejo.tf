@@ -7,18 +7,36 @@ resource "terraform_data" "forgejo_data_dataset" {
   }
 
   provisioner "local-exec" {
-    command = <<-EOT
-      bash -c 'set -euo pipefail
+    interpreter = ["/usr/bin/env", "bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
       : "$${PVE_HOST:?PVE_HOST is required}"
-      ssh "$${PVE_HOST}" "set -euo pipefail
-        if ! zfs list ${var.forgejo_data_dataset} >/dev/null 2>&1; then
-          zfs create -o mountpoint=${var.forgejo_data_host_path} ${var.forgejo_data_dataset}
-        fi
-        mkdir -p ${var.forgejo_data_host_path}
-        chown ${var.forgejo_data_host_uid}:${var.forgejo_data_host_gid} ${var.forgejo_data_host_path}
-        chmod 0750 ${var.forgejo_data_host_path}
-      "'
+      ssh -- "$${PVE_HOST}" bash -s -- \
+        "$${FORGEJO_DATA_DATASET}" \
+        "$${FORGEJO_DATA_HOST_PATH}" \
+        "$${FORGEJO_DATA_HOST_UID}" \
+        "$${FORGEJO_DATA_HOST_GID}" <<'REMOTE'
+      set -euo pipefail
+      dataset="$1"
+      mountpoint="$2"
+      uid="$3"
+      gid="$4"
+
+      if ! zfs list -- "$dataset" >/dev/null 2>&1; then
+        zfs create -o "mountpoint=$mountpoint" -- "$dataset"
+      fi
+      mkdir -p -- "$mountpoint"
+      chown -- "$uid:$gid" "$mountpoint"
+      chmod 0750 -- "$mountpoint"
+      REMOTE
     EOT
+
+    environment = {
+      FORGEJO_DATA_DATASET   = var.forgejo_data_dataset
+      FORGEJO_DATA_HOST_PATH = var.forgejo_data_host_path
+      FORGEJO_DATA_HOST_UID  = tostring(var.forgejo_data_host_uid)
+      FORGEJO_DATA_HOST_GID  = tostring(var.forgejo_data_host_gid)
+    }
   }
 }
 

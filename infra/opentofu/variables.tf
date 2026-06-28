@@ -37,6 +37,11 @@ variable "technitium_api_url" {
 variable "dns_records_file" {
   description = "Path to the local Technitium DNS records JSON file. The real file belongs in values/; see scaffold/dns-records.local.json."
   type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_./-]+\\.json$", var.dns_records_file)) && !startswith(var.dns_records_file, "/")
+    error_message = "dns_records_file must be a relative JSON path containing only letters, numbers, dot, slash, underscore, and dash."
+  }
 }
 
 variable "technitium_api_token" {
@@ -70,6 +75,11 @@ variable "container_description" {
 variable "container_ipv4_address" {
   description = "Static IPv4 address/CIDR for the Technitium DNS LXC. Use an address outside DHCP scope. Set in terraform.tfvars."
   type        = string
+
+  validation {
+    condition     = can(cidrhost(var.container_ipv4_address, 0))
+    error_message = "container_ipv4_address must be a valid IPv4 CIDR address, for example 192.0.2.10/24."
+  }
 }
 
 variable "container_ipv4_gateway" {
@@ -163,6 +173,11 @@ variable "forgejo_container_description" {
 variable "forgejo_container_ipv4_address" {
   description = "IPv4 address/CIDR for the Forgejo LXC, or dhcp when the router supplies a static DHCP reservation."
   type        = string
+
+  validation {
+    condition     = var.forgejo_container_ipv4_address == "dhcp" || can(cidrhost(var.forgejo_container_ipv4_address, 0))
+    error_message = "forgejo_container_ipv4_address must be dhcp or a valid IPv4 CIDR address."
+  }
 }
 
 variable "forgejo_container_ipv4_gateway" {
@@ -174,6 +189,11 @@ variable "forgejo_container_ipv4_gateway" {
 variable "forgejo_container_mac_address" {
   description = "MAC address for the Forgejo LXC, used by the router static DHCP reservation."
   type        = string
+
+  validation {
+    condition     = can(regex("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$", var.forgejo_container_mac_address))
+    error_message = "forgejo_container_mac_address must use colon-separated hex octets, for example BC:24:11:00:00:00."
+  }
 }
 
 variable "forgejo_lan_ip" {
@@ -224,11 +244,21 @@ variable "forgejo_container_disk_gb" {
 variable "forgejo_data_dataset" {
   description = "ZFS dataset that backs Forgejo data. The local-exec provisioner creates it idempotently on PVE_HOST."
   type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_.:-]+(/[A-Za-z0-9_.:-]+)+$", var.forgejo_data_dataset))
+    error_message = "forgejo_data_dataset must be a ZFS dataset path containing only letters, numbers, dot, underscore, colon, dash, and slash."
+  }
 }
 
 variable "forgejo_data_host_path" {
   description = "Proxmox host path bind-mounted into the Forgejo LXC."
   type        = string
+
+  validation {
+    condition     = can(regex("^/[A-Za-z0-9_./:-]+$", var.forgejo_data_host_path))
+    error_message = "forgejo_data_host_path must be an absolute path without whitespace or shell metacharacters."
+  }
 }
 
 variable "forgejo_data_mount_path" {

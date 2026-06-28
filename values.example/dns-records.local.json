@@ -1,0 +1,27 @@
+{
+  "settings": {
+    "forwarders": [
+      "dns.quad9.net (9.9.9.9:853)",
+      "dns.quad9.net (149.112.112.112:853)",
+      "security.cloudflare-dns.com (1.1.1.2:853)",
+      "security.cloudflare-dns.com (1.0.0.2:853)"
+    ],
+    "forwarderProtocol": "Tls",
+    "concurrentForwarding": false,
+    "dnssecValidation": true,
+    "preferIPv6": false
+  },
+  "zones": {
+    "example.internal": ["192.0.2.10:54"],
+    "apps.example.net": ["192.0.2.20:54", "192.0.2.21:54"]
+  },
+  "a_records": {
+    "dns.example.internal": "192.0.2.53",
+    "git.example.internal": "192.0.2.62",
+    "proxy.example.internal": "192.0.2.10",
+    "app.apps.example.net": "192.0.2.20"
+  },
+  "cname_records": {
+    "www.example.internal": "proxy.example.internal"
+  }
+}

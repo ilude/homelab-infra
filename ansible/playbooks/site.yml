@@ -5,6 +5,12 @@
   roles:
     - technitium
 
+- name: Configure Technitium Caddy HTTPS proxy
+  hosts: pve
+  gather_facts: false
+  roles:
+    - caddy_proxy
+
 - name: Bootstrap Forgejo LXC
   hosts: pve
   gather_facts: false

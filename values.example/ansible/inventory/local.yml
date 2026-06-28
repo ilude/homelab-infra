@@ -15,7 +15,7 @@ all:
     forgejo_configure_system_ssh: true
     forgejo_write_initial_config: false
     caddy_email: admin@example.internal
-    caddy_cloudflare_api_token: "REPLACE_WITH_CLOUDFLARE_DNS_TOKEN"
+    caddy_cloudflare_api_token: "{{ lookup('env', 'CF_DNS_API_TOKEN') }}"
     caddy_server_name: dns-ui.example.internal
     caddy_upstream: 127.0.0.1:5380
     caddy_extra_vhosts: []

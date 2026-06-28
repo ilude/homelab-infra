@@ -54,39 +54,50 @@ Terraform can be used for validation if OpenTofu is unavailable.
 A local Docker tool image provides OpenTofu, Ansible, ShellCheck, Python, Git, SSH, and `jq` without installing those tools directly on Windows.
 
 ```bash
-docker compose build infra
-docker compose run --rm infra tofu fmt -check -recursive
-docker compose run --rm infra tofu validate
-docker compose run --rm infra ansible --version
-```
-
-For commands that need local secrets, source `.env` inside the container shell. If `.env` has Windows CRLF line endings, strip `\r` while sourcing:
-
-```bash
-docker compose run --rm infra bash -lc 'set -a; . <(tr -d "\r" < ./.env); set +a; tofu plan -out=tfplan'
+just setup
 ```
 
 The Compose service mounts the repo at `/workspace`, copies your Windows `%USERPROFILE%/.ssh` into the container with safe permissions for SSH access, and keeps the OpenTofu plugin cache in a named Docker volume.
+
+## Private values repo
+
+This public repo is the reusable runbook/source repo. Site-specific settings live in an ignored nested `values/` directory that can be its own private Git repo, typically hosted on Forgejo.
+
+Fresh setup builds the tooling image and creates a new private values repo scaffold:
+
+```bash
+just setup
+```
+
+Or clone an existing private values repo during setup:
+
+```bash
+just setup git@git.example.internal:owner/homelab-infra-values.git
+```
+
+The tracked `values.example/` directory documents the expected private layout:
+
+```text
+values/
+  .env
+  terraform.tfvars
+  dns-records.local.json
+  ansible/inventory/local.yml
+```
+
+Most day-to-day commands use `values/` through `just`:
+
+```bash
+just validate
+just plan
+just apply
+```
 
 ## Ansible configuration management
 
 Terraform/OpenTofu manages Proxmox infrastructure. Ansible manages in-LXC service configuration through the Proxmox host using `pct exec`/`pct push`.
 
-Create a local inventory from the example, then keep real hostnames/IPs/tokens out of git:
-
-```bash
-cp ansible/inventory/example.yml ansible/inventory/local.yml
-```
-
-Run playbooks from the tooling container:
-
-```bash
-docker compose run --rm infra ansible-playbook ansible/playbooks/technitium.yml
-docker compose run --rm infra ansible-playbook ansible/playbooks/forgejo.yml
-docker compose run --rm infra ansible-playbook ansible/playbooks/caddy-proxy.yml
-```
-
-`ansible/playbooks/cleanup-old-forgejo-proxy.yml` removes the legacy Forgejo proxy/socket path from the DNS LXC after the Forgejo hostname points directly at the Forgejo LXC.
+Keep real inventory in `values/ansible/inventory/local.yml`. `just apply` applies the reviewed OpenTofu plan, then runs `ansible/playbooks/site.yml` to configure Technitium, the Technitium Caddy instance, Forgejo, and the Forgejo Caddy instance.
 
 ## Credentials
 
@@ -98,28 +109,17 @@ pveum aclmod / -user terraform@pve -role Administrator
 pveum user token add terraform@pve provider --privsep=0
 ```
 
-Store secrets in `.env` or ignored `terraform.tfvars`, never in tracked files.
-
-Load `.env` before planning/applying:
-
-```bash
-set -a
-. ./.env
-set +a
-```
+Store secrets in `values/.env` or other ignored/private values files, never in tracked files.
 
 ## Plan and apply
 
 Do not apply without reviewing the plan.
 
 ```bash
-tofu init
-tofu fmt -check -recursive
-tofu validate
-tofu plan -out=tfplan
-tofu show tfplan
+just validate
+just plan
 # after review
-tofu apply tfplan
+just apply
 ```
 
 ## Import existing LXCs
@@ -149,8 +149,6 @@ If you want local Caddy to terminate HTTPS for the Technitium web console, add C
 ```
 
 The script builds Caddy with the Cloudflare DNS module and reverse-proxies the configured hostname to Technitium's local web console.
-
-If `git.example.internal` points at the DNS LXC instead of the Forgejo LXC, you can add a Forgejo vhost and SSH socket proxy in the same Caddy bootstrap by setting `FORGEJO_SERVER_NAME`, `FORGEJO_UPSTREAM`, and `FORGEJO_SSH_UPSTREAM`. The preferred layout is to point the Forgejo hostname directly at the Forgejo LXC instead.
 
 ## Install Forgejo inside the LXC
 

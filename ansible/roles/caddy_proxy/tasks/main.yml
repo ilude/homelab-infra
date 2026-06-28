@@ -154,9 +154,3 @@
       - --now
       - caddy
   changed_when: false
-
-- name: Configure optional SSH socket proxies
-  ansible.builtin.include_tasks: ssh_proxy.yml
-  loop: "{{ caddy_ssh_proxies | default([]) }}"
-  loop_control:
-    loop_var: item

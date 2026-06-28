@@ -1,9 +1,0 @@
-[Unit]
-Description={{ item.name | default('SSH') }} proxy socket
-
-[Socket]
-ListenStream={{ item.listen_port }}
-NoDelay=true
-
-[Install]
-WantedBy=sockets.target

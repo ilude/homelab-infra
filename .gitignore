@@ -9,11 +9,14 @@ tfplan
 *.tfplan
 *.tfvars
 !*.tfvars.example
+!values.example/terraform.tfvars
 
 # Local DNS inventory
 dns-records.local.json
+!values.example/dns-records.local.json
 
-# Private local notes/archive source
+# Nested private values repo and local private notes/archive source
+values/
 private/
 
 # Secrets / local env

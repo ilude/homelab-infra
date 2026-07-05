@@ -3,11 +3,11 @@
   ansible.builtin.assert:
     that:
       - technitium_vmid is defined
-      - caddy_server_name is defined
+      - caddy_server_name is defined or caddy_server_names is defined
       - caddy_upstream is defined
       - caddy_email is defined
       - caddy_cloudflare_api_token is defined
-    fail_msg: technitium_vmid, caddy_server_name, caddy_upstream, caddy_email, and caddy_cloudflare_api_token are required.
+    fail_msg: technitium_vmid, caddy_server_name or caddy_server_names, caddy_upstream, caddy_email, and caddy_cloudflare_api_token are required.
 
 - name: Install Caddy build dependencies in DNS LXC
   ansible.builtin.command:

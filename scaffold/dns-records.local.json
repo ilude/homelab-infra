@@ -17,6 +17,7 @@
   },
   "a_records": {
     "dns.example.internal": "192.0.2.53",
+    "technitium.example.internal": "192.0.2.53",
     "git.example.internal": "192.0.2.62",
     "proxy.example.internal": "192.0.2.10",
     "app.apps.example.net": "192.0.2.20"

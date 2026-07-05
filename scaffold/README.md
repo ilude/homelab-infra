@@ -9,7 +9,7 @@ This directory is a public-safe template for `values/`, the nested private Git r
 - `.env` — local credentials and bootstrap environment variables.
 - `terraform.tfvars` — site-specific Proxmox/LXC/OpenTofu variables, including the optional disabled-by-default Tailscale client LXC.
 - `dns-records.local.json` — site-specific Technitium DNS zones and records.
-- `ansible/inventory/local.yml` — site-specific Ansible inventory and role variables.
+- `ansible/inventory/local.yml` — site-specific Ansible inventory and role variables. The Technitium Caddy proxy uses `caddy_server_names` for DNS UI aliases such as `dns.example.internal` and `technitium.example.internal`.
 
 ## Initialize
 

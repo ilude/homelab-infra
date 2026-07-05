@@ -2,7 +2,12 @@
     email {{ caddy_email }}
 }
 
-{{ caddy_server_name }} {
+{% if caddy_server_names is defined %}
+{% set primary_server_names = caddy_server_names %}
+{% else %}
+{% set primary_server_names = [caddy_server_name] %}
+{% endif %}
+{{ primary_server_names | join(", ") }} {
     encode zstd gzip
     reverse_proxy {{ caddy_upstream }}
 
@@ -12,8 +17,13 @@
     }
 }
 {% for vhost in caddy_extra_vhosts | default([]) %}
+{% if vhost.server_names is defined %}
+{% set vhost_server_names = vhost.server_names %}
+{% else %}
+{% set vhost_server_names = [vhost.server_name] %}
+{% endif %}
 
-{{ vhost.server_name }} {
+{{ vhost_server_names | join(", ") }} {
     encode zstd gzip
     reverse_proxy {{ vhost.upstream }}
 

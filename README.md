@@ -137,7 +137,7 @@ OpenTofu manages:
 Ansible manages:
 
 - Technitium installation
-- Caddy installation/configuration on the Technitium LXC
+- Caddy installation/configuration on the Technitium LXC. The scaffold exposes the Technitium UI at both `dns.example.internal` and `technitium.example.internal`; set `caddy_server_names` in private inventory for your real domain aliases.
 - Forgejo installation/configuration, including Actions settings
 - Caddy and OpenSSH integration on the Forgejo LXC
 - Forgejo Actions runner installation/registration on a separate LXC

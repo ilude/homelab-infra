@@ -38,6 +38,9 @@ all:
     tailscale_client_up_args: []
     caddy_email: admin@example.internal
     caddy_cloudflare_api_token: "{{ lookup('env', 'CF_DNS_API_TOKEN') }}"
-    caddy_server_name: dns-ui.example.internal
+    caddy_server_name: dns.example.internal
+    caddy_server_names:
+      - dns.example.internal
+      - technitium.example.internal
     caddy_upstream: 127.0.0.1:5380
     caddy_extra_vhosts: []

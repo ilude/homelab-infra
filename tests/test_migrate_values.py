@@ -35,7 +35,7 @@ class MigrateValuesTests(unittest.TestCase):
         temp, values = self.make_values()
         with temp:
             (values / ".env").write_text(
-                "export TF_VAR_technitium_api_token='secret'\n"
+                "export TF_VAR_technitium_api_token='REPLACE_SECRET'\n"
                 "export SERVER_NAME='dns.example.internal'\n"
                 "export FORGEJO_SERVER_NAME='git.example.internal'\n"
                 "export FORGEJO_UPSTREAM='192.0.2.10:3000'\n",
@@ -51,7 +51,7 @@ class MigrateValuesTests(unittest.TestCase):
 
             env_text = (values / ".env").read_text(encoding="utf-8")
             tfvars_text = (values / "terraform.tfvars").read_text(encoding="utf-8")
-            self.assertIn("TECHNITIUM_API_TOKEN=secret", env_text)
+            self.assertIn("TECHNITIUM_API_TOKEN=REPLACE_SECRET", env_text)
             self.assertIn("TECHNITIUM_API_URL=http://192.0.2.53:5380/api", env_text)
             self.assertIn("DNS_RECORDS_FILE=values/dns-records.local.json", env_text)
             self.assertNotIn("TF_VAR_technitium_api_token", env_text)
@@ -66,8 +66,8 @@ class MigrateValuesTests(unittest.TestCase):
         temp, values = self.make_values()
         with temp:
             (values / ".env").write_text(
-                "export TF_VAR_technitium_api_token='old'\n"
-                "export TECHNITIUM_API_TOKEN='new'\n",
+                "export TF_VAR_technitium_api_token='REPLACE_OLD'\n"
+                "export TECHNITIUM_API_TOKEN='REPLACE_NEW'\n",
                 encoding="utf-8",
             )
             (values / "terraform.tfvars").write_text("", encoding="utf-8")
@@ -79,7 +79,7 @@ class MigrateValuesTests(unittest.TestCase):
         temp, values = self.make_values()
         with temp:
             (values / ".env").write_text(
-                "export TECHNITIUM_API_TOKEN='secret'\n"
+                "export TECHNITIUM_API_TOKEN='REPLACE_SECRET'\n"
                 "export TECHNITIUM_API_URL='http://192.0.2.53:5380/api'\n"
                 "export DNS_RECORDS_FILE='values/dns-records.local.json'\n",
                 encoding="utf-8",

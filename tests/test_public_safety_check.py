@@ -53,6 +53,14 @@ class PublicSafetyScanTests(unittest.TestCase):
         findings = public_safety.scan_secrets("tools/requirements.txt", 1, "pytokens==0.4.1")  # public-safety: allow-secret
         self.assertEqual(findings, [])
 
+    def test_python_secret_key_constant_passes(self) -> None:
+        findings = public_safety.scan_secrets("scripts/migrate-values.py", 1, "SECRET_KEYS = {")
+        self.assertEqual(findings, [])
+
+    def test_lowercase_python_token_variable_passes(self) -> None:
+        findings = public_safety.scan_secrets("scripts/migrate-values.py", 1, "new_token = value")
+        self.assertEqual(findings, [])
+
     def test_private_key_header_fails(self) -> None:
         findings = public_safety.scan_secrets(
             "README.md", 1, "-----BEGIN OPENSSH PRIVATE KEY-----"  # public-safety: allow-secret

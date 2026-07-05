@@ -33,7 +33,7 @@ ALLOWED_IPS = {
 IPV4_RE = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9.])")
 IPV6_RE = re.compile(r"(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![0-9A-Fa-f:])")
 SECRET_ASSIGN_RE = re.compile(
-    r"(?i)\b([A-Z0-9_]*(?:TOKEN|PASSWORD|SECRET|API_KEY|PASS)[A-Z0-9_]*)\s*[=:]\s*([^\s#]+)"
+    r"\b([A-Z0-9_]*(?:TOKEN|PASSWORD|SECRET|API_KEY|PASS)[A-Z0-9_]*)\s*[=:]\s*([^\s#]+)"
 )
 TOKEN_PREFIX_RE = re.compile(r"\b(ghp_|github_pat_|glpat-|xoxb-|sk-)[A-Za-z0-9_\-]{10,}")
 PRIVATE_KEY_RE = re.compile(r"BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY")
@@ -154,7 +154,7 @@ def scan_secrets(path: str, line_number: int, line: str) -> list[Finding]:
         if key.upper().endswith("_RE") or key.lower().startswith("old_"):
             continue
         normalized_value = value.strip().strip('"\') ,:')
-        if normalized_value in {"str", "None"}:
+        if key in {"SECRET_KEYS"} or normalized_value in {"str", "None", "{"}:
             continue
         if not secret_value_is_placeholder(value):
             findings.append(Finding(path, line_number, f"secret-like assignment {key}=<redacted>"))

@@ -23,15 +23,33 @@ class UpdateTests(unittest.TestCase):
                 "tag_name": f"v{version}",
                 "published_at": published_at.isoformat().replace("+00:00", "Z"),
                 "html_url": "https://example.invalid/release",
+                "assets": [
+                    {
+                        "name": f"tofu_{version}_SHA256SUMS",
+                        "browser_download_url": "https://example.invalid/checksums",
+                    }
+                ],
             }
         ).encode("utf-8")
+
+    def fake_opener(self, version: str, published_at: datetime) -> callable:
+        def opener(url: str) -> bytes:
+            if url.endswith("/checksums"):
+                return f"abc123  tofu_{version}_linux_amd64.zip\n".encode("utf-8")
+            return self.fake_release(version, published_at)
+
+        return opener
 
     def test_updates_eligible_dockerfile_pin(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "tools").mkdir()
             dockerfile = root / "tools" / "Dockerfile"
-            dockerfile.write_text("ARG OPENTOFU_VERSION=1.0.0\n", encoding="utf-8")
+            dockerfile.write_text(
+                "ARG OPENTOFU_VERSION=1.0.0\n"
+                "ARG OPENTOFU_LINUX_AMD64_SHA256=old\n",
+                encoding="utf-8",
+            )
             target = update_script.TARGETS[0]
             now = datetime(2026, 7, 5, tzinfo=timezone.utc)
 
@@ -40,11 +58,15 @@ class UpdateTests(unittest.TestCase):
                 root,
                 now,
                 timedelta(hours=48),
-                lambda _url: self.fake_release("1.1.0", now - timedelta(hours=72)),
+                self.fake_opener("1.1.0", now - timedelta(hours=72)),
             )
 
             self.assertEqual(result.status, "updated")
-            self.assertEqual(dockerfile.read_text(encoding="utf-8"), "ARG OPENTOFU_VERSION=1.1.0\n")
+            self.assertEqual(
+                dockerfile.read_text(encoding="utf-8"),
+                "ARG OPENTOFU_VERSION=1.1.0\n"
+                "ARG OPENTOFU_LINUX_AMD64_SHA256=abc123\n",
+            )
 
     def test_holds_recent_release(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

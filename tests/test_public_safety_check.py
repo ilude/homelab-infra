@@ -49,6 +49,10 @@ class PublicSafetyScanTests(unittest.TestCase):
         self.assertIn("<redacted>", findings[0].message)
         self.assertNotIn("supersecretvalue", findings[0].message)
 
+    def test_python_requirement_with_token_in_name_passes(self) -> None:
+        findings = public_safety.scan_secrets("tools/requirements.txt", 1, "pytokens==0.4.1")  # public-safety: allow-secret
+        self.assertEqual(findings, [])
+
     def test_private_key_header_fails(self) -> None:
         findings = public_safety.scan_secrets(
             "README.md", 1, "-----BEGIN OPENSSH PRIVATE KEY-----"  # public-safety: allow-secret

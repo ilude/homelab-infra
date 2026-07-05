@@ -26,6 +26,7 @@ class Release:
     version: str
     published_at: datetime
     url: str
+    payload: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,10 @@ class Target:
     replacement: str
     release_url: str
     strip_prefix: str = "v"
+    checksum_pattern: str | None = None
+    checksum_replacement: str | None = None
+    checksum_asset_template: str | None = None
+    checksum_file_template: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +60,10 @@ TARGETS = (
         pattern=r"(?m)^(ARG OPENTOFU_VERSION=)([^\s]+)$",
         replacement=r"\g<1>{version}",
         release_url="https://api.github.com/repos/opentofu/opentofu/releases/latest",
+        checksum_pattern=r"(?m)^(ARG OPENTOFU_LINUX_AMD64_SHA256=)([^\s]+)$",
+        checksum_replacement=r"\g<1>{checksum}",
+        checksum_asset_template="tofu_{version}_SHA256SUMS",
+        checksum_file_template="tofu_{version}_linux_amd64.zip",
     ),
     Target(
         name="TFLint",
@@ -62,6 +71,10 @@ TARGETS = (
         pattern=r"(?m)^(ARG TFLINT_VERSION=)([^\s]+)$",
         replacement=r"\g<1>{version}",
         release_url="https://api.github.com/repos/terraform-linters/tflint/releases/latest",
+        checksum_pattern=r"(?m)^(ARG TFLINT_LINUX_AMD64_SHA256=)([^\s]+)$",
+        checksum_replacement=r"\g<1>{checksum}",
+        checksum_asset_template="checksums.txt",
+        checksum_file_template="tflint_linux_amd64.zip",
     ),
     Target(
         name="Forgejo",
@@ -108,19 +121,22 @@ def normalize_version(tag: str, strip_prefix: str) -> str:
     return tag
 
 
-def fetch_release(url: str, opener: Callable[[str], bytes] | None = None) -> dict[str, object]:
+def fetch_url(url: str, opener: Callable[[str], bytes] | None = None) -> bytes:
     if opener is not None:
-        raw = opener(url)
-    else:
-        request = urllib.request.Request(
-            url,
-            headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                raw = response.read()
-        except urllib.error.URLError as error:
-            raise UpdateError(f"failed to fetch {url}: {error}") from error
+        return opener(url)
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read()
+    except urllib.error.URLError as error:
+        raise UpdateError(f"failed to fetch {url}: {error}") from error
+
+
+def fetch_release(url: str, opener: Callable[[str], bytes] | None = None) -> dict[str, object]:
+    raw = fetch_url(url, opener)
     try:
         data = json.loads(raw.decode("utf-8"))
     except json.JSONDecodeError as error:
@@ -150,6 +166,7 @@ def release_from_payload(target: Target, payload: dict[str, object]) -> Release:
         version=normalize_version(tag, target.strip_prefix),
         published_at=parse_timestamp(published),
         url=url,
+        payload=payload,
     )
 
 
@@ -164,12 +181,63 @@ def read_current(target: Target, root: Path) -> tuple[str | None, str | None]:
     return match.group(2), text
 
 
-def replace_version(target: Target, text: str, version: str) -> str:
-    replacement = target.replacement.format(version=version)
-    updated, count = re.subn(target.pattern, replacement, text, count=1)
+def replace_once(pattern: str, replacement: str, text: str, target: Target) -> str:
+    updated, count = re.subn(pattern, replacement, text, count=1)
     if count != 1:
         raise UpdateError(
-            f"{target.name}: expected one version match in {target.path}, found {count}"
+            f"{target.name}: expected one match in {target.path}, found {count}"
+        )
+    return updated
+
+
+def release_asset_url(release: Release, asset_name: str) -> str:
+    assets = release.payload.get("assets")
+    if not isinstance(assets, list):
+        raise UpdateError(f"release payload for {release.version} does not include assets")
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        if asset.get("name") != asset_name:
+            continue
+        url = asset.get("browser_download_url")
+        if isinstance(url, str) and url:
+            return url
+    raise UpdateError(f"release {release.version} does not include asset {asset_name}")
+
+
+def checksum_for_release(
+    target: Target,
+    release: Release,
+    opener: Callable[[str], bytes] | None,
+) -> str | None:
+    if not target.checksum_asset_template or not target.checksum_file_template:
+        return None
+    asset_name = target.checksum_asset_template.format(version=release.version)
+    file_name = target.checksum_file_template.format(version=release.version)
+    checksum_url = release_asset_url(release, asset_name)
+    checksum_text = fetch_url(checksum_url, opener).decode("utf-8")
+    for line in checksum_text.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[1].lstrip("*") == file_name:
+            return fields[0]
+    raise UpdateError(f"{asset_name} does not include checksum for {file_name}")
+
+
+def replace_version(target: Target, text: str, release: Release, checksum: str | None) -> str:
+    updated = replace_once(
+        target.pattern,
+        target.replacement.format(version=release.version),
+        text,
+        target,
+    )
+    if target.checksum_pattern and target.checksum_replacement:
+        if checksum is None:
+            raise UpdateError(f"{target.name}: checksum is required")
+        updated = replace_once(
+            target.checksum_pattern,
+            target.checksum_replacement.format(checksum=checksum),
+            updated,
+            target,
         )
     return updated
 
@@ -219,7 +287,8 @@ def process_target(
             f"wait {hours}h {minutes}m more ({release.url})",
         )
 
-    updated = replace_version(target, text, release.version)
+    checksum = checksum_for_release(target, release, opener)
+    updated = replace_version(target, text, release, checksum)
     (root / target.path).write_text(updated, encoding="utf-8", newline="\n")
     return UpdateResult(
         target.name,

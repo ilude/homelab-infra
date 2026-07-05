@@ -44,7 +44,7 @@ Then run:
 just setup
 ```
 
-This builds the local tooling container and creates `values/` from `scaffold/`, or clones the `values_repo.remote` configured in `settings.local.json`. In an interactive terminal, it also starts setup wizards for Proxmox API access and domain-derived service names. The Proxmox wizard asks for your Proxmox host, verifies root SSH key access, offers an alternate key file or a command to authorize your default public SSH key if default keys fail, creates/updates a dedicated Proxmox API user/token, and writes the endpoint/token/SSH target to `values/.env` without printing the token secret. The domain wizard asks for your base domain plus service IPs, then derives names such as `dns.<domain>`, `technitium.<domain>`, and `git.<domain>` in the private values files.
+This builds the local tooling container and creates `values/` from `scaffold/`, or clones the `values_repo.remote` configured in `settings.local.json`. If no remote is configured and setup is interactive, it can ask for a base domain, probe `git.<domain>` for an accessible `homelab-infra-values` repository, save the discovered remote in ignored `settings.local.json`, and clone it. It also starts setup wizards for Proxmox API access and domain-derived service names. The Proxmox wizard asks for your Proxmox host, verifies root SSH key access, offers an alternate key file or a command to authorize your default public SSH key if default keys fail, creates/updates a dedicated Proxmox API user/token, and writes the endpoint/token/SSH target to `values/.env` without printing the token secret. The domain wizard asks for your base domain plus service IPs, then derives names such as `dns.<domain>`, `technitium.<domain>`, and `git.<domain>` in the private values files.
 
 You can also pass the values repo URL directly:
 
@@ -103,11 +103,20 @@ Apply the reviewed plan and configure services with Ansible:
 just apply
 ```
 
-`just plan` writes `tfplan` plus `tfplan.meta.json`. `just apply` refuses to run if the saved plan or its inputs changed, then removes plan artifacts after the apply attempt.
+`just plan` writes `tfplan` plus `tfplan.meta.json`. `just apply` refuses to run if the saved plan or its inputs changed, then applies infrastructure, runs enabled Ansible playbooks, and syncs Technitium DNS records after the DNS service is installed. It removes plan artifacts after the apply attempt.
+
+After a successful apply, review and commit the private `values/` repo because OpenTofu state and local inventory may have changed:
+
+```bash
+git -C values status --short
+git -C values add -- terraform.tfstate terraform.tfstate.backup ansible/inventory/local.yml dns-records.local.json
+git -C values commit -m "chore: update local infrastructure state"
+git -C values push
+```
 
 ## Forgejo Actions deployment
 
-The optional `forgejo_runner` service creates a separate Forgejo Actions runner LXC. Keep the runner repository-scoped to the private `values/` repository and use the `homelab-deploy` label for deployment workflows. The runner uses a host execution label so it can run the repo's Docker-backed `just validate`, `just plan`, and `just apply` workflow; do not share it with untrusted repositories.
+The optional `forgejo_runner` service creates a separate Forgejo Actions runner LXC. Keep the runner repository-scoped to the private `values/` repository and use the `homelab-deploy` label for deployment workflows. The runner uses a host execution label so it can run the repo's Docker-backed `just validate`, `just plan`, and `just apply` workflow; do not share it with untrusted repositories. Enable `forgejo` together with `forgejo_runner`; runner registration depends on Forgejo being present and configured first.
 
 Bootstrap order:
 

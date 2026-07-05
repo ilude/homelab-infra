@@ -131,6 +131,8 @@ def secret_value_is_placeholder(value: str) -> bool:
 def scan_secrets(path: str, line_number: int, line: str) -> list[Finding]:
     if "public-safety: allow-secret" in line:
         return []
+    if re.match(r"^[A-Za-z0-9_.-]+==[A-Za-z0-9_.!+-]+$", line.strip()):
+        return []
     findings: list[Finding] = []
     if PRIVATE_KEY_RE.search(line):
         findings.append(Finding(path, line_number, "private key material"))

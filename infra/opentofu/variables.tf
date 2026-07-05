@@ -43,11 +43,13 @@ variable "proxmox_password" {
   sensitive   = true
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "technitium_api_url" {
   description = "Technitium DNS Server API URL. Set in terraform.tfvars."
   type        = string
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "dns_records_file" {
   description = "Path to the local Technitium DNS records JSON file. The real file belongs in values/; see scaffold/dns-records.local.json."
   type        = string
@@ -58,6 +60,7 @@ variable "dns_records_file" {
   }
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "technitium_api_token" {
   description = "Technitium API token. Prefer TECHNITIUM_API_TOKEN or terraform.tfvars/.env injection."
   type        = string

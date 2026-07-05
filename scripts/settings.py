@@ -45,15 +45,19 @@ def load_raw(path: Path) -> dict[str, Any]:
 
 def normalize_services(value: Any, path: Path) -> list[str]:
     if value is None:
-        return list(DEFAULT_SERVICES)
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise SettingsError(f"{path}: services must be a list of strings")
-    unknown = sorted(set(value) - SERVICE_NAMES)
+        services = list(DEFAULT_SERVICES)
+    else:
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise SettingsError(f"{path}: services must be a list of strings")
+        services = value
+    unknown = sorted(set(services) - SERVICE_NAMES)
     if unknown:
         raise SettingsError(f"{path}: unknown services: {', '.join(unknown)}")
-    if len(value) != len(set(value)):
+    if len(services) != len(set(services)):
         raise SettingsError(f"{path}: services contains duplicates")
-    return value
+    if "forgejo_runner" in services and "forgejo" not in services:
+        raise SettingsError(f"{path}: forgejo_runner requires forgejo in services")
+    return services
 
 
 def load_settings(path: Path | None = None) -> dict[str, Any]:

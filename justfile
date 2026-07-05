@@ -11,9 +11,7 @@ default:
 setup remote="":
     docker compose build infra
     @scripts/python.sh scripts/settings.py validate >/dev/null
-    @settings_remote="$(scripts/python.sh scripts/settings.py values-remote)"; \
-    selected_remote="{{remote}}"; \
-    if [[ -z "${selected_remote}" ]]; then selected_remote="${settings_remote}"; fi; \
+    @selected_remote="$(scripts/discover-values-remote.sh "{{remote}}")"; \
     if [[ -d values ]]; then \
         scripts/values.sh check; \
     elif [[ -n "${selected_remote}" ]]; then \
@@ -53,7 +51,7 @@ validate-public: validate-public-safety
     docker compose run --rm infra tofu -chdir=infra/opentofu validate
     docker compose run --rm infra tflint --chdir=infra/opentofu --minimum-failure-severity=error
     docker compose run --rm infra shellcheck scripts/*.sh tools/docker-entrypoint.sh
-    docker compose run --rm infra python -m py_compile infra/opentofu/scripts/apply-technitium-dns.py scripts/parse-env.py scripts/public-safety-check.py scripts/settings.py scripts/tfplan-metadata.py scripts/update.py scripts/workspace-preflight.py tests/test_apply_technitium_dns.py tests/test_parse_env.py tests/test_public_safety_check.py tests/test_run_infra.py tests/test_settings.py tests/test_tfplan_metadata.py tests/test_update.py tests/test_workspace_preflight.py
+    docker compose run --rm infra python -m py_compile infra/opentofu/scripts/apply-technitium-dns.py scripts/parse-env.py scripts/public-safety-check.py scripts/settings.py scripts/tfplan-metadata.py scripts/tfvars-value.py scripts/update.py scripts/workspace-preflight.py tests/test_apply_technitium_dns.py tests/test_parse_env.py tests/test_public_safety_check.py tests/test_run_infra.py tests/test_settings.py tests/test_tfplan_metadata.py tests/test_tfvars_value.py tests/test_update.py tests/test_workspace_preflight.py
     docker compose run --rm infra python infra/opentofu/scripts/apply-technitium-dns.py --check scaffold/dns-records.local.json
     docker compose run --rm infra python scripts/parse-env.py --env-file scaffold/.env.example >/dev/null
     docker compose run --rm infra python scripts/settings.py --settings settings.example.json validate >/dev/null
@@ -102,6 +100,11 @@ actions-runners:
 clean-plans:
     docker compose run --rm infra rm -f tfplan tfplan.meta.json *.tfplan *.tfplan.meta.json
 
+# Apply DNS records after Technitium is installed and running
+[private]
+apply-technitium-dns: check-values
+    scripts/run-infra.sh bash -lc 'set -euo pipefail; technitium_api_url="$(python3 scripts/tfvars-value.py values/terraform.tfvars technitium_api_url)"; dns_records_file="$(python3 scripts/tfvars-value.py values/terraform.tfvars dns_records_file)"; export TECHNITIUM_API_URL="${technitium_api_url}"; export TECHNITIUM_API_TOKEN="${TECHNITIUM_API_TOKEN:-${TF_VAR_technitium_api_token:-}}"; if [[ -z "${TECHNITIUM_API_TOKEN}" ]]; then printf "Missing TECHNITIUM_API_TOKEN or TF_VAR_technitium_api_token.\n" >&2; exit 1; fi; cd infra/opentofu; python3 scripts/apply-technitium-dns.py "${dns_records_file}"'
+
 # Review infrastructure changes using private values; writes tfplan for `just apply`
 plan: check-values clean-plans
     scripts/run-infra.sh python scripts/workspace-preflight.py --require-values
@@ -113,9 +116,9 @@ plan: check-values clean-plans
 
 # Apply reviewed infrastructure plan, then configure services with Ansible
 apply: check-values
-    scripts/run-infra.sh python scripts/workspace-preflight.py --require-values
+    scripts/run-infra.sh python scripts/workspace-preflight.py --require-values --fail-on-dirty-values
     test -f tfplan
     test -f tfplan.meta.json
     scripts/python.sh scripts/tfplan-metadata.py verify --plan tfplan --metadata tfplan.meta.json
     @printf 'Applying verified tfplan created by `just plan`.\n'
-    trap 'rm -f tfplan tfplan.meta.json *.tfplan *.tfplan.meta.json' EXIT; scripts/run-infra.sh tofu -chdir=infra/opentofu apply -state=../../values/terraform.tfstate ../../tfplan && while IFS= read -r playbook; do playbook="$(printf '%s' "${playbook}" | tr -d '\r')"; INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh ansible-playbook -i values/ansible/inventory/local.yml "$playbook"; done < <(scripts/python.sh scripts/settings.py ansible-playbooks)
+    trap 'rm -f tfplan tfplan.meta.json *.tfplan *.tfplan.meta.json' EXIT; scripts/run-infra.sh tofu -chdir=infra/opentofu apply -state=../../values/terraform.tfstate ../../tfplan && while IFS= read -r playbook; do playbook="$(printf '%s' "${playbook}" | tr -d '\r')"; INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh ansible-playbook -i values/ansible/inventory/local.yml "$playbook"; done < <(scripts/python.sh scripts/settings.py ansible-playbooks) && just apply-technitium-dns

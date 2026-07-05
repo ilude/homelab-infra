@@ -88,7 +88,9 @@ This repo generally uses service-local Caddy instances rather than one central r
 
 ## DNS Management
 
-`infra/opentofu/dns.tf` uses `terraform_data` to run `infra/opentofu/scripts/apply-technitium-dns.py` against `values/dns-records.local.json` via `var.dns_records_file`.
+Technitium DNS records are synced after OpenTofu and Ansible in `just apply`. Do not call the Technitium API from OpenTofu resources: fresh installs need the LXC created and the Technitium service installed before API mutation is possible.
+
+The DNS helper is `infra/opentofu/scripts/apply-technitium-dns.py`; it runs against `values/dns-records.local.json` via `var.dns_records_file` after Ansible configures the DNS LXC.
 
 The intended pattern is hybrid DNS:
 

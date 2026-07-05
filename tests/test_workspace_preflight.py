@@ -63,6 +63,14 @@ class WorkspacePreflightTests(unittest.TestCase):
                 ["private values repo has uncommitted changes"],
             )
 
+    def test_dirty_values_repo_can_fail(self) -> None:
+        temp, root = self.make_repo()
+        with temp:
+            subprocess.run(["git", "init"], cwd=root / "values", check=True, capture_output=True)
+            (root / "values" / "uncommitted.txt").write_text("changed\n", encoding="utf-8")
+            with self.assertRaises(workspace_preflight.PreflightError):
+                workspace_preflight.run(root, require_values=True, fail_on_dirty_values=True)
+
 
 if __name__ == "__main__":
     unittest.main()

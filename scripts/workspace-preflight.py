@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
@@ -49,23 +48,7 @@ def check_no_state_lock(values: Path) -> None:
         )
 
 
-def git_dirty_warning(values: Path) -> str | None:
-    if not (values / ".git").exists():
-        return None
-    result = subprocess.run(
-        ["git", "-c", "core.autocrlf=input", "-C", str(values), "status", "--short"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return f"could not inspect private values git status: {result.stderr.strip()}"
-    if result.stdout.strip():
-        return "private values repo has uncommitted changes"
-    return None
-
-
-def run(root: Path, require_values: bool, fail_on_dirty_values: bool = False) -> list[str]:
+def run(root: Path, require_values: bool) -> None:
     repo = root.resolve()
     check_directory_writable(repo)
     check_directory_writable(repo / "infra" / "opentofu")
@@ -80,22 +63,16 @@ def run(root: Path, require_values: bool, fail_on_dirty_values: bool = False) ->
         check_glob_writable(values, "*.tfstate*")
         check_file_writable(values / ".terraform.tfstate.lock.info")
         check_no_state_lock(values)
-        warning = git_dirty_warning(values)
-        if warning and fail_on_dirty_values:
-            raise PreflightError(warning)
-        return [warning] if warning else []
-    return []
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--require-values", action="store_true")
-    parser.add_argument("--fail-on-dirty-values", action="store_true")
     args = parser.parse_args(argv)
 
     try:
-        warnings = run(args.root, args.require_values, args.fail_on_dirty_values)
+        run(args.root, args.require_values)
     except PreflightError as error:
         print(f"workspace preflight failed: {error}", file=sys.stderr)
         print(
@@ -105,8 +82,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    for warning in warnings:
-        print(f"workspace preflight warning: {warning}", file=sys.stderr)
     print("workspace preflight passed")
     return 0
 

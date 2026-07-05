@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -53,13 +54,19 @@ def matching_inputs(repo: Path) -> dict[str, str]:
 
 
 def git_commit(repo: Path) -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    env_commit = os.environ.get("INFRA_GIT_COMMIT")
+    if env_commit:
+        return env_commit
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
     if result.returncode != 0:
         return None
     return result.stdout.strip()

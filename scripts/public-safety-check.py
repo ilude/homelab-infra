@@ -69,30 +69,41 @@ def run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def tracked_files(cwd: Path) -> list[Path]:
-    result = run_git(["ls-files", "-z"], cwd)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "git ls-files failed")
-    files = []
-    for raw in result.stdout.split("\0"):
-        if not raw or raw.startswith("values/"):
-            continue
-        files.append(cwd / raw)
-    return files
+def tracked_files(cwd: Path, tracked_file_list: Path | None = None) -> list[Path]:
+    if tracked_file_list is None:
+        result = run_git(["ls-files", "-z"], cwd)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "git ls-files failed")
+        raw_files = result.stdout.split("\0")
+    else:
+        raw_files = tracked_file_list.read_text(encoding="utf-8").splitlines()
+    return [
+        cwd / raw
+        for raw in raw_files
+        if raw and not raw.startswith("values/") and (cwd / raw).exists()
+    ]
 
 
-def is_ignored(path: str, cwd: Path) -> bool:
+def load_path_set(path: Path | None) -> set[str]:
+    if path is None:
+        return set()
+    return set(path.read_text(encoding="utf-8").splitlines())
+
+
+def is_ignored(path: str, cwd: Path, ignored_paths: set[str] | None = None) -> bool:
+    if ignored_paths is not None:
+        return path in ignored_paths
     result = run_git(["check-ignore", "-q", "--", path], cwd)
     return result.returncode == 0
 
 
-def validate_scaffold_contract(cwd: Path) -> list[Finding]:
+def validate_scaffold_contract(cwd: Path, ignored_paths: set[str] | None = None) -> list[Finding]:
     findings: list[Finding] = []
     for path in REQUIRED_SCAFFOLD:
         if not (cwd / path).is_file():
             findings.append(Finding(path, 0, "required scaffold file is missing"))
             continue
-        if is_ignored(path, cwd):
+        if is_ignored(path, cwd, ignored_paths):
             findings.append(Finding(path, 0, "required scaffold file is ignored"))
     return findings
 
@@ -168,15 +179,20 @@ def scan_file(path: Path, cwd: Path) -> list[Finding]:
     return findings
 
 
-def scan(cwd: Path) -> list[Finding]:
-    findings = validate_scaffold_contract(cwd)
+def scan(
+    cwd: Path,
+    tracked_file_list: Path | None = None,
+    ignored_file_list: Path | None = None,
+) -> list[Finding]:
+    ignored_paths = load_path_set(ignored_file_list) if ignored_file_list else None
+    findings = validate_scaffold_contract(cwd, ignored_paths)
     if (cwd / "private").exists():
         findings.append(
             Finding(
                 "private", 0, "repo-local private directory is not allowed; use values/"
             )
         )
-    for path in tracked_files(cwd):
+    for path in tracked_files(cwd, tracked_file_list):
         findings.extend(scan_file(path, cwd))
     return findings
 
@@ -184,10 +200,12 @@ def scan(cwd: Path) -> list[Finding]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument("--tracked-files", type=Path, default=None)
+    parser.add_argument("--ignored-files", type=Path, default=None)
     args = parser.parse_args(argv)
 
     try:
-        findings = scan(args.repo.resolve())
+        findings = scan(args.repo.resolve(), args.tracked_files, args.ignored_files)
     except RuntimeError as error:
         print(error, file=sys.stderr)
         return 1

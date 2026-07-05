@@ -8,14 +8,11 @@ proxmox_node_name = "pve"
 #   PROXMOX_VE_API_TOKEN
 #   TF_VAR_container_root_password
 #   TF_VAR_container_ssh_public_keys
-#   TF_VAR_technitium_api_token
 container_root_password = "REPLACE_WITH_A_LONG_RANDOM_PASSWORD"
 container_ssh_public_keys = [
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA_REPLACE_ME user@host",
 ]
 
-technitium_api_url = "http://192.0.2.53:5380/api"
-dns_records_file   = "../../values/dns-records.local.json"
 
 container_vmid          = 106
 container_hostname      = "technitium-dns"

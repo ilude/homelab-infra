@@ -25,8 +25,12 @@ CADDY_KEYS = {
 TERRAFORM_KEYS = {
     "TF_VAR_container_root_password",
     "TF_VAR_container_ssh_public_keys",
-    "TF_VAR_technitium_api_token",
+}
+
+TECHNITIUM_DNS_KEYS = {
+    "TECHNITIUM_API_URL",
     "TECHNITIUM_API_TOKEN",
+    "DNS_RECORDS_FILE",
 }
 
 TECHNITIUM_BOOTSTRAP_KEYS = {
@@ -49,6 +53,7 @@ ALLOWED_KEYS = (
     PROXMOX_KEYS
     | CADDY_KEYS
     | TERRAFORM_KEYS
+    | TECHNITIUM_DNS_KEYS
     | TECHNITIUM_BOOTSTRAP_KEYS
     | FORGEJO_KEYS
 )

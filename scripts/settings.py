@@ -11,16 +11,33 @@ from typing import Any
 
 DEFAULT_SETTINGS = Path("settings.local.json")
 DEFAULT_SERVICES = ("technitium", "forgejo")
-SERVICE_PLAYBOOKS = {
-    "technitium": (
-        "infra/ansible/playbooks/technitium.yml",
-        "infra/ansible/playbooks/caddy-proxy.yml",
-    ),
-    "forgejo": ("infra/ansible/playbooks/forgejo.yml",),
-    "tailscale_client": (),
-    "forgejo_runner": ("infra/ansible/playbooks/forgejo-runner.yml",),
+SERVICES = {
+    "technitium": {
+        "playbooks": (
+            "infra/ansible/playbooks/technitium.yml",
+            "infra/ansible/playbooks/caddy-proxy.yml",
+        ),
+        "dependencies": (),
+        "post_apply": ("scripts/apply-technitium-dns.sh",),
+    },
+    "forgejo": {
+        "playbooks": ("infra/ansible/playbooks/forgejo.yml",),
+        "dependencies": (),
+        "post_apply": (),
+    },
+    "tailscale_client": {
+        "playbooks": (),
+        "dependencies": (),
+        "post_apply": (),
+    },
+    "forgejo_runner": {
+        "playbooks": ("infra/ansible/playbooks/forgejo-runner.yml",),
+        "dependencies": ("forgejo",),
+        "post_apply": (),
+    },
 }
-SERVICE_NAMES = set(SERVICE_PLAYBOOKS)
+SERVICE_PLAYBOOKS = {name: config["playbooks"] for name, config in SERVICES.items()}
+SERVICE_NAMES = set(SERVICES)
 
 
 class SettingsError(ValueError):
@@ -55,8 +72,17 @@ def normalize_services(value: Any, path: Path) -> list[str]:
         raise SettingsError(f"{path}: unknown services: {', '.join(unknown)}")
     if len(services) != len(set(services)):
         raise SettingsError(f"{path}: services contains duplicates")
-    if "forgejo_runner" in services and "forgejo" not in services:
-        raise SettingsError(f"{path}: forgejo_runner requires forgejo in services")
+    missing_dependencies = {
+        service: sorted(set(SERVICES[service]["dependencies"]) - set(services))
+        for service in services
+        if set(SERVICES[service]["dependencies"]) - set(services)
+    }
+    if missing_dependencies:
+        details = ", ".join(
+            f"{service} requires {', '.join(dependencies)}"
+            for service, dependencies in sorted(missing_dependencies.items())
+        )
+        raise SettingsError(f"{path}: {details}")
     return services
 
 
@@ -98,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("values-remote")
     subparsers.add_parser("services")
     subparsers.add_parser("ansible-playbooks")
+    subparsers.add_parser("post-apply-hooks")
     subparsers.add_parser("tofu-var")
     args = parser.parse_args(argv)
 
@@ -115,8 +142,12 @@ def main(argv: list[str] | None = None) -> int:
         print(" ".join(settings["services"]))
     elif args.command == "ansible-playbooks":
         for service in settings["services"]:
-            for playbook in SERVICE_PLAYBOOKS[service]:
+            for playbook in SERVICES[service]["playbooks"]:
                 print(playbook)
+    elif args.command == "post-apply-hooks":
+        for service in settings["services"]:
+            for hook in SERVICES[service]["post_apply"]:
+                print(hook)
     elif args.command == "tofu-var":
         print(json.dumps(settings["services"]))
     return 0

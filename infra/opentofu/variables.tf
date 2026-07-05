@@ -43,31 +43,6 @@ variable "proxmox_password" {
   sensitive   = true
 }
 
-# tflint-ignore: terraform_unused_declarations
-variable "technitium_api_url" {
-  description = "Technitium DNS Server API URL. Set in terraform.tfvars."
-  type        = string
-}
-
-# tflint-ignore: terraform_unused_declarations
-variable "dns_records_file" {
-  description = "Path to the local Technitium DNS records JSON file. The real file belongs in values/; see scaffold/dns-records.local.json."
-  type        = string
-
-  validation {
-    condition     = can(regex("^[A-Za-z0-9_./-]+\\.json$", var.dns_records_file)) && !startswith(var.dns_records_file, "/")
-    error_message = "dns_records_file must be a relative JSON path containing only letters, numbers, dot, slash, underscore, and dash."
-  }
-}
-
-# tflint-ignore: terraform_unused_declarations
-variable "technitium_api_token" {
-  description = "Technitium API token. Prefer TECHNITIUM_API_TOKEN or terraform.tfvars/.env injection."
-  type        = string
-  default     = null
-  sensitive   = true
-}
-
 variable "proxmox_node_name" {
   description = "Proxmox node where the Technitium LXC should run. Set in terraform.tfvars."
   type        = string

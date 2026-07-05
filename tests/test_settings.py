@@ -69,6 +69,12 @@ class SettingsTests(unittest.TestCase):
             path.unlink()
         self.assertEqual(settings["services"], ["tailscale_client"])
 
+    def test_technitium_has_post_apply_dns_hook(self) -> None:
+        self.assertEqual(
+            settings_script.SERVICES["technitium"]["post_apply"],
+            ("scripts/apply-technitium-dns.sh",),
+        )
+
     def test_forgejo_runner_requires_forgejo(self) -> None:
         path = self.write_settings({"services": ["forgejo_runner"]})
         try:

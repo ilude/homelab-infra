@@ -90,7 +90,7 @@ This repo generally uses service-local Caddy instances rather than one central r
 
 Technitium DNS records are synced after OpenTofu and Ansible in `just apply`. Do not call the Technitium API from OpenTofu resources: fresh installs need the LXC created and the Technitium service installed before API mutation is possible.
 
-The DNS helper is `infra/opentofu/scripts/apply-technitium-dns.py`; it runs against `values/dns-records.local.json` via `var.dns_records_file` after Ansible configures the DNS LXC.
+The DNS helper is `infra/opentofu/scripts/apply-technitium-dns.py`; it runs after Ansible configures the DNS LXC.
 
 The intended pattern is hybrid DNS:
 
@@ -98,7 +98,7 @@ The intended pattern is hybrid DNS:
 - Unknown names in those zones forward to existing internal resolvers.
 - The gateway should remain focused on DHCP/routing/firewall and eventually point DHCP DNS to Technitium.
 
-A Technitium API token must be supplied through `values/.env` / `TF_VAR_technitium_api_token` before planning or applying DNS resources.
+Technitium DNS sync runtime settings belong in `values/.env`: `TECHNITIUM_API_URL`, `TECHNITIUM_API_TOKEN`, and `DNS_RECORDS_FILE`. Keep application runtime workflow variables out of OpenTofu variables unless OpenTofu directly uses them.
 
 ## EdgeRouter helper
 

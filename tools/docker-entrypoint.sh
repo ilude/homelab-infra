@@ -67,9 +67,4 @@ fi
 
 export HOME="${container_home}"
 
-gosu "${container_user}" git config --global --add safe.directory /workspace >/dev/null 2>&1 || true
-if [[ -d /workspace/values ]]; then
-  gosu "${container_user}" git config --global --add safe.directory /workspace/values >/dev/null 2>&1 || true
-fi
-
 exec gosu "${container_user}" "$@"

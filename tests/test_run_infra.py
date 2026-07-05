@@ -29,6 +29,10 @@ class RunInfraTests(unittest.TestCase):
                 f"""
                 #!/usr/bin/env bash
                 set -euo pipefail
+                if printf '%s\n' "$@" | grep -qx -- "scripts/parse-env.py"; then
+                  printf 'PVE_HOST=proxmox.example.internal\n'
+                  exit 0
+                fi
                 env_file=""
                 while [[ $# -gt 0 ]]; do
                   if [[ "$1" == "--env-from-file" ]]; then

@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-python3 scripts/public-safety-check.py
+scripts/python.sh scripts/public-safety-check.py

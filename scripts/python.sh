@@ -1,17 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-python_bin=""
-for candidate in python3 py python; do
-  if command -v "${candidate}" >/dev/null 2>&1 && "${candidate}" --version >/dev/null 2>&1; then
-    python_bin="${candidate}"
-    break
-  fi
-done
-
-if [[ -z "${python_bin}" ]]; then
-  printf 'Missing Python. Install Python or ensure python3, py, or python is on PATH.\n' >&2
-  exit 1
+compose_args=(compose run --rm)
+if [[ ! -t 0 || ! -t 1 ]]; then
+  compose_args+=(-T)
 fi
 
-exec "${python_bin}" "$@"
+exec docker "${compose_args[@]}" infra python "$@"

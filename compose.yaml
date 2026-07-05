@@ -10,10 +10,11 @@ services:
     volumes:
       - .:/workspace
       - ${HOST_SSH_DIR:-${HOME}/.ssh}:/ssh-ro:ro
-      - tofu-plugin-cache:/root/.terraform.d/plugin-cache
-      - ansible-cache:/root/.ansible
+      - tofu-plugin-cache:/home/anvil/.terraform.d/plugin-cache
+      - ansible-cache:/home/anvil/.ansible
     environment:
-      TF_PLUGIN_CACHE_DIR: /root/.terraform.d/plugin-cache
+      TF_PLUGIN_CACHE_DIR: /home/anvil/.terraform.d/plugin-cache
+      HOME: /home/anvil
       ANSIBLE_CONFIG: /workspace/ansible.cfg
       ANSIBLE_HOST_KEY_CHECKING: "true"
       INFRA_COPY_SSH_KEYS: ${INFRA_COPY_SSH_KEYS:-false}

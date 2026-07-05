@@ -28,6 +28,8 @@ Keep non-public material in `values/` or outside this checkout; do not add anoth
 
 ## Fresh setup
 
+Local prerequisites are Git, Docker/Docker Compose, and `just`. Python, OpenTofu, Ansible, TFLint, ShellCheck, SSH client usage for setup/apply, and related tooling run inside the Docker tooling container. Your host SSH directory is mounted read-only so the container can use your existing Proxmox SSH key when a command opts in.
+
 From a fresh checkout, optionally copy the local settings template:
 
 ```bash
@@ -157,6 +159,6 @@ Do not apply without reviewing `just plan` output. If `just apply` says the save
 
 `values/.env` is parsed as dotenv-style data by `scripts/parse-env.py`; it is not sourced as shell. Keep required variables from `scaffold/.env.example` in sync with your private `values/.env`.
 
-The tooling container mounts `${HOST_SSH_DIR:-${HOME}/.ssh}` read-only. It copies public SSH support files by default; set `INFRA_COPY_SSH_KEYS=true` only when private keys must be copied into the container for a run.
+The tooling container runs as the unprivileged `anvil` user and mounts `${HOST_SSH_DIR:-${HOME}/.ssh}` read-only. It copies public SSH support files into `/home/anvil/.ssh` by default; set `INFRA_COPY_SSH_KEYS=true` only when private keys must be copied into the container for a run.
 
 `scripts/edgeos-static-host-mapping.sh` mutates a live EdgeRouter config and should only be run after explicit review/approval. Use `--dry-run` to inspect commands first.

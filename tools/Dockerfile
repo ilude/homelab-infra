@@ -13,6 +13,7 @@ RUN apt-get update \
         ca-certificates \
         curl \
         git \
+        gosu \
         jq \
         openssh-client \
         python3 \
@@ -33,13 +34,17 @@ RUN apt-get update \
     && python3 -m venv /opt/ansible \
     && /opt/ansible/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/ansible/bin/pip install --no-cache-dir ansible-core ansible-lint jmespath requests \
-    && mkdir -p /root/.terraform.d/plugin-cache /workspace \
+    && useradd --create-home --shell /bin/bash --uid 1000 anvil \
+    && mkdir -p /home/anvil/.terraform.d/plugin-cache /home/anvil/.ansible /workspace \
+    && chown -R anvil:anvil /home/anvil /workspace \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 COPY tools/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
+ENV HOME=/home/anvil \
+    TF_PLUGIN_CACHE_DIR=/home/anvil/.terraform.d/plugin-cache
 WORKDIR /workspace
 
 ENTRYPOINT ["docker-entrypoint.sh"]

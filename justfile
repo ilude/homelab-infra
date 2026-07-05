@@ -18,7 +18,7 @@ setup remote="":
     else \
         scripts/values.sh init; \
     fi
-    @if [[ -t 0 && -t 1 ]]; then scripts/bootstrap-pve-token.sh --if-needed; else printf 'Skipping Proxmox token bootstrap wizard because just setup is not interactive.\n'; fi
+    @if [[ -t 0 && -t 1 ]]; then INFRA_COPY_SSH_KEYS=true docker compose run --rm infra bash scripts/bootstrap-pve-token.sh --if-needed; else printf 'Skipping Proxmox token bootstrap wizard because just setup is not interactive.\n'; fi
     @if [[ -t 0 && -t 1 ]]; then scripts/python.sh scripts/bootstrap-domain.py --if-needed; else printf 'Skipping domain wizard because just setup is not interactive.\n'; fi
     @printf '\nEdit these private values before running `just validate` and `just plan`:\n'
     @printf '  values/.env\n  values/terraform.tfvars\n  values/dns-records.local.json\n  values/ansible/inventory/local.yml\n'
@@ -42,6 +42,7 @@ validate-public-safety:
 [private]
 validate-public: validate-public-safety
     docker compose config >/dev/null
+    rm -rf infra/opentofu/.terraform
     docker compose run --rm infra tofu -chdir=infra/opentofu init -backend=false
     docker compose run --rm infra tofu fmt -check -recursive infra/opentofu scaffold/terraform.tfvars
     docker compose run --rm infra tofu -chdir=infra/opentofu validate
@@ -93,6 +94,7 @@ clean-plans:
 
 # Review infrastructure changes using private values; writes tfplan for `just apply`
 plan: check-values clean-plans
+    rm -rf infra/opentofu/.terraform
     scripts/run-infra.sh tofu -chdir=infra/opentofu init
     enabled_services="$(scripts/python.sh scripts/settings.py tofu-var)"; scripts/run-infra.sh tofu -chdir=infra/opentofu plan -var "enabled_services=${enabled_services}" -var-file=../../values/terraform.tfvars -state=../../values/terraform.tfstate -out=../../tfplan
     scripts/run-infra.sh tofu -chdir=infra/opentofu show ../../tfplan

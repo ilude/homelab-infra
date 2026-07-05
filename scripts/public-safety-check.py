@@ -49,6 +49,7 @@ PLACEHOLDER_MARKERS = (
     "var.",
     "os.environ",
     "os.getenv",
+    "$",
 )
 
 

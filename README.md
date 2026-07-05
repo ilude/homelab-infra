@@ -42,7 +42,7 @@ Then run:
 just setup
 ```
 
-This builds the local tooling container and creates `values/` from `scaffold/`, or clones the `values_repo.remote` configured in `settings.local.json`.
+This builds the local tooling container and creates `values/` from `scaffold/`, or clones the `values_repo.remote` configured in `settings.local.json`. In an interactive terminal, it also starts a Proxmox token bootstrap wizard when `values/.env` does not already contain a usable `PROXMOX_VE_API_TOKEN`. The wizard asks for your Proxmox host, verifies root SSH key access, offers an alternate key file or a command to authorize your default public SSH key if default keys fail, creates/updates a dedicated Proxmox API user/token, and writes the endpoint/token/SSH target to `values/.env` without printing the token secret.
 
 You can also pass the values repo URL directly:
 
@@ -50,13 +50,19 @@ You can also pass the values repo URL directly:
 just setup git@git.example.internal:owner/homelab-infra-values.git
 ```
 
-Then edit the private files:
+Then edit the remaining private files:
 
 ```text
 values/.env
 values/terraform.tfvars
 values/dns-records.local.json
 values/ansible/inventory/local.yml
+```
+
+If you skipped the Proxmox token wizard or need to rotate the token later, run:
+
+```bash
+scripts/bootstrap-pve-token.sh --force
 ```
 
 ## Daily workflow

@@ -3,4 +3,8 @@
   hosts: pve
   gather_facts: false
   roles:
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: "{{ forgejo_runner_vmid }}"
+        lxc_ready_name: forgejo_runner
     - forgejo_runner

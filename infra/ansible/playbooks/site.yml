@@ -3,22 +3,38 @@
   hosts: pve
   gather_facts: false
   roles:
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: "{{ technitium_vmid }}"
+        lxc_ready_name: technitium
     - technitium
 
 - name: Configure Technitium Caddy HTTPS proxy
   hosts: pve
   gather_facts: false
   roles:
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: "{{ technitium_vmid }}"
+        lxc_ready_name: technitium
     - caddy_proxy
 
 - name: Bootstrap Forgejo LXC
   hosts: pve
   gather_facts: false
   roles:
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: "{{ forgejo_vmid }}"
+        lxc_ready_name: forgejo
     - forgejo
 
 - name: Bootstrap Tailscale client LXC
   hosts: pve
   gather_facts: false
   roles:
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: "{{ tailscale_client_vmid }}"
+        lxc_ready_name: tailscale_client
     - tailscale_client

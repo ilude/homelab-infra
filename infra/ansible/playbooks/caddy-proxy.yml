@@ -3,4 +3,8 @@
   hosts: pve
   gather_facts: false
   roles:
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: "{{ technitium_vmid }}"
+        lxc_ready_name: technitium
     - caddy_proxy

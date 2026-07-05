@@ -3,4 +3,8 @@
   hosts: pve
   gather_facts: false
   roles:
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: "{{ tailscale_client_vmid }}"
+        lxc_ready_name: tailscale_client
     - tailscale_client

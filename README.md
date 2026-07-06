@@ -153,7 +153,8 @@ git -C values remote -v
 
 OpenTofu manages:
 
-- Proxmox LXC resources
+- Proxmox LXC resources, including optional per-container VLAN tags when
+  `*_vlan_id` values are set in `values/terraform.tfvars`
 - Optional Tailscale client LXC shape, disabled by default until `tailscale_client_enabled` is set in private values
 - Optional Forgejo Actions runner LXC when `forgejo_runner` is enabled in local settings
 - Optional Infisical secrets service LXC with a service-local Caddy frontend
@@ -180,6 +181,11 @@ Ansible inventory combines `values/ansible/inventory/local.yml` with `infra/ansi
 Do not apply without reviewing `just plan` output. If `just apply` says the saved plan is stale, rerun `just plan` and review it again. Do not commit secrets, state, plans, or real site values to the public repo.
 
 `settings.local.json` is the local operator settings file. It can set `values_repo.remote` for setup and the `services` list used by OpenTofu planning plus Ansible validation/apply. Removing a service from the list tells OpenTofu to stop maintaining its resources, which can plan destroys; review `just plan` before applying.
+
+Container VLAN tags are optional. Omit a `*_vlan_id` variable or set it to
+`null` for an untagged LXC interface; set it to a VLAN ID from 1 through 4094
+for a tagged interface. The selected Proxmox bridge must already be configured
+for that VLAN.
 
 `values/.env` is parsed as dotenv-style data by `scripts/parse-env.py`; it is not sourced as shell. Keep required variables from `scaffold/.env.example` in sync with your private `values/.env`.
 

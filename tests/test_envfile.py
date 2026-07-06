@@ -22,14 +22,14 @@ class EnvfileTests(unittest.TestCase):
         return Path(handle.name)
 
     def test_get_env_value_parses_export_and_quotes(self) -> None:
-        path = self.write_env("export API_TOKEN='abc # not comment'\n")
+        path = self.write_env("export API_TOKEN='REPLACE_TOKEN # not comment'\n")
         try:
-            self.assertEqual(envfile.get_env_value(path, "API_TOKEN"), "abc # not comment")
+            self.assertEqual(envfile.get_env_value(path, "API_TOKEN"), "REPLACE_TOKEN # not comment")
         finally:
             path.unlink()
 
     def test_get_env_value_returns_empty_on_invalid_quoting(self) -> None:
-        path = self.write_env("export API_TOKEN='unterminated\n")
+        path = self.write_env("export API_TOKEN='REPLACE_UNTERMINATED\n")
         try:
             self.assertEqual(envfile.get_env_value(path, "API_TOKEN"), "")
         finally:

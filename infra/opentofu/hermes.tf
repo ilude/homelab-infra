@@ -52,6 +52,7 @@ resource "proxmox_virtual_environment_container" "hermes" {
     name        = "eth0"
     bridge      = var.hermes_container_bridge
     mac_address = var.hermes_container_mac_address
+    vlan_id     = var.hermes_container_vlan_id
   }
 
   operating_system {

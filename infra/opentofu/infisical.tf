@@ -52,6 +52,7 @@ resource "proxmox_virtual_environment_container" "infisical" {
     name        = "eth0"
     bridge      = var.infisical_container_bridge
     mac_address = var.infisical_container_mac_address
+    vlan_id     = var.infisical_container_vlan_id
   }
 
   operating_system {

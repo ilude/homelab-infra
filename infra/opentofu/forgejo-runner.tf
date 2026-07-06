@@ -52,6 +52,7 @@ resource "proxmox_virtual_environment_container" "forgejo_runner" {
     name        = "eth0"
     bridge      = var.forgejo_runner_bridge
     mac_address = var.forgejo_runner_mac_address
+    vlan_id     = var.forgejo_runner_vlan_id
   }
 
   operating_system {

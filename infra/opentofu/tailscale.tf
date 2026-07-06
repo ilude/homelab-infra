@@ -58,6 +58,7 @@ resource "proxmox_virtual_environment_container" "tailscale_client" {
     name        = "eth0"
     bridge      = var.tailscale_client_bridge
     mac_address = var.tailscale_client_mac_address
+    vlan_id     = var.tailscale_client_vlan_id
   }
 
   operating_system {

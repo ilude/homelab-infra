@@ -61,8 +61,9 @@ resource "proxmox_virtual_environment_container" "technitium_dns" {
   }
 
   network_interface {
-    name   = "eth0"
-    bridge = var.technitium_container_bridge
+    name    = "eth0"
+    bridge  = var.technitium_container_bridge
+    vlan_id = var.technitium_container_vlan_id
   }
 
   operating_system {

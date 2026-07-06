@@ -94,6 +94,17 @@ variable "technitium_container_bridge" {
   type        = string
 }
 
+variable "technitium_container_vlan_id" {
+  description = "Optional VLAN tag for the Technitium DNS LXC interface. Null leaves the interface untagged."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.technitium_container_vlan_id == null || (var.technitium_container_vlan_id >= 1 && var.technitium_container_vlan_id <= 4094)
+    error_message = "technitium_container_vlan_id must be null or a VLAN ID from 1 through 4094."
+  }
+}
+
 variable "rootfs_datastore_id" {
   description = "Proxmox datastore for the LXC root filesystem. Set in terraform.tfvars."
   type        = string
@@ -211,6 +222,17 @@ variable "forgejo_container_search_domain" {
 variable "forgejo_container_bridge" {
   description = "Proxmox bridge for the Forgejo LXC interface. Set in terraform.tfvars."
   type        = string
+}
+
+variable "forgejo_container_vlan_id" {
+  description = "Optional VLAN tag for the Forgejo LXC interface. Null leaves the interface untagged."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.forgejo_container_vlan_id == null || (var.forgejo_container_vlan_id >= 1 && var.forgejo_container_vlan_id <= 4094)
+    error_message = "forgejo_container_vlan_id must be null or a VLAN ID from 1 through 4094."
+  }
 }
 
 variable "forgejo_container_cores" {
@@ -353,6 +375,17 @@ variable "forgejo_runner_bridge" {
   default     = "vmbr0"
 }
 
+variable "forgejo_runner_vlan_id" {
+  description = "Optional VLAN tag for the Forgejo Actions runner LXC interface. Null leaves the interface untagged."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.forgejo_runner_vlan_id == null || (var.forgejo_runner_vlan_id >= 1 && var.forgejo_runner_vlan_id <= 4094)
+    error_message = "forgejo_runner_vlan_id must be null or a VLAN ID from 1 through 4094."
+  }
+}
+
 variable "forgejo_runner_cores" {
   description = "CPU cores for the Forgejo Actions runner LXC."
   type        = number
@@ -481,6 +514,17 @@ variable "infisical_container_bridge" {
   description = "Proxmox bridge for the Infisical LXC interface."
   type        = string
   default     = "vmbr0"
+}
+
+variable "infisical_container_vlan_id" {
+  description = "Optional VLAN tag for the Infisical LXC interface. Null leaves the interface untagged."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.infisical_container_vlan_id == null || (var.infisical_container_vlan_id >= 1 && var.infisical_container_vlan_id <= 4094)
+    error_message = "infisical_container_vlan_id must be null or a VLAN ID from 1 through 4094."
+  }
 }
 
 variable "infisical_container_cores" {
@@ -613,6 +657,17 @@ variable "hermes_container_bridge" {
   default     = "vmbr0"
 }
 
+variable "hermes_container_vlan_id" {
+  description = "Optional VLAN tag for the Hermes LXC interface. Null leaves the interface untagged."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.hermes_container_vlan_id == null || (var.hermes_container_vlan_id >= 1 && var.hermes_container_vlan_id <= 4094)
+    error_message = "hermes_container_vlan_id must be null or a VLAN ID from 1 through 4094."
+  }
+}
+
 variable "hermes_container_cores" {
   description = "CPU cores for the Hermes LXC."
   type        = number
@@ -735,6 +790,17 @@ variable "tailscale_client_bridge" {
   description = "Proxmox bridge for the Tailscale client LXC interface."
   type        = string
   default     = "vmbr0"
+}
+
+variable "tailscale_client_vlan_id" {
+  description = "Optional VLAN tag for the Tailscale client LXC interface. Null leaves the interface untagged."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.tailscale_client_vlan_id == null || (var.tailscale_client_vlan_id >= 1 && var.tailscale_client_vlan_id <= 4094)
+    error_message = "tailscale_client_vlan_id must be null or a VLAN ID from 1 through 4094."
+  }
 }
 
 variable "tailscale_client_cores" {

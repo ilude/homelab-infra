@@ -22,6 +22,7 @@ technitium_container_ipv4_gateway  = "192.0.2.1"
 technitium_container_dns_servers   = ["1.1.1.1", "9.9.9.9"]
 technitium_container_search_domain = "example.internal"
 technitium_container_bridge        = "vmbr0"
+technitium_container_vlan_id       = null
 
 rootfs_datastore_id       = "local-lvm"
 template_datastore_id     = "local"
@@ -44,6 +45,7 @@ forgejo_server_name             = "git.example.internal"
 forgejo_container_dns_servers   = ["192.0.2.1"]
 forgejo_container_search_domain = "example.internal"
 forgejo_container_bridge        = "vmbr0"
+forgejo_container_vlan_id       = null
 
 forgejo_container_cores     = 2
 forgejo_container_memory_mb = 2048
@@ -64,6 +66,7 @@ forgejo_runner_mac_address   = "BC:24:11:00:00:02"
 forgejo_runner_dns_servers   = ["192.0.2.1"]
 forgejo_runner_search_domain = "example.internal"
 forgejo_runner_bridge        = "vmbr0"
+forgejo_runner_vlan_id       = null
 
 forgejo_runner_cores     = 2
 forgejo_runner_memory_mb = 2048
@@ -85,6 +88,7 @@ infisical_server_name             = "infisical.example.internal"
 infisical_container_dns_servers   = ["192.0.2.1"]
 infisical_container_search_domain = "example.internal"
 infisical_container_bridge        = "vmbr0"
+infisical_container_vlan_id       = null
 
 infisical_container_cores     = 2
 infisical_container_memory_mb = 4096
@@ -107,6 +111,7 @@ hermes_server_name             = "hermes.example.internal"
 hermes_container_dns_servers   = ["192.0.2.1"]
 hermes_container_search_domain = "example.internal"
 hermes_container_bridge        = "vmbr0"
+hermes_container_vlan_id       = null
 
 hermes_container_cores     = 2
 hermes_container_memory_mb = 2048
@@ -127,6 +132,7 @@ tailscale_client_mac_address   = "BC:24:11:00:00:01"
 tailscale_client_dns_servers   = ["1.1.1.1", "9.9.9.9"]
 tailscale_client_search_domain = "example.internal"
 tailscale_client_bridge        = "vmbr0"
+tailscale_client_vlan_id       = null
 
 tailscale_client_cores     = 1
 tailscale_client_memory_mb = 512

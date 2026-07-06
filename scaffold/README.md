@@ -7,7 +7,7 @@ This directory is a public-safe template for `values/`, the nested private Git r
 ## Files
 
 - `.env` — local credentials and bootstrap environment variables.
-- `terraform.tfvars` — site-specific Proxmox/LXC/OpenTofu variables, including the optional disabled-by-default Tailscale client LXC.
+- `terraform.tfvars` — site-specific Proxmox/LXC/OpenTofu variables, including optional per-container VLAN tags and the optional disabled-by-default Tailscale client LXC.
 - `dns-records.local.json` — site-specific Technitium DNS zones and records.
 - `ansible/inventory/local.yml` — site-specific Ansible inventory and role variables. The Technitium Caddy proxy uses `caddy_server_names` for DNS UI aliases such as `dns.example.internal` and `technitium.example.internal`.
 
@@ -37,6 +37,10 @@ To rerun the domain wizard:
 ```bash
 scripts/python.sh scripts/bootstrap-domain.py --force
 ```
+
+Container VLAN tags default to `null`, which leaves the LXC interface untagged.
+Set the matching `*_vlan_id` value to a VLAN ID from 1 through 4094 when the
+Proxmox bridge should tag that container interface.
 
 After editing the copied files, run the normal validation entry point:
 

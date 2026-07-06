@@ -26,9 +26,12 @@ python scripts/settings.py --settings settings.example.json validate >/dev/null
 python -m unittest discover -s tests -p "test_*.py"
 
 export ANSIBLE_TFVARS_FILE=scaffold/terraform.tfvars
+export INFRA_SETTINGS_FILE=settings.example.json
 ansible-inventory -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --list >/dev/null
+mapfile -t playbooks < <(python scripts/settings.py --settings settings.example.json ansible-playbooks --all)
 ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check \
   infra/ansible/playbooks/site.yml \
-  infra/ansible/playbooks/storage-prep.yml
+  infra/ansible/playbooks/storage-prep.yml \
+  "${playbooks[@]}"
 ansible-lint infra/ansible
 '

@@ -52,6 +52,7 @@ SERVICE_HOSTS = {
         "vmid_var": "tailscale_client_vmid",
         "tf_vmid": "tailscale_client_vmid",
         "tf_host": "tailscale_client_ipv4_address",
+        "extra_play_vars": {"tailscale_client_enabled": "tailscale_client_enabled"},
     },
     "infisical": {
         "host": "infisical_lxc",
@@ -105,6 +106,24 @@ def enabled_services(settings_path: Path | None) -> list[str]:
     return loaded["services"]
 
 
+def service_play_vars(service: str, tfvars: dict[str, Any]) -> dict[str, Any]:
+    config = SERVICE_HOSTS.get(service)
+    if config is None:
+        return {}
+    vars_for_play: dict[str, Any] = {}
+    vmid = tfvars.get(config["tf_vmid"])
+    if vmid is not None:
+        vars_for_play[config["vmid_var"]] = vmid
+    domain_var = config.get("domain_var")
+    tf_domain = config.get("tf_domain")
+    if domain_var and tf_domain and tfvars.get(tf_domain):
+        vars_for_play[domain_var] = tfvars[tf_domain]
+    for var_name, tf_key in config.get("extra_play_vars", {}).items():
+        if tf_key in tfvars:
+            vars_for_play[var_name] = tfvars[tf_key]
+    return vars_for_play
+
+
 def service_hostvars(service: str, tfvars: dict[str, Any]) -> tuple[str, str, dict[str, Any]] | None:
     config = SERVICE_HOSTS.get(service)
     if config is None:
@@ -117,14 +136,7 @@ def service_hostvars(service: str, tfvars: dict[str, Any]) -> tuple[str, str, di
     if address:
         hostvars["ansible_host"] = address
 
-    vmid = tfvars.get(config["tf_vmid"])
-    if vmid is not None:
-        hostvars[config["vmid_var"]] = vmid
-
-    domain_var = config.get("domain_var")
-    tf_domain = config.get("tf_domain")
-    if domain_var and tf_domain and tfvars.get(tf_domain):
-        hostvars[domain_var] = tfvars[tf_domain]
+    hostvars.update(service_play_vars(service, tfvars))
 
     return host, group, hostvars
 
@@ -132,10 +144,12 @@ def service_hostvars(service: str, tfvars: dict[str, Any]) -> tuple[str, str, di
 def build_inventory(tfvars: dict[str, Any], services: list[str]) -> dict[str, Any]:
     inventory: dict[str, Any] = {
         "_meta": {"hostvars": {}},
+        "all": {"vars": {}},
         "services": {"children": []},
     }
     hostvars = inventory["_meta"]["hostvars"]
     for service in services:
+        inventory["all"]["vars"].update(service_play_vars(service, tfvars))
         rendered = service_hostvars(service, tfvars)
         if rendered is None:
             continue

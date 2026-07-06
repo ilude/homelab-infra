@@ -7,10 +7,11 @@ import ipaddress
 import json
 import re
 import secrets
-import shlex
 import sys
-from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from envfile import EnvEntry, EnvFileError, parse_env_lines as parse_envfile_lines, parse_scalar as envfile_parse_scalar, read_lines, remove_env, set_env, write_lines
 
 GENERATED_SECRET_KEYS = {
     "INFISICAL_ENCRYPTION_KEY": lambda: secrets.token_hex(32),
@@ -75,7 +76,6 @@ MIGRATION_ENV_KEYS = {
     *HISTORICAL_ENV_KEYS,
 }
 
-ENV_LINE_RE = re.compile(r"^(?P<prefix>\s*(?:export\s+)?)(?P<key>[A-Za-z_][A-Za-z0-9_]*)(?P<sep>=)(?P<value>.*)$")
 TFVARS_LINE_RE = re.compile(r"^\s*(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*?)(?:\s*#.*)?$")
 
 
@@ -83,81 +83,18 @@ class MigrationError(ValueError):
     pass
 
 
-@dataclass
-class EnvEntry:
-    index: int
-    key: str
-    value: str
-
-
 def parse_scalar(raw_value: str) -> str:
     try:
-        parts = shlex.split(raw_value, posix=True, comments=False)
-    except ValueError as error:
-        raise MigrationError(f"invalid quoting: {error}") from error
-    if len(parts) != 1:
-        raise MigrationError("expected exactly one scalar value")
-    return parts[0]
-
-
-def shell_quote(value: str) -> str:
-    return shlex.quote(value)
-
-
-def read_lines(path: Path) -> list[str]:
-    if not path.exists():
-        return []
-    return path.read_text(encoding="utf-8").splitlines()
-
-
-def write_lines(path: Path, lines: list[str]) -> None:
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        return envfile_parse_scalar(raw_value)
+    except EnvFileError as error:
+        raise MigrationError(str(error)) from error
 
 
 def parse_env_lines(lines: list[str], path: Path) -> dict[str, EnvEntry]:
-    entries: dict[str, EnvEntry] = {}
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        match = ENV_LINE_RE.match(line)
-        if not match:
-            continue
-        key = match.group("key")
-        if key not in MIGRATION_ENV_KEYS:
-            continue
-        if key in entries:
-            raise MigrationError(f"{path}: duplicate environment key {key}")
-        entries[key] = EnvEntry(index, key, parse_scalar(match.group("value")))
-    return entries
-
-
-def set_env(lines: list[str], entries: dict[str, EnvEntry], key: str, value: str) -> bool:
-    line = f"export {key}={shell_quote(value)}"
-    if key in entries:
-        if entries[key].value == value:
-            return False
-        lines[entries[key].index] = line
-        entries[key].value = value
-        return True
-    if lines and lines[-1].strip():
-        lines.append("")
-    entries[key] = EnvEntry(len(lines), key, value)
-    lines.append(line)
-    return True
-
-
-def remove_env(lines: list[str], entries: dict[str, EnvEntry], key: str) -> bool:
-    entry = entries.get(key)
-    if entry is None:
-        return False
-    lines[entry.index] = None  # type: ignore[assignment]
-    del entries[key]
-    for other in entries.values():
-        if other.index > entry.index:
-            other.index -= 1
-    lines[:] = [line for line in lines if line is not None]
-    return True
+    try:
+        return parse_envfile_lines(lines, path, allowed_keys=set(MIGRATION_ENV_KEYS), skip_unknown=True)
+    except ValueError as error:
+        raise MigrationError(str(error)) from error
 
 
 def tfvars_raw_value(lines: list[str], key: str) -> str:

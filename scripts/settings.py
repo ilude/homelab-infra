@@ -25,7 +25,7 @@ SERVICES = {
         "dependencies": (),
     },
     "tailscale_client": {
-        "playbooks": (),
+        "playbooks": ("infra/ansible/playbooks/tailscale-client.yml",),
         "dependencies": (),
     },
     "forgejo_runner": {
@@ -91,6 +91,38 @@ def normalize_services(value: Any, path: Path) -> list[str]:
     return services
 
 
+def ansible_playbooks(services: list[str]) -> list[str]:
+    return [
+        playbook
+        for service in services
+        for playbook in SERVICES[service]["playbooks"]
+    ]
+
+
+def all_ansible_playbooks() -> list[str]:
+    playbooks: list[str] = []
+    for service in SERVICES:
+        for playbook in SERVICES[service]["playbooks"]:
+            if playbook not in playbooks:
+                playbooks.append(playbook)
+    return playbooks
+
+
+def settings_summary(settings: dict[str, Any]) -> str:
+    path = settings["path"]
+    status = str(path) if Path(path).exists() else f"{path} missing; using defaults"
+    services = settings["services"]
+    service_text = ", ".join(services) if services else "none"
+    lines = [f"Settings file: {status}", f"Enabled services: {service_text}"]
+    playbooks = ansible_playbooks(services)
+    if playbooks:
+        lines.append("Ansible playbooks:")
+        lines.extend(f"  {playbook}" for playbook in playbooks)
+    else:
+        lines.append("Ansible playbooks: none")
+    return "\n".join(lines)
+
+
 def load_settings(path: Path | None = None) -> dict[str, Any]:
     resolved_path = path or settings_path()
     raw = load_raw(resolved_path)
@@ -128,7 +160,9 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("validate")
     subparsers.add_parser("values-remote")
     subparsers.add_parser("services")
-    subparsers.add_parser("ansible-playbooks")
+    ansible_playbooks_parser = subparsers.add_parser("ansible-playbooks")
+    ansible_playbooks_parser.add_argument("--all", action="store_true")
+    subparsers.add_parser("summary")
     subparsers.add_parser("tofu-var")
     args = parser.parse_args(argv)
 
@@ -145,9 +179,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "services":
         print(" ".join(settings["services"]))
     elif args.command == "ansible-playbooks":
-        for service in settings["services"]:
-            for playbook in SERVICES[service]["playbooks"]:
-                print(playbook)
+        playbooks = all_ansible_playbooks() if args.all else ansible_playbooks(settings["services"])
+        for playbook in playbooks:
+            print(playbook)
+    elif args.command == "summary":
+        print(settings_summary(settings))
     elif args.command == "tofu-var":
         print(json.dumps(settings["services"]))
     return 0

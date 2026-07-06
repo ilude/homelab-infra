@@ -48,13 +48,8 @@ class SettingsTests(unittest.TestCase):
             settings = settings_script.load_settings(path)
         finally:
             path.unlink()
-        playbooks = [
-            playbook
-            for service in settings["services"]
-            for playbook in settings_script.SERVICE_PLAYBOOKS[service]
-        ]
         self.assertEqual(
-            playbooks,
+            settings_script.ansible_playbooks(settings["services"]),
             [
                 "infra/ansible/playbooks/technitium.yml",
                 "infra/ansible/playbooks/caddy-proxy.yml",
@@ -62,13 +57,16 @@ class SettingsTests(unittest.TestCase):
             ],
         )
 
-    def test_tailscale_client_is_valid_without_ansible_playbook(self) -> None:
+    def test_tailscale_client_adds_playbook(self) -> None:
         path = self.write_settings({"services": ["tailscale_client"]})
         try:
             settings = settings_script.load_settings(path)
         finally:
             path.unlink()
-        self.assertEqual(settings["services"], ["tailscale_client"])
+        self.assertEqual(
+            settings_script.ansible_playbooks(settings["services"]),
+            ["infra/ansible/playbooks/tailscale-client.yml"],
+        )
 
     def test_forgejo_runner_requires_forgejo(self) -> None:
         path = self.write_settings({"services": ["forgejo_runner"]})
@@ -84,13 +82,8 @@ class SettingsTests(unittest.TestCase):
             settings = settings_script.load_settings(path)
         finally:
             path.unlink()
-        playbooks = [
-            playbook
-            for service in settings["services"]
-            for playbook in settings_script.SERVICE_PLAYBOOKS[service]
-        ]
         self.assertEqual(
-            playbooks,
+            settings_script.ansible_playbooks(settings["services"]),
             [
                 "infra/ansible/playbooks/forgejo.yml",
                 "infra/ansible/playbooks/forgejo-runner.yml",
@@ -103,13 +96,8 @@ class SettingsTests(unittest.TestCase):
             settings = settings_script.load_settings(path)
         finally:
             path.unlink()
-        playbooks = [
-            playbook
-            for service in settings["services"]
-            for playbook in settings_script.SERVICE_PLAYBOOKS[service]
-        ]
         self.assertEqual(
-            playbooks,
+            settings_script.ansible_playbooks(settings["services"]),
             [
                 "infra/ansible/playbooks/infisical.yml",
                 "infra/ansible/playbooks/hermes.yml",
@@ -122,20 +110,31 @@ class SettingsTests(unittest.TestCase):
             settings = settings_script.load_settings(path)
         finally:
             path.unlink()
-        playbooks = [
-            playbook
-            for service in settings["services"]
-            for playbook in settings_script.SERVICE_PLAYBOOKS[service]
-        ]
         self.assertEqual(
-            playbooks,
+            settings_script.ansible_playbooks(settings["services"]),
             [
                 "infra/ansible/playbooks/technitium.yml",
                 "infra/ansible/playbooks/caddy-proxy.yml",
                 "infra/ansible/playbooks/technitium-dns.yml",
                 "infra/ansible/playbooks/forgejo.yml",
+                "infra/ansible/playbooks/tailscale-client.yml",
             ],
         )
+
+    def test_all_ansible_playbooks_are_unique(self) -> None:
+        playbooks = settings_script.all_ansible_playbooks()
+        self.assertIn("infra/ansible/playbooks/tailscale-client.yml", playbooks)
+        self.assertEqual(len(playbooks), len(set(playbooks)))
+
+    def test_summary_lists_services_and_playbooks(self) -> None:
+        path = self.write_settings({"services": ["tailscale_client"]})
+        try:
+            settings = settings_script.load_settings(path)
+        finally:
+            path.unlink()
+        summary = settings_script.settings_summary(settings)
+        self.assertIn("Enabled services: tailscale_client", summary)
+        self.assertIn("infra/ansible/playbooks/tailscale-client.yml", summary)
 
 
 if __name__ == "__main__":

@@ -59,6 +59,14 @@ class ParseEnvTests(unittest.TestCase):
         finally:
             path.unlink()
 
+    def test_tailscale_auth_key_is_allowed(self) -> None:
+        path = self.write_env("TAILSCALE_AUTH_KEY=tskey-example-placeholder\n")
+        try:
+            values = parse_env_script.parse_env(path)
+        finally:
+            path.unlink()
+        self.assertEqual(values["TAILSCALE_AUTH_KEY"], "tskey-example-placeholder")
+
     def test_keys_mode_prints_only_keys(self) -> None:
         path = self.write_env("PVE_HOST=proxmox.example.internal\n")
         try:

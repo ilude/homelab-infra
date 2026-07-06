@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import tempfile
@@ -108,11 +110,15 @@ class DnsValidationTests(unittest.TestCase):
 
 
 class FakeClient:
-    def __init__(self) -> None:
+    def __init__(self, records: dict[tuple[str, str, str], dict[str, str]] | None = None) -> None:
         self.calls: list[tuple[str, dict[str, str]]] = []
+        self.records = records or {}
 
-    def call(self, path: str, params: dict[str, str]) -> dict[str, str]:
+    def call(self, path: str, params: dict[str, str]) -> dict[str, object]:
         self.calls.append((path, params))
+        if path == "/zones/records/get":
+            record = self.records.get((params["zone"], params["domain"], params["type"]))
+            return {"status": "ok", "records": [record] if record else []}
         return {"status": "ok"}
 
 
@@ -170,6 +176,61 @@ class DnsApplyTests(unittest.TestCase):
         )
         self.assertEqual(cname_record["zone"], "example.internal")
         self.assertEqual(cname_record["cname"], "dns.example.internal")
+
+    def test_matching_a_and_cname_records_are_not_upserted(self) -> None:
+        client = FakeClient(
+            {
+                ("example.internal", "dns.example.internal", "A"): {
+                    "type": "A",
+                    "domain": "dns.example.internal",
+                    "ipAddress": "192.0.2.53",
+                },
+                ("apps.example.net", "app.apps.example.net", "A"): {
+                    "type": "A",
+                    "domain": "app.apps.example.net",
+                    "ipAddress": "192.0.2.20",
+                },
+                ("example.internal", "www.example.internal", "CNAME"): {
+                    "type": "CNAME",
+                    "domain": "www.example.internal",
+                    "cname": "dns.example.internal",
+                },
+            }
+        )
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            apply_dns.apply_config(apply_dns.validate_config(VALID_CONFIG), client)
+
+        changed_records = [
+            params
+            for path, params in client.calls
+            if path == "/zones/records/add" and params["type"] in {"A", "CNAME"}
+        ]
+        self.assertEqual(changed_records, [])
+        self.assertNotIn("upserted A", buffer.getvalue())
+        self.assertNotIn("upserted CNAME", buffer.getvalue())
+
+    def test_changed_a_record_is_upserted(self) -> None:
+        client = FakeClient(
+            {
+                ("example.internal", "dns.example.internal", "A"): {
+                    "type": "A",
+                    "domain": "dns.example.internal",
+                    "ipAddress": "192.0.2.54",
+                }
+            }
+        )
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            apply_dns.apply_config(apply_dns.validate_config(VALID_CONFIG), client)
+
+        changed_a_records = [
+            params
+            for path, params in client.calls
+            if path == "/zones/records/add" and params["type"] == "A"
+        ]
+        self.assertTrue(any(record["domain"] == "dns.example.internal" for record in changed_a_records))
+        self.assertIn("upserted A dns.example.internal", buffer.getvalue())
 
 
 if __name__ == "__main__":

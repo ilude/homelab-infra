@@ -15,7 +15,17 @@
       - --
       - bash
       - -lc
-      - DEBIAN_FRONTEND=noninteractive apt-get install -y caddy ca-certificates curl
+      - >-
+        set -euo pipefail;
+        packages="caddy ca-certificates curl";
+        missing=0;
+        for package in ${packages}; do
+          dpkg-query -W "${package}" >/dev/null 2>&1 || missing=1;
+        done;
+        if [[ "${missing}" -eq 1 ]]; then
+          DEBIAN_FRONTEND=noninteractive apt-get update;
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};
+        fi
   changed_when: false
 
 - name: Check whether Caddy has Cloudflare DNS module
@@ -185,7 +195,7 @@
       - --
       - bash
       - -lc
-      - set -a && . /etc/caddy/env && set +a && caddy fmt --overwrite /etc/caddy/Caddyfile && caddy validate --config /etc/caddy/Caddyfile
+      - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
   changed_when: false
 
 - name: Enable Forgejo Caddy service

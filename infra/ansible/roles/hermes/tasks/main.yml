@@ -19,10 +19,15 @@
       - -lc
       - >-
         set -euo pipefail;
-        DEBIAN_FRONTEND=noninteractive apt-get update;
-        DEBIAN_FRONTEND=noninteractive apt-get install -y
-        ca-certificates caddy curl docker.io git gnupg jq openssh-client
-        python3 rsync tar unzip;
+        packages="ca-certificates caddy curl docker.io git gnupg jq openssh-client python3 rsync tar unzip";
+        missing=0;
+        for package in ${packages}; do
+          dpkg-query -W "${package}" >/dev/null 2>&1 || missing=1;
+        done;
+        if [[ "${missing}" -eq 1 ]]; then
+          DEBIAN_FRONTEND=noninteractive apt-get update;
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};
+        fi;
         systemctl enable --now docker
   changed_when: false
 
@@ -38,11 +43,14 @@
       - >-
         set -euo pipefail;
         version="{{ hermes_compose_version | default('5.3.0') }}";
-        arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
-        install -d -m 0755 /usr/local/lib/docker/cli-plugins;
-        curl -fsSL "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}"
-        -o /usr/local/lib/docker/cli-plugins/docker-compose;
-        chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+        current="$(docker compose version --short 2>/dev/null || true)";
+        if [[ "${current}" != "${version}" ]]; then
+          arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
+          install -d -m 0755 /usr/local/lib/docker/cli-plugins;
+          curl -fsSL "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}"
+          -o /usr/local/lib/docker/cli-plugins/docker-compose;
+          chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose;
+        fi
   changed_when: false
 
 - name: Install just command runner in Hermes LXC
@@ -57,14 +65,17 @@
       - >-
         set -euo pipefail;
         version="{{ hermes_just_version | default('1.55.1') }}";
-        arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
-        target="${arch}-unknown-linux-musl";
-        tmp="$(mktemp -d)";
-        curl -fsSL "https://github.com/casey/just/releases/download/${version}/just-${version}-${target}.tar.gz"
-        -o "${tmp}/just.tar.gz";
-        tar -xzf "${tmp}/just.tar.gz" -C "${tmp}" just;
-        install -m 0755 "${tmp}/just" /usr/local/bin/just;
-        rm -rf "${tmp}"
+        current="$(just --version 2>/dev/null | awk '{print $2}' || true)";
+        if [[ "${current}" != "${version}" ]]; then
+          arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
+          target="${arch}-unknown-linux-musl";
+          tmp="$(mktemp -d)";
+          trap 'rm -rf "${tmp}"' EXIT;
+          curl -fsSL "https://github.com/casey/just/releases/download/${version}/just-${version}-${target}.tar.gz"
+          -o "${tmp}/just.tar.gz";
+          tar -xzf "${tmp}/just.tar.gz" -C "${tmp}" just;
+          install -m 0755 "${tmp}/just" /usr/local/bin/just;
+        fi
   changed_when: false
 
 - name: Ensure Hermes directories exist
@@ -281,7 +292,7 @@
       - --
       - bash
       - -lc
-      - set -a && . /etc/caddy/env && set +a && caddy fmt --overwrite /etc/caddy/Caddyfile && caddy validate --config /etc/caddy/Caddyfile
+      - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
   changed_when: false
 
 - name: Enable Hermes Caddy service

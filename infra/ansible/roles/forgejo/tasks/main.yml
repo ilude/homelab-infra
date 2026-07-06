@@ -16,9 +16,16 @@
       - bash
       - -lc
       - >-
-        DEBIAN_FRONTEND=noninteractive apt-get update &&
-        DEBIAN_FRONTEND=noninteractive apt-get install -y
-        ca-certificates curl git git-lfs openssh-server sqlite3
+        set -euo pipefail;
+        packages="ca-certificates curl git git-lfs openssh-server sqlite3";
+        missing=0;
+        for package in ${packages}; do
+          dpkg-query -W "${package}" >/dev/null 2>&1 || missing=1;
+        done;
+        if [[ "${missing}" -eq 1 ]]; then
+          DEBIAN_FRONTEND=noninteractive apt-get update;
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};
+        fi
   changed_when: false
 
 - name: Enable Git LFS system hooks

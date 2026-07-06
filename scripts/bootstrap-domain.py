@@ -10,46 +10,15 @@ import shlex
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from envfile import get_env_value, set_env_value
+
 DEFAULT_VALUES_DIR = Path("values")
 PLACEHOLDER_DOMAINS = ("example.internal", "example.net", "example.com")
 
 
 def env_value(path: Path, key: str) -> str:
-    pattern = re.compile(rf"^\s*(?:export\s+)?{re.escape(key)}=(.*)$")
-    if not path.exists():
-        return ""
-    for line in path.read_text(encoding="utf-8").splitlines():
-        match = pattern.match(line)
-        if not match:
-            continue
-        try:
-            parts = shlex.split(match.group(1), posix=True, comments=False)
-        except ValueError:
-            return ""
-        return parts[0] if len(parts) == 1 else ""
-    return ""
-
-
-def shell_quote(value: str) -> str:
-    return "'" + value.replace("'", "'\\''") + "'"
-
-
-def set_env_value(path: Path, key: str, value: str) -> None:
-    line = f"export {key}={shell_quote(value)}"
-    old_lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    pattern = re.compile(rf"^\s*(?:export\s+)?{re.escape(key)}=")
-    new_lines: list[str] = []
-    replaced = False
-    for old_line in old_lines:
-        if pattern.match(old_line):
-            if not replaced:
-                new_lines.append(line)
-                replaced = True
-            continue
-        new_lines.append(old_line)
-    if not replaced:
-        new_lines.append(line)
-    path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    return get_env_value(path, key)
 
 
 def tfvar_value(path: Path, key: str) -> str:

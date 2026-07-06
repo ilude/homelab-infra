@@ -43,6 +43,16 @@ class StorageVarsTests(unittest.TestCase):
             ],
         )
 
+    def test_format_storage_summary_outputs_none(self) -> None:
+        self.assertEqual(storage_vars.format_storage_summary([]), "Storage prep summary:\n  none")
+
+    def test_format_storage_summary_outputs_datasets(self) -> None:
+        text = storage_vars.format_storage_summary(
+            [{"name": "forgejo", "dataset": "tank/forgejo", "mountpoint": "/tank/forgejo", "uid": 100000, "gid": 100000}]
+        )
+        self.assertIn("forgejo", text)
+        self.assertIn("dataset=tank/forgejo", text)
+
     def test_main_outputs_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -69,6 +79,24 @@ class StorageVarsTests(unittest.TestCase):
             output.append(buffer.getvalue())
             payload = json.loads(output[0])
             self.assertEqual(payload["storage_datasets"][0]["dataset"], "tank/forgejo")
+
+    def test_main_outputs_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings_path = root / "settings.json"
+            tfvars_path = root / "terraform.tfvars"
+            settings_path.write_text('{"services":["technitium"]}\n', encoding="utf-8")
+            tfvars_path.write_text("", encoding="utf-8")
+
+            import contextlib
+            import io
+
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                rc = storage_vars.main(["--settings", str(settings_path), "--tfvars", str(tfvars_path), "--summary"])
+
+            self.assertEqual(rc, 0)
+            self.assertIn("Storage prep summary:", buffer.getvalue())
 
 
 if __name__ == "__main__":

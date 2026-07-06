@@ -177,6 +177,48 @@ def bool_param(value: bool) -> str:
     return "true" if value else "false"
 
 
+def response_records(result: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    for key in ("records", "response"):
+        value = result.get(key)
+        if isinstance(value, list):
+            return [record for record in value if isinstance(record, Mapping)]
+        if isinstance(value, dict):
+            records = value.get("records")
+            if isinstance(records, list):
+                return [record for record in records if isinstance(record, Mapping)]
+            if value.get("name") or value.get("domain"):
+                return [value]
+    record = result.get("record")
+    if isinstance(record, dict):
+        return [record]
+    return []
+
+
+def record_matches(
+    client: TechnitiumClient,
+    zone: str,
+    domain: str,
+    record_type: str,
+    value_field: str,
+    desired_value: str,
+) -> bool:
+    try:
+        result = client.call(
+            "/zones/records/get",
+            {"zone": zone, "domain": domain, "type": record_type},
+        )
+    except RuntimeError:
+        return False
+    for record in response_records(result):
+        if str(record.get("type", record_type)).upper() != record_type:
+            continue
+        if str(record.get("name", record.get("domain", domain))).rstrip(".") != domain:
+            continue
+        if str(record.get(value_field, "")).rstrip(".") == desired_value.rstrip("."):
+            return True
+    return False
+
+
 def apply_config(config: Mapping[str, Any], client: TechnitiumClient) -> None:
     zones = config["zones"]
     settings = config.get("settings")
@@ -226,10 +268,14 @@ def apply_config(config: Mapping[str, Any], client: TechnitiumClient) -> None:
         print(f"configured forwarders {zone}")
 
     for domain, ip_address in config["a_records"].items():
+        zone = zone_for(domain, zones)
+        if record_matches(client, zone, domain, "A", "ipAddress", ip_address):
+            print(f"unchanged A {domain}")
+            continue
         client.call(
             "/zones/records/add",
             {
-                "zone": zone_for(domain, zones),
+                "zone": zone,
                 "domain": domain,
                 "type": "A",
                 "ttl": "300",
@@ -240,10 +286,14 @@ def apply_config(config: Mapping[str, Any], client: TechnitiumClient) -> None:
         print(f"upserted A {domain}")
 
     for domain, cname in config["cname_records"].items():
+        zone = zone_for(domain, zones)
+        if record_matches(client, zone, domain, "CNAME", "cname", cname):
+            print(f"unchanged CNAME {domain}")
+            continue
         client.call(
             "/zones/records/add",
             {
-                "zone": zone_for(domain, zones),
+                "zone": zone,
                 "domain": domain,
                 "type": "CNAME",
                 "ttl": "300",

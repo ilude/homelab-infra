@@ -34,7 +34,7 @@ class TfplanMetadataTests(unittest.TestCase):
     def test_create_and_verify_metadata(self) -> None:
         temp_dir, repo, plan, metadata = self.make_repo()
         with temp_dir:
-            tfplan_metadata.create_metadata(plan, metadata, repo, 24)
+            tfplan_metadata.create_metadata(plan, metadata, repo, 24, {"resource_changes": []})
             tfplan_metadata.verify_metadata(plan, metadata, repo)
 
     def test_missing_metadata_fails(self) -> None:
@@ -46,7 +46,7 @@ class TfplanMetadataTests(unittest.TestCase):
     def test_changed_plan_hash_fails(self) -> None:
         temp_dir, repo, plan, metadata = self.make_repo()
         with temp_dir:
-            tfplan_metadata.create_metadata(plan, metadata, repo, 24)
+            tfplan_metadata.create_metadata(plan, metadata, repo, 24, {"resource_changes": []})
             plan.write_text("changed\n")
             with self.assertRaises(tfplan_metadata.MetadataError):
                 tfplan_metadata.verify_metadata(plan, metadata, repo)
@@ -54,7 +54,7 @@ class TfplanMetadataTests(unittest.TestCase):
     def test_changed_input_hash_fails(self) -> None:
         temp_dir, repo, plan, metadata = self.make_repo()
         with temp_dir:
-            tfplan_metadata.create_metadata(plan, metadata, repo, 24)
+            tfplan_metadata.create_metadata(plan, metadata, repo, 24, {"resource_changes": []})
             (repo / "values" / "dns-records.local.json").write_text('{"changed": true}\n')
             with self.assertRaises(tfplan_metadata.MetadataError):
                 tfplan_metadata.verify_metadata(plan, metadata, repo)
@@ -62,12 +62,66 @@ class TfplanMetadataTests(unittest.TestCase):
     def test_expired_plan_fails(self) -> None:
         temp_dir, repo, plan, metadata = self.make_repo()
         with temp_dir:
-            tfplan_metadata.create_metadata(plan, metadata, repo, 24)
+            tfplan_metadata.create_metadata(plan, metadata, repo, 24, {"resource_changes": []})
             data = metadata.read_text(encoding="utf-8")
             expired = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
             metadata.write_text(data.replace(data.split('"expires_at": "')[1].split('"')[0], expired))
             with self.assertRaises(tfplan_metadata.MetadataError):
                 tfplan_metadata.verify_metadata(plan, metadata, repo)
+
+    def test_summarize_plan_counts_destructive_changes(self) -> None:
+        summary = tfplan_metadata.summarize_plan(
+            {
+                "resource_changes": [
+                    {"address": "resource.create", "change": {"actions": ["create"]}},
+                    {"address": "resource.update", "change": {"actions": ["update"]}},
+                    {"address": "resource.delete", "change": {"actions": ["delete"]}},
+                    {"address": "resource.replace", "change": {"actions": ["delete", "create"]}},
+                ]
+            }
+        )
+
+        self.assertEqual(summary["resource_changes"]["create"], 1)
+        self.assertEqual(summary["resource_changes"]["update"], 1)
+        self.assertEqual(summary["resource_changes"]["delete"], 1)
+        self.assertEqual(summary["resource_changes"]["replace"], 1)
+        self.assertTrue(summary["destructive"])
+        self.assertEqual(len(summary["destructive_changes"]), 2)
+
+    def test_destructive_plan_requires_allow_destroy(self) -> None:
+        temp_dir, repo, plan, metadata = self.make_repo()
+        with temp_dir:
+            tfplan_metadata.create_metadata(
+                plan,
+                metadata,
+                repo,
+                24,
+                {"resource_changes": [{"address": "resource.delete", "change": {"actions": ["delete"]}}]},
+            )
+            with self.assertRaises(tfplan_metadata.MetadataError):
+                tfplan_metadata.verify_metadata(plan, metadata, repo)
+            tfplan_metadata.verify_metadata(plan, metadata, repo, allow_destroy=True)
+
+    def test_missing_summary_fails_closed(self) -> None:
+        temp_dir, repo, plan, metadata = self.make_repo()
+        with temp_dir:
+            data = tfplan_metadata.create_metadata(plan, metadata, repo, 24, {"resource_changes": []})
+            del data["summary"]
+            metadata.write_text(tfplan_metadata.json.dumps(data), encoding="utf-8")
+            with self.assertRaises(tfplan_metadata.MetadataError):
+                tfplan_metadata.verify_metadata(plan, metadata, repo)
+
+    def test_format_plan_summary_lists_destructive_addresses(self) -> None:
+        text = tfplan_metadata.format_plan_summary(
+            {
+                "resource_changes": {"create": 0, "update": 0, "replace": 1, "delete": 0},
+                "destructive": True,
+                "destructive_changes": [{"address": "resource.replace", "actions": "delete/create"}],
+            }
+        )
+
+        self.assertIn("resource.replace", text)
+        self.assertIn("Apply is gated", text)
 
 
 if __name__ == "__main__":

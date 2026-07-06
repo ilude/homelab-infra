@@ -32,6 +32,9 @@ class TfvarsInventoryTests(unittest.TestCase):
         self.assertEqual(hostvars["technitium_dns"]["technitium_vmid"], 106)
         self.assertEqual(hostvars["forgejo_lxc"]["ansible_host"], "192.0.2.62")
         self.assertEqual(hostvars["forgejo_lxc"]["forgejo_domain"], "git.example.internal")
+        self.assertEqual(inventory["all"]["vars"]["technitium_vmid"], 106)
+        self.assertEqual(inventory["all"]["vars"]["forgejo_vmid"], 107)
+        self.assertEqual(inventory["all"]["vars"]["forgejo_domain"], "git.example.internal")
         self.assertEqual(inventory["services"]["children"], ["technitium", "forgejo"])
 
     def test_dhcp_address_is_not_used_as_ansible_host(self) -> None:
@@ -41,6 +44,19 @@ class TfvarsInventoryTests(unittest.TestCase):
         )
 
         self.assertNotIn("ansible_host", inventory["_meta"]["hostvars"]["forgejo_lxc"])
+
+    def test_tailscale_enabled_is_promoted_to_all_vars(self) -> None:
+        inventory = tfvars_inventory.build_inventory(
+            {
+                "tailscale_client_vmid": 108,
+                "tailscale_client_ipv4_address": "192.0.2.63",
+                "tailscale_client_enabled": False,
+            },
+            ["tailscale_client"],
+        )
+
+        self.assertFalse(inventory["all"]["vars"]["tailscale_client_enabled"])
+        self.assertEqual(inventory["all"]["vars"]["tailscale_client_vmid"], 108)
 
     def test_load_tfvars_uses_python_hcl2(self) -> None:
         fake_file = mock.mock_open(read_data='technitium_container_vmid = 106\n')

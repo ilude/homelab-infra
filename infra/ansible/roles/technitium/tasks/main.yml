@@ -9,9 +9,19 @@
       - bash
       - -lc
       - >-
-        DEBIAN_FRONTEND=noninteractive apt-get update &&
-        (DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates libicu72 ||
-        DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates libicu-dev)
+        set -euo pipefail;
+        missing=0;
+        for package in curl ca-certificates; do
+          dpkg-query -W "${package}" >/dev/null 2>&1 || missing=1;
+        done;
+        if ! dpkg-query -W libicu72 >/dev/null 2>&1 && ! dpkg-query -W libicu-dev >/dev/null 2>&1; then
+          missing=1;
+        fi;
+        if [[ "${missing}" -eq 1 ]]; then
+          DEBIAN_FRONTEND=noninteractive apt-get update;
+          (DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates libicu72 ||
+          DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates libicu-dev);
+        fi
   changed_when: false
 
 - name: Check Technitium service presence

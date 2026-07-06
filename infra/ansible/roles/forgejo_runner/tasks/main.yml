@@ -12,6 +12,7 @@
     fail_msg: >-
       forgejo_runner_vmid, forgejo_vmid, forgejo_runner_url, forgejo_runner_scope,
       forgejo_runner_registration_secret, and forgejo_runner_label are required.
+  no_log: true
 
 - name: Install Forgejo Actions runner dependencies in LXC
   ansible.builtin.command:
@@ -24,10 +25,15 @@
       - -lc
       - >-
         set -euo pipefail;
-        DEBIAN_FRONTEND=noninteractive apt-get update;
-        DEBIAN_FRONTEND=noninteractive apt-get install -y
-        ca-certificates curl docker.io fuse-overlayfs git gnupg jq
-        nodejs npm openssh-client python3 rsync tar;
+        packages="ca-certificates curl docker.io fuse-overlayfs git gnupg jq nodejs npm openssh-client python3 rsync tar";
+        missing=0;
+        for package in ${packages}; do
+          dpkg-query -W "${package}" >/dev/null 2>&1 || missing=1;
+        done;
+        if [[ "${missing}" -eq 1 ]]; then
+          DEBIAN_FRONTEND=noninteractive apt-get update;
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};
+        fi;
         systemctl enable --now docker
   changed_when: false
 
@@ -98,11 +104,14 @@
       - >-
         set -euo pipefail;
         version="{{ forgejo_runner_compose_version | default('5.3.0') }}";
-        arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
-        install -d -m 0755 /usr/local/lib/docker/cli-plugins;
-        curl -fsSL "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}"
-        -o /usr/local/lib/docker/cli-plugins/docker-compose;
-        chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+        current="$(docker compose version --short 2>/dev/null || true)";
+        if [[ "${current}" != "${version}" ]]; then
+          arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
+          install -d -m 0755 /usr/local/lib/docker/cli-plugins;
+          curl -fsSL "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}"
+          -o /usr/local/lib/docker/cli-plugins/docker-compose;
+          chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose;
+        fi
   changed_when: false
 
 - name: Install just command runner
@@ -117,14 +126,17 @@
       - >-
         set -euo pipefail;
         version="{{ forgejo_runner_just_version | default('1.55.1') }}";
-        arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
-        target="${arch}-unknown-linux-musl";
-        tmp="$(mktemp -d)";
-        curl -fsSL "https://github.com/casey/just/releases/download/${version}/just-${version}-${target}.tar.gz"
-        -o "${tmp}/just.tar.gz";
-        tar -xzf "${tmp}/just.tar.gz" -C "${tmp}" just;
-        install -m 0755 "${tmp}/just" /usr/local/bin/just;
-        rm -rf "${tmp}"
+        current="$(just --version 2>/dev/null | awk '{print $2}' || true)";
+        if [[ "${current}" != "${version}" ]]; then
+          arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
+          target="${arch}-unknown-linux-musl";
+          tmp="$(mktemp -d)";
+          trap 'rm -rf "${tmp}"' EXIT;
+          curl -fsSL "https://github.com/casey/just/releases/download/${version}/just-${version}-${target}.tar.gz"
+          -o "${tmp}/just.tar.gz";
+          tar -xzf "${tmp}/just.tar.gz" -C "${tmp}" just;
+          install -m 0755 "${tmp}/just" /usr/local/bin/just;
+        fi
   changed_when: false
 
 - name: Ensure runner user and directories exist
@@ -256,6 +268,30 @@
   changed_when: true
   notify: Restart forgejo-runner
 
+- name: Check existing Forgejo Actions runner registration
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ forgejo_vmid | string }}"
+      - --
+      - runuser
+      - -u
+      - git
+      - --
+      - sqlite3
+      - /var/lib/forgejo/data/forgejo.db
+      - >-
+        select ar.uuid from action_runner ar
+        join repository r on r.id=ar.repo_id
+        where ar.name='{{ forgejo_runner_name | default('homelab-deploy') }}'
+        and lower(r.owner_name || '/' || r.lower_name)=lower('{{ forgejo_runner_scope }}')
+        and ar.repo_id != 0
+        limit 1;
+  register: forgejo_runner_existing_registration
+  changed_when: false
+  no_log: true
+
 - name: Register Forgejo Actions runner with Forgejo
   ansible.builtin.command:
     argv:
@@ -277,6 +313,26 @@
     FORGEJO_RUNNER_SECRET: "{{ forgejo_runner_registration_secret }}"
   register: forgejo_runner_registration
   changed_when: false
+  no_log: true
+  when: forgejo_runner_existing_registration.stdout | trim == ""
+
+- name: Set Forgejo runner UUID
+  ansible.builtin.set_fact:
+    forgejo_runner_uuid: >-
+      {{
+        forgejo_runner_existing_registration.stdout | trim
+        if forgejo_runner_existing_registration.stdout | trim != ""
+        else forgejo_runner_registration.stdout | trim
+      }}
+  no_log: true
+
+- name: Validate Forgejo runner UUID was resolved
+  ansible.builtin.assert:
+    that:
+      - forgejo_runner_uuid is defined
+      - forgejo_runner_uuid | length > 0
+    fail_msg: Forgejo runner UUID could not be resolved.
+  no_log: true
 
 - name: Normalize Forgejo repository-scoped runner ownership
   ansible.builtin.command:
@@ -293,7 +349,7 @@
       - /var/lib/forgejo/data/forgejo.db
       - >-
         update action_runner set owner_id=0
-        where name='{{ forgejo_runner_name | default('homelab-deploy') }}'
+        where uuid='{{ forgejo_runner_uuid }}'
         and repo_id != 0 and owner_id != 0;
   changed_when: false
 
@@ -334,8 +390,6 @@
     src: runner-config.yml.j2
     dest: /tmp/forgejo-runner-config.{{ forgejo_runner_vmid }}.yml
     mode: "0640"
-  vars:
-    forgejo_runner_uuid: "{{ forgejo_runner_registration.stdout | trim }}"
   no_log: true
 
 - name: Check Forgejo runner config drift

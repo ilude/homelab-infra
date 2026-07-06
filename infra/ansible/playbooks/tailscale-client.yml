@@ -7,4 +7,6 @@
       vars:
         lxc_ready_vmid: "{{ tailscale_client_vmid }}"
         lxc_ready_name: tailscale_client
-    - tailscale_client
+      when: tailscale_client_enabled | default(false) | bool
+    - role: tailscale_client
+      when: tailscale_client_enabled | default(false) | bool

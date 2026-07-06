@@ -27,9 +27,15 @@
       - -lc
       - >-
         set -euo pipefail;
-        DEBIAN_FRONTEND=noninteractive apt-get update;
-        DEBIAN_FRONTEND=noninteractive apt-get install -y
-        ca-certificates caddy curl docker.io git gnupg openssh-client;
+        packages="ca-certificates caddy curl docker.io git gnupg openssh-client";
+        missing=0;
+        for package in ${packages}; do
+          dpkg-query -W "${package}" >/dev/null 2>&1 || missing=1;
+        done;
+        if [[ "${missing}" -eq 1 ]]; then
+          DEBIAN_FRONTEND=noninteractive apt-get update;
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};
+        fi;
         systemctl enable --now docker
   changed_when: false
 
@@ -45,11 +51,14 @@
       - >-
         set -euo pipefail;
         version="{{ infisical_compose_version | default('5.3.0') }}";
-        arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
-        install -d -m 0755 /usr/local/lib/docker/cli-plugins;
-        curl -fsSL "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}"
-        -o /usr/local/lib/docker/cli-plugins/docker-compose;
-        chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+        current="$(docker compose version --short 2>/dev/null || true)";
+        if [[ "${current}" != "${version}" ]]; then
+          arch="$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')";
+          install -d -m 0755 /usr/local/lib/docker/cli-plugins;
+          curl -fsSL "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}"
+          -o /usr/local/lib/docker/cli-plugins/docker-compose;
+          chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose;
+        fi
   changed_when: false
 
 - name: Ensure Infisical directories exist
@@ -328,7 +337,7 @@
       - --
       - bash
       - -lc
-      - set -a && . /etc/caddy/env && set +a && caddy fmt --overwrite /etc/caddy/Caddyfile && caddy validate --config /etc/caddy/Caddyfile
+      - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
   changed_when: false
 
 - name: Enable Infisical Caddy service

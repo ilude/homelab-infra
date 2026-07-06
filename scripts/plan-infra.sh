@@ -6,6 +6,8 @@ rm -f tfplan tfplan.meta.json ./*.tfplan ./*.tfplan.meta.json
 # shellcheck disable=SC2016
 scripts/run-infra.sh bash -euo pipefail -c '
 python scripts/workspace-preflight.py --require-values
+python scripts/settings.py summary
+python scripts/storage-vars.py --summary
 
 tofu -chdir=infra/opentofu init
 
@@ -17,5 +19,5 @@ tofu -chdir=infra/opentofu plan \
   -out=../../tfplan
 
 tofu -chdir=infra/opentofu show ../../tfplan
-python scripts/tfplan-metadata.py create --plan tfplan --metadata tfplan.meta.json
+python scripts/tfplan-metadata.py create --plan tfplan --metadata tfplan.meta.json --print-summary
 '

@@ -49,19 +49,17 @@ require_file() {
   fi
 }
 
+envfile_python() {
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+    python3 scripts/envfile.py "$@"
+  else
+    scripts/python.sh scripts/envfile.py "$@"
+  fi
+}
+
 get_env_value() {
   local key="$1"
-  awk -v key="$key" '
-    $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "=" {
-      sub("^[[:space:]]*export[[:space:]]+", "")
-      sub("^[^=]*=", "")
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "")
-      gsub(/^"|"$/, "")
-      gsub(/^'\''|'\''$/, "")
-      print
-      exit
-    }
-  ' "$env_file"
+  envfile_python get "$env_file" "$key"
 }
 
 is_placeholder_token() {
@@ -89,38 +87,10 @@ confirm() {
   [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
 }
 
-quote_env_value() {
-  local value="$1"
-  printf "'"
-  printf '%s' "$value" | sed "s/'/'\\\\''/g"
-  printf "'"
-}
-
 set_env_var() {
   local key="$1"
   local value="$2"
-  local quoted line tmp
-  quoted="$(quote_env_value "$value")"
-  line="export ${key}=${quoted}"
-  tmp="$(mktemp)"
-  awk -v key="$key" -v line="$line" '
-    BEGIN { done = 0 }
-    $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "=" {
-      if (!done) {
-        print line
-        done = 1
-      }
-      next
-    }
-    { print }
-    END {
-      if (!done) {
-        print line
-      }
-    }
-  ' "$env_file" >"$tmp"
-  cat "$tmp" >"$env_file"
-  rm -f "$tmp"
+  envfile_python set "$env_file" "$key" "$value"
 }
 
 validate_token_name() {

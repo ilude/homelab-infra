@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import re
-import shlex
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from envfile import EnvFileError, parse_env_lines, shell_quote
 
 PROXMOX_KEYS = {
     "PROXMOX_VE_ENDPOINT",
@@ -42,6 +43,10 @@ FORGEJO_KEYS = {
     "FORGEJO_RUNNER_REGISTRATION_SECRET",
 }
 
+TAILSCALE_KEYS = {
+    "TAILSCALE_AUTH_KEY",
+}
+
 INFISICAL_KEYS = {
     "INFISICAL_ENCRYPTION_KEY",
     "INFISICAL_AUTH_SECRET",
@@ -55,10 +60,9 @@ ALLOWED_KEYS = (
     | TECHNITIUM_DNS_KEYS
     | TECHNITIUM_BOOTSTRAP_KEYS
     | FORGEJO_KEYS
+    | TAILSCALE_KEYS
     | INFISICAL_KEYS
 )
-
-KEY_RE = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 
 class EnvError(ValueError):
@@ -66,39 +70,16 @@ class EnvError(ValueError):
 
 
 def parse_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for line_number, raw_line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), 1
-    ):
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-
-        match = KEY_RE.match(line)
-        if not match:
-            raise EnvError(f"{path}:{line_number}: expected KEY=value or export KEY=value")
-
-        key, raw_value = match.groups()
-        if key not in ALLOWED_KEYS:
-            raise EnvError(f"{path}:{line_number}: unsupported environment key {key}")
-        if key in values:
-            raise EnvError(f"{path}:{line_number}: duplicate environment key {key}")
-        try:
-            parts = shlex.split(raw_value, posix=True, comments=False)
-        except ValueError as error:
-            raise EnvError(
-                f"{path}:{line_number}: invalid quoting for {key}: {error}"
-            ) from error
-        if len(parts) != 1:
-            raise EnvError(f"{path}:{line_number}: {key} must have exactly one value")
-        if "\x00" in parts[0]:
-            raise EnvError(f"{path}:{line_number}: {key} contains a NUL byte")
-        values[key] = parts[0]
-    return values
-
-
-def shell_quote(value: str) -> str:
-    return shlex.quote(value)
+    try:
+        entries = parse_env_lines(
+            path.read_text(encoding="utf-8").splitlines(),
+            path,
+            allowed_keys=set(ALLOWED_KEYS),
+            strict_unknown=True,
+        )
+    except EnvFileError as error:
+        raise EnvError(str(error)) from error
+    return {key: entry.value for key, entry in entries.items()}
 
 
 def main(argv: list[str] | None = None) -> int:

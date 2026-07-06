@@ -55,16 +55,7 @@ Treat `[private]` just recipes as implementation details for other recipes only.
 
 Containerized tooling is used for Windows/local consistency. Project commands parse `values/.env` as dotenv-style data through `scripts/parse-env.py` / `scripts/run-infra.sh` and run inside the Docker Compose `infra` service. Do not source `values/.env` directly in new workflow code.
 
-Forgejo Actions deployment monitoring helpers are available for the private values repo workflow:
-
-```bash
-just actions-status [limit]
-just actions-watch [run|latest]
-just actions-logs [run|latest] [tail]
-just actions-runners
-```
-
-These route through `scripts/forgejo-actions-monitor.py`, query Forgejo read-only via the existing Proxmox/Ansible path, and redact logs by default. Do not print unredacted logs unless explicitly requested.
+Forgejo Actions deployment monitoring helpers exist as private workflow plumbing for the private values repo. Agents must not invoke those private recipes directly. If monitoring is needed, ask the operator for the approved public workflow or explicit instructions. The underlying monitor redacts logs by default; do not print unredacted logs unless explicitly requested.
 
 ## Design Doctrine
 

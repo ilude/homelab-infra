@@ -71,20 +71,43 @@ def build_storage_datasets(enabled_services: list[str], tfvars: dict[str, str | 
     return datasets
 
 
+def format_storage_summary(datasets: list[dict[str, str | int]]) -> str:
+    lines = ["Storage prep summary:"]
+    if not datasets:
+        lines.append("  none")
+        return "\n".join(lines)
+    for dataset in datasets:
+        lines.append(
+            "  {name}: dataset={dataset} mountpoint={mountpoint} uid={uid} gid={gid}".format(
+                name=dataset["name"],
+                dataset=dataset["dataset"],
+                mountpoint=dataset["mountpoint"],
+                uid=dataset["uid"],
+                gid=dataset["gid"],
+            )
+        )
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tfvars", type=Path, default=DEFAULT_TFVARS)
     parser.add_argument("--settings", type=Path, default=None)
+    parser.add_argument("--summary", action="store_true")
     args = parser.parse_args(argv)
 
     try:
         loaded_settings = settings.load_settings(args.settings)
         tfvars = load_tfvars(args.tfvars)
-        payload = {"storage_datasets": build_storage_datasets(loaded_settings["services"], tfvars)}
+        datasets = build_storage_datasets(loaded_settings["services"], tfvars)
+        payload = {"storage_datasets": datasets}
     except (settings.SettingsError, StorageVarsError, OSError) as error:
         print(f"storage vars failed: {error}", file=sys.stderr)
         return 1
-    print(json.dumps(payload, separators=(",", ":")))
+    if args.summary:
+        print(format_storage_summary(datasets))
+    else:
+        print(json.dumps(payload, separators=(",", ":")))
     return 0
 
 

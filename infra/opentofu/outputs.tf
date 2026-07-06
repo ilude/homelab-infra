@@ -58,11 +58,6 @@ output "infisical_https_url" {
   value       = local.infisical_enabled ? "https://${var.infisical_server_name}/" : null
 }
 
-output "infisical_data_mount" {
-  description = "Infisical data bind mount from Proxmox host to LXC, or null when disabled."
-  value       = local.infisical_enabled ? "${var.infisical_data_host_path}:${var.infisical_data_mount_path}" : null
-}
-
 output "hermes_container_vmid" {
   description = "Proxmox VMID for the Hermes management LXC, or null when disabled."
   value       = local.hermes_enabled ? proxmox_virtual_environment_container.hermes[0].vm_id : null

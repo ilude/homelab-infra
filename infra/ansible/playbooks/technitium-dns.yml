@@ -19,8 +19,10 @@
       ansible.builtin.command:
         argv:
           - python3
-          - infra/ansible/scripts/apply-technitium-dns.py
+          - "{{ playbook_dir }}/../scripts/apply-technitium-dns.py"
           - "{{ dns_records_file }}"
+      args:
+        chdir: "{{ playbook_dir }}/../../.."
       register: technitium_dns_sync
       changed_when: "'upserted ' in technitium_dns_sync.stdout or 'created zone ' in technitium_dns_sync.stdout"
       retries: 10

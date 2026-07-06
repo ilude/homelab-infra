@@ -19,6 +19,7 @@ INPUT_GLOBS = (
     "infra/opentofu/.terraform.lock.hcl",
     "infra/ansible/scripts/apply-technitium-dns.py",
     "infra/ansible/**/*",
+    "scripts/*.py",
     "ansible.cfg",
     "values/terraform.tfvars",
     "values/dns-records.local.json",

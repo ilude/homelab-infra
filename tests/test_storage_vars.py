@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "storage-vars.py"
+spec = importlib.util.spec_from_file_location("storage_vars", SCRIPT)
+assert spec and spec.loader
+storage_vars = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = storage_vars
+spec.loader.exec_module(storage_vars)
+
+
+class StorageVarsTests(unittest.TestCase):
+    def test_builds_enabled_storage_dataset_vars(self) -> None:
+        tfvars = {
+            "forgejo_data_dataset": "tank/forgejo",
+            "forgejo_data_host_path": "/tank/forgejo",
+            "forgejo_data_host_uid": 100000,
+            "forgejo_data_host_gid": 100000,
+            "infisical_data_dataset": "tank/infisical",
+            "infisical_data_host_path": "/tank/infisical",
+            "infisical_data_host_uid": 100000,
+            "infisical_data_host_gid": 100000,
+        }
+
+        datasets = storage_vars.build_storage_datasets(["technitium", "forgejo"], tfvars)
+
+        self.assertEqual(
+            datasets,
+            [
+                {
+                    "name": "forgejo",
+                    "dataset": "tank/forgejo",
+                    "mountpoint": "/tank/forgejo",
+                    "uid": 100000,
+                    "gid": 100000,
+                }
+            ],
+        )
+
+    def test_main_outputs_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings_path = root / "settings.json"
+            tfvars_path = root / "terraform.tfvars"
+            settings_path.write_text('{"services":["forgejo"]}\n', encoding="utf-8")
+            tfvars_path.write_text(
+                'forgejo_data_dataset = "tank/forgejo"\n'
+                'forgejo_data_host_path = "/tank/forgejo"\n'
+                'forgejo_data_host_uid = 100000\n'
+                'forgejo_data_host_gid = 100000\n',
+                encoding="utf-8",
+            )
+
+            import contextlib
+            import io
+
+            output: list[str] = []
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                rc = storage_vars.main(["--settings", str(settings_path), "--tfvars", str(tfvars_path)])
+
+            self.assertEqual(rc, 0)
+            output.append(buffer.getvalue())
+            payload = json.loads(output[0])
+            self.assertEqual(payload["storage_datasets"][0]["dataset"], "tank/forgejo")
+
+
+if __name__ == "__main__":
+    unittest.main()

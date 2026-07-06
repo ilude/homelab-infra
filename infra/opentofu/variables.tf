@@ -234,7 +234,7 @@ variable "forgejo_container_disk_gb" {
 }
 
 variable "forgejo_data_dataset" {
-  description = "ZFS dataset that backs Forgejo data. The local-exec provisioner creates it idempotently on PVE_HOST."
+  description = "ZFS dataset that backs Forgejo data. Ansible storage prep creates it idempotently on the Proxmox host before OpenTofu apply."
   type        = string
 
   validation {
@@ -505,46 +505,6 @@ variable "infisical_container_disk_gb" {
   description = "Root filesystem size in GB for the Infisical LXC."
   type        = number
   default     = 20
-}
-
-variable "infisical_data_dataset" {
-  description = "ZFS dataset that backs Infisical data. The local-exec provisioner creates it idempotently on PVE_HOST."
-  type        = string
-  default     = "tank/infisical"
-
-  validation {
-    condition     = can(regex("^[A-Za-z0-9_.:-]+(/[A-Za-z0-9_.:-]+)+$", var.infisical_data_dataset))
-    error_message = "infisical_data_dataset must be a ZFS dataset path containing only letters, numbers, dot, underscore, colon, dash, and slash."
-  }
-}
-
-variable "infisical_data_host_path" {
-  description = "Proxmox host path bind-mounted into the Infisical LXC."
-  type        = string
-  default     = "/tank/infisical"
-
-  validation {
-    condition     = can(regex("^/[A-Za-z0-9_./:-]+$", var.infisical_data_host_path))
-    error_message = "infisical_data_host_path must be an absolute path without whitespace or shell metacharacters."
-  }
-}
-
-variable "infisical_data_mount_path" {
-  description = "Mount path inside the Infisical LXC."
-  type        = string
-  default     = "/var/lib/infisical"
-}
-
-variable "infisical_data_host_uid" {
-  description = "Host UID owner for the Infisical bind mount. 100000 maps to root inside the default unprivileged LXC."
-  type        = number
-  default     = 100000
-}
-
-variable "infisical_data_host_gid" {
-  description = "Host GID owner for the Infisical bind mount. 100000 maps to root inside the default unprivileged LXC."
-  type        = number
-  default     = 100000
 }
 
 variable "infisical_started" {

@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Ansible dynamic inventory derived from OpenTofu tfvars."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+import settings
+
+try:
+    import hcl2
+except ImportError as error:  # pragma: no cover - exercised in tooling container
+    print(f"missing python-hcl2 dependency: {error}", file=sys.stderr)
+    raise SystemExit(1) from error
+
+REPO = Path(__file__).resolve().parents[3]
+DEFAULT_TFVARS = REPO / "values" / "terraform.tfvars"
+DEFAULT_ANSIBLE_USER = "root"
+
+SERVICE_HOSTS = {
+    "technitium": {
+        "host": "technitium_dns",
+        "group": "technitium",
+        "vmid_var": "technitium_vmid",
+        "tf_vmid": "technitium_container_vmid",
+        "tf_host": "technitium_container_ipv4_address",
+    },
+    "forgejo": {
+        "host": "forgejo_lxc",
+        "group": "forgejo",
+        "vmid_var": "forgejo_vmid",
+        "tf_vmid": "forgejo_container_vmid",
+        "tf_host": "forgejo_lan_ip",
+        "domain_var": "forgejo_domain",
+        "tf_domain": "forgejo_server_name",
+    },
+    "forgejo_runner": {
+        "host": "forgejo_runner_lxc",
+        "group": "forgejo_runner",
+        "vmid_var": "forgejo_runner_vmid",
+        "tf_vmid": "forgejo_runner_vmid",
+        "tf_host": "forgejo_runner_ipv4_address",
+    },
+    "tailscale_client": {
+        "host": "tailscale_client",
+        "group": "tailscale_client",
+        "vmid_var": "tailscale_client_vmid",
+        "tf_vmid": "tailscale_client_vmid",
+        "tf_host": "tailscale_client_ipv4_address",
+    },
+    "infisical": {
+        "host": "infisical_lxc",
+        "group": "infisical",
+        "vmid_var": "infisical_vmid",
+        "tf_vmid": "infisical_container_vmid",
+        "tf_host": "infisical_lan_ip",
+        "domain_var": "infisical_domain",
+        "tf_domain": "infisical_server_name",
+    },
+    "hermes": {
+        "host": "hermes_lxc",
+        "group": "hermes",
+        "vmid_var": "hermes_vmid",
+        "tf_vmid": "hermes_container_vmid",
+        "tf_host": "hermes_lan_ip",
+        "domain_var": "hermes_domain",
+        "tf_domain": "hermes_server_name",
+    },
+}
+
+
+class InventoryError(ValueError):
+    pass
+
+
+def load_tfvars(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            data = hcl2.load(file)
+    except OSError as error:
+        raise InventoryError(f"cannot read {path}: {error}") from error
+    except Exception as error:
+        raise InventoryError(f"cannot parse {path}: {error}") from error
+    if not isinstance(data, dict):
+        raise InventoryError(f"{path} must contain an object")
+    return data
+
+
+def host_address(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    if text == "dhcp":
+        return ""
+    return text.split("/", 1)[0]
+
+
+def enabled_services(settings_path: Path | None) -> list[str]:
+    loaded = settings.load_settings(settings_path)
+    return loaded["services"]
+
+
+def service_hostvars(service: str, tfvars: dict[str, Any]) -> tuple[str, str, dict[str, Any]] | None:
+    config = SERVICE_HOSTS.get(service)
+    if config is None:
+        return None
+    host = config["host"]
+    group = config["group"]
+    hostvars: dict[str, Any] = {"ansible_user": DEFAULT_ANSIBLE_USER}
+
+    address = host_address(tfvars.get(config["tf_host"]))
+    if address:
+        hostvars["ansible_host"] = address
+
+    vmid = tfvars.get(config["tf_vmid"])
+    if vmid is not None:
+        hostvars[config["vmid_var"]] = vmid
+
+    domain_var = config.get("domain_var")
+    tf_domain = config.get("tf_domain")
+    if domain_var and tf_domain and tfvars.get(tf_domain):
+        hostvars[domain_var] = tfvars[tf_domain]
+
+    return host, group, hostvars
+
+
+def build_inventory(tfvars: dict[str, Any], services: list[str]) -> dict[str, Any]:
+    inventory: dict[str, Any] = {
+        "_meta": {"hostvars": {}},
+        "services": {"children": []},
+    }
+    hostvars = inventory["_meta"]["hostvars"]
+    for service in services:
+        rendered = service_hostvars(service, tfvars)
+        if rendered is None:
+            continue
+        host, group, vars_for_host = rendered
+        inventory[group] = {"hosts": [host]}
+        if group not in inventory["services"]["children"]:
+            inventory["services"]["children"].append(group)
+        hostvars[host] = vars_for_host
+    return inventory
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--list", action="store_true")
+    parser.add_argument("--host", default=None)
+    parser.add_argument("--tfvars", type=Path, default=Path(os.environ.get("ANSIBLE_TFVARS_FILE", DEFAULT_TFVARS)))
+    parser.add_argument("--settings", type=Path, default=None)
+    args = parser.parse_args(argv)
+
+    settings_path = args.settings or (Path(os.environ["INFRA_SETTINGS_FILE"]) if "INFRA_SETTINGS_FILE" in os.environ else None)
+    try:
+        inventory = build_inventory(load_tfvars(args.tfvars), enabled_services(settings_path))
+    except (InventoryError, settings.SettingsError) as error:
+        print(error, file=sys.stderr)
+        return 1
+
+    if args.host:
+        print(json.dumps(inventory.get("_meta", {}).get("hostvars", {}).get(args.host, {})))
+    else:
+        print(json.dumps(inventory))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

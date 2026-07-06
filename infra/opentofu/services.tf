@@ -22,16 +22,6 @@ moved {
 }
 
 moved {
-  from = terraform_data.technitium_dns
-  to   = terraform_data.technitium_dns[0]
-}
-
-moved {
-  from = terraform_data.forgejo_data_dataset
-  to   = terraform_data.forgejo_data_dataset[0]
-}
-
-moved {
   from = proxmox_virtual_environment_container.forgejo
   to   = proxmox_virtual_environment_container.forgejo[0]
 }

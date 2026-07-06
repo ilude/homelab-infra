@@ -1,0 +1,13 @@
+---
+- name: Prepare Proxmox host storage
+  hosts: pve
+  gather_facts: false
+  vars:
+    storage_datasets: []
+  tasks:
+    - name: Prepare requested ZFS datasets
+      ansible.builtin.include_tasks: ../tasks/zfs-dataset.yml
+      loop: "{{ storage_datasets }}"
+      loop_control:
+        loop_var: storage_dataset
+        label: "{{ storage_dataset.name | default(storage_dataset.dataset) }}"

@@ -1,64 +1,5 @@
-resource "terraform_data" "infisical_data_dataset" {
-  count = local.infisical_enabled ? 1 : 0
-
-  input = {
-    dataset    = var.infisical_data_dataset
-    mountpoint = var.infisical_data_host_path
-    uid        = var.infisical_data_host_uid
-    gid        = var.infisical_data_host_gid
-  }
-
-  triggers_replace = {
-    dataset    = var.infisical_data_dataset
-    mountpoint = var.infisical_data_host_path
-    uid        = tostring(var.infisical_data_host_uid)
-    gid        = tostring(var.infisical_data_host_gid)
-  }
-
-  provisioner "local-exec" {
-    interpreter = ["/usr/bin/env", "bash", "-c"]
-    command     = <<-EOT
-      set -euo pipefail
-      : "$${PVE_HOST:?PVE_HOST is required}"
-      ssh -- "$${PVE_HOST}" bash -s -- \
-        "$${INFISICAL_DATA_DATASET}" \
-        "$${INFISICAL_DATA_HOST_PATH}" \
-        "$${INFISICAL_DATA_HOST_UID}" \
-        "$${INFISICAL_DATA_HOST_GID}" <<'REMOTE'
-      set -euo pipefail
-      dataset="$1"
-      mountpoint="$2"
-      uid="$3"
-      gid="$4"
-
-      if ! zfs list -- "$dataset" >/dev/null 2>&1; then
-        zfs create -p -o "mountpoint=$mountpoint" -- "$dataset"
-      else
-        current_mountpoint="$(zfs get -H -o value mountpoint "$dataset")"
-        if [[ "$current_mountpoint" != "$mountpoint" ]]; then
-          zfs set "mountpoint=$mountpoint" -- "$dataset"
-        fi
-      fi
-      zfs mount "$dataset" >/dev/null 2>&1 || true
-      mkdir -p -- "$mountpoint"
-      chown -- "$uid:$gid" "$mountpoint"
-      chmod 0750 -- "$mountpoint"
-      REMOTE
-    EOT
-
-    environment = {
-      INFISICAL_DATA_DATASET   = var.infisical_data_dataset
-      INFISICAL_DATA_HOST_PATH = var.infisical_data_host_path
-      INFISICAL_DATA_HOST_UID  = tostring(var.infisical_data_host_uid)
-      INFISICAL_DATA_HOST_GID  = tostring(var.infisical_data_host_gid)
-    }
-  }
-}
-
 resource "proxmox_virtual_environment_container" "infisical" {
   count = local.infisical_enabled ? 1 : 0
-
-  depends_on = [terraform_data.infisical_data_dataset]
 
   description   = var.infisical_container_description
   node_name     = var.proxmox_node_name
@@ -84,11 +25,6 @@ resource "proxmox_virtual_environment_container" "infisical" {
   disk {
     datastore_id = var.rootfs_datastore_id
     size         = var.infisical_container_disk_gb
-  }
-
-  mount_point {
-    volume = var.infisical_data_host_path
-    path   = var.infisical_data_mount_path
   }
 
   initialization {

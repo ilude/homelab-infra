@@ -158,11 +158,11 @@ OpenTofu manages:
 - Optional Forgejo Actions runner LXC when `forgejo_runner` is enabled in local settings
 - Optional Infisical secrets service LXC with a service-local Caddy frontend
 - Optional Hermes management LXC with SSH tooling and a service-local Caddy landing page
-- Forgejo ZFS bind mount shape
-- Technitium DNS records/settings through `infra/ansible/playbooks/technitium-dns.yml`
+- LXC bind mount attachments for services that use host storage
 
 Ansible manages:
 
+- Proxmox host ZFS dataset/storage preparation before OpenTofu apply
 - Technitium installation
 - Caddy installation/configuration on the Technitium LXC. The scaffold exposes the Technitium UI at both `dns.example.internal` and `technitium.example.internal`; set `caddy_server_names` in private inventory for your real domain aliases.
 - Forgejo installation/configuration, including Actions settings
@@ -171,6 +171,9 @@ Ansible manages:
 - Infisical Docker Compose stack, including PostgreSQL, Redis, and Caddy
 - Hermes management tooling, SSH-oriented bootstrap directories, and Caddy
 - Optional Tailscale installation and private backup restore on the Tailscale client LXC
+- Technitium DNS records/settings through `infra/ansible/playbooks/technitium-dns.yml`
+
+Ansible inventory combines `values/ansible/inventory/local.yml` with `infra/ansible/inventory/tfvars.py`, which derives service hosts, VMIDs, and addresses from `values/terraform.tfvars` using `python-hcl2`.
 
 ## Safety
 
@@ -181,5 +184,3 @@ Do not apply without reviewing `just plan` output. If `just apply` says the save
 `values/.env` is parsed as dotenv-style data by `scripts/parse-env.py`; it is not sourced as shell. Keep required variables from `scaffold/.env.example` in sync with your private `values/.env`.
 
 The tooling container runs as the unprivileged `anvil` user and mounts `${HOST_SSH_DIR:-${HOME}/.ssh}` read-only. It copies public SSH support files into `/home/anvil/.ssh` by default; set `INFRA_COPY_SSH_KEYS=true` only when private keys must be copied into the container for a run.
-
-`scripts/edgeos-static-host-mapping.sh` mutates a live EdgeRouter config and should only be run after explicit review/approval. Use `--dry-run` to inspect commands first.

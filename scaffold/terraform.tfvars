@@ -91,9 +91,6 @@ infisical_container_memory_mb = 4096
 infisical_container_swap_mb   = 1024
 infisical_container_disk_gb   = 20
 
-infisical_data_dataset    = "tank/infisical"
-infisical_data_host_path  = "/tank/infisical"
-infisical_data_mount_path = "/var/lib/infisical"
 
 infisical_started       = true
 infisical_start_on_boot = true

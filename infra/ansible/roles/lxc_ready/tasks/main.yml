@@ -21,21 +21,6 @@
     - lxc_ready_status.rc == 0
     - "'status: running' in lxc_ready_status.stdout"
 
-- name: Wait for LXC to accept pct exec {{ lxc_ready_name | default(lxc_ready_vmid) }}
-  ansible.builtin.command:
-    argv:
-      - pct
-      - exec
-      - "{{ lxc_ready_vmid | string }}"
-      - --
-      - true
-  register: lxc_ready_exec
-  changed_when: false
-  failed_when: false
-  retries: "{{ lxc_ready_retries | default(20) }}"
-  delay: "{{ lxc_ready_delay_seconds | default(3) }}"
-  until: lxc_ready_exec.rc == 0
-
 - name: Wait for systemd in LXC {{ lxc_ready_name | default(lxc_ready_vmid) }}
   ansible.builtin.command:
     argv:

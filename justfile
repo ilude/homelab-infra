@@ -57,12 +57,14 @@ validate-public: validate-public-safety
     docker compose run --rm infra tofu -chdir=infra/opentofu validate
     docker compose run --rm infra tflint --chdir=infra/opentofu --minimum-failure-severity=error
     docker compose run --rm infra shellcheck scripts/*.sh tools/docker-entrypoint.sh
-    docker compose run --rm infra python -m py_compile infra/ansible/scripts/apply-technitium-dns.py scripts/bootstrap-domain.py scripts/migrate-values.py scripts/parse-env.py scripts/public-safety-check.py scripts/settings.py scripts/tfplan-metadata.py scripts/update.py scripts/workspace-preflight.py tests/test_apply_technitium_dns.py tests/test_bootstrap_domain.py tests/test_migrate_values.py tests/test_parse_env.py tests/test_public_safety_check.py tests/test_run_infra.py tests/test_settings.py tests/test_tfplan_metadata.py tests/test_update.py tests/test_workspace_preflight.py
+    docker compose run --rm infra python -m py_compile infra/ansible/inventory/tfvars.py infra/ansible/scripts/apply-technitium-dns.py scripts/bootstrap-domain.py scripts/migrate-values.py scripts/parse-env.py scripts/public-safety-check.py scripts/settings.py scripts/storage-vars.py scripts/tfplan-metadata.py scripts/update.py scripts/workspace-preflight.py tests/test_apply_technitium_dns.py tests/test_bootstrap_domain.py tests/test_migrate_values.py tests/test_parse_env.py tests/test_public_safety_check.py tests/test_run_infra.py tests/test_settings.py tests/test_storage_vars.py tests/test_tfplan_metadata.py tests/test_tfvars_inventory.py tests/test_update.py tests/test_workspace_preflight.py
     docker compose run --rm infra python infra/ansible/scripts/apply-technitium-dns.py --check scaffold/dns-records.local.json
     docker compose run --rm infra python scripts/parse-env.py --env-file scaffold/.env.example >/dev/null
     docker compose run --rm infra python scripts/settings.py --settings settings.example.json validate >/dev/null
     docker compose run --rm infra python -m unittest discover -s tests -p 'test_*.py'
-    docker compose run --rm infra ansible-playbook -i scaffold/ansible/inventory/local.yml --syntax-check infra/ansible/playbooks/site.yml
+    docker compose run --rm -e ANSIBLE_TFVARS_FILE=scaffold/terraform.tfvars infra ansible-inventory -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --list >/dev/null
+    docker compose run --rm -e ANSIBLE_TFVARS_FILE=scaffold/terraform.tfvars infra ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/site.yml
+    docker compose run --rm -e ANSIBLE_TFVARS_FILE=scaffold/terraform.tfvars infra ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/storage-prep.yml
     docker compose run --rm infra ansible-lint infra/ansible
 
 # Validate only private values wiring and data shape
@@ -71,8 +73,9 @@ validate-values: migrate-values
     scripts/run-infra.sh python scripts/workspace-preflight.py --require-values
     scripts/python.sh scripts/settings.py validate >/dev/null
     scripts/run-infra.sh python infra/ansible/scripts/apply-technitium-dns.py --check values/dns-records.local.json
-    scripts/run-infra.sh ansible-inventory -i values/ansible/inventory/local.yml --list >/dev/null
-    @while IFS= read -r playbook; do playbook="$(printf '%s' "${playbook}" | tr -d '\r')"; scripts/run-infra.sh ansible-playbook -i values/ansible/inventory/local.yml --syntax-check "$playbook"; done < <(scripts/python.sh scripts/settings.py ansible-playbooks)
+    scripts/run-infra.sh ansible-inventory -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --list >/dev/null
+    scripts/run-infra.sh ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/storage-prep.yml
+    @while IFS= read -r playbook; do playbook="$(printf '%s' "${playbook}" | tr -d '\r')"; scripts/run-infra.sh ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check "$playbook" </dev/null; done < <(scripts/python.sh scripts/settings.py ansible-playbooks)
 
 # Validate public source and private values wiring
 validate: validate-public validate-values
@@ -122,4 +125,4 @@ apply: migrate-values
     test -f tfplan.meta.json
     scripts/python.sh scripts/tfplan-metadata.py verify --plan tfplan --metadata tfplan.meta.json
     @printf 'Applying verified tfplan created by `just plan`.\n'
-    trap 'rm -f tfplan tfplan.meta.json *.tfplan *.tfplan.meta.json' EXIT; scripts/run-infra.sh tofu -chdir=infra/opentofu apply -state=../../values/terraform.tfstate ../../tfplan && while IFS= read -r playbook; do playbook="$(printf '%s' "${playbook}" | tr -d '\r')"; INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh ansible-playbook -i values/ansible/inventory/local.yml "$playbook"; done < <(scripts/python.sh scripts/settings.py ansible-playbooks)
+    trap 'rm -f tfplan tfplan.meta.json *.tfplan *.tfplan.meta.json' EXIT; storage_vars="$(scripts/python.sh scripts/storage-vars.py)"; INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py -e "${storage_vars}" infra/ansible/playbooks/storage-prep.yml && scripts/run-infra.sh tofu -chdir=infra/opentofu apply -state=../../values/terraform.tfstate ../../tfplan && while IFS= read -r playbook; do playbook="$(printf '%s' "${playbook}" | tr -d '\r')"; INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py "$playbook" </dev/null; done < <(scripts/python.sh scripts/settings.py ansible-playbooks)

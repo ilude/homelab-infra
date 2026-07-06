@@ -22,8 +22,8 @@ Private values files include:
 
 ## Layout
 
-- `infra/opentofu/` — OpenTofu configuration and Technitium DNS helper.
-- `infra/ansible/` — Ansible playbooks and roles for in-LXC service configuration.
+- `infra/opentofu/` — OpenTofu configuration for Proxmox resources.
+- `infra/ansible/` — Ansible playbooks, dynamic inventory, and service configuration helpers.
 - `scaffold/` — public-safe values repo starter files.
 - `scripts/` — workflow helpers and explicit live-mutation helpers.
 - `tools/` — Docker tooling image files.
@@ -64,6 +64,15 @@ just actions-runners
 
 These route through `scripts/forgejo-actions-monitor.py`, query Forgejo read-only via the existing Proxmox/Ansible path, and redact logs by default. Do not print unredacted logs unless explicitly requested.
 
+## Design Doctrine
+
+- Do not ask the operator for values the repo can derive from existing private values. `just setup` and migrations should infer deterministic defaults such as service hostnames, VMIDs, LAN IPs, DNS records, inventory vars, and generated local secrets from `values/terraform.tfvars`, `values/.env`, DNS records, and existing inventory.
+- `values/terraform.tfvars` is the source of truth for infrastructure-derived service shape: VMIDs, Proxmox networking, service LAN IPs, hostnames, and OpenTofu inputs. Ansible inventory should consume those values through `infra/ansible/inventory/tfvars.py` instead of duplicating them by hand.
+- Keep service orchestration in Ansible and resource declaration in OpenTofu. Do not use OpenTofu `local-exec` for host or service configuration; add an Ansible playbook/role and wire it into `just apply` in the correct order.
+- No breadcrumbs, comment-only placeholder files, dead wrappers, or permanent duplicate knobs. When behavior moves, add or update migration code for existing `values/` repos, update scaffold/docs/tests, and remove the old surface.
+- Prefer small Python helpers for local data transformation and Ansible/OpenTofu integration over shell glue. Keep shell wrappers only when they are a narrow tooling boundary.
+- Generated secrets belong in `values/.env`, must be idempotent, and must never be printed in logs or responses.
+
 ## Workflow
 
 1. Keep tracked edits generic/public-safe.
@@ -99,12 +108,6 @@ The intended pattern is hybrid DNS:
 - The gateway should remain focused on DHCP/routing/firewall and eventually point DHCP DNS to Technitium.
 
 Technitium DNS sync runtime settings belong in `values/.env`: `TECHNITIUM_API_URL`, `TECHNITIUM_API_TOKEN`, and `DNS_RECORDS_FILE`. Keep application runtime workflow variables out of OpenTofu variables unless OpenTofu directly uses them.
-
-## EdgeRouter helper
-
-`scripts/edgeos-static-host-mapping.sh` mutates a live EdgeRouter config to add a temporary static host mapping.
-
-Run only after explicit approval.
 
 ## Response hygiene
 

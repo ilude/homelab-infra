@@ -248,9 +248,10 @@
         arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')";
         version="{{ forgejo_runner_version | default('12.7.3') }}";
         base="https://code.forgejo.org/forgejo/runner/releases/download/v${version}";
-        curl -fsSL -o /usr/local/bin/forgejo-runner
-        "${base}/forgejo-runner-${version}-linux-${arch}";
-        chmod 0755 /usr/local/bin/forgejo-runner
+        tmp="$(mktemp)";
+        trap 'rm -f "${tmp}"' EXIT;
+        curl -fsSL -o "${tmp}" "${base}/forgejo-runner-${version}-linux-${arch}";
+        install -m 0755 "${tmp}" /usr/local/bin/forgejo-runner
   when: forgejo_runner_installed_version.stdout | trim != forgejo_runner_version | default('12.7.3')
   changed_when: true
   notify: Restart forgejo-runner

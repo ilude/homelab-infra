@@ -1,0 +1,64 @@
+---
+- name: Check ZFS dataset {{ storage_dataset.dataset }}
+  ansible.builtin.command:
+    argv:
+      - zfs
+      - list
+      - -H
+      - -o
+      - name
+      - "{{ storage_dataset.dataset }}"
+  register: storage_zfs_list
+  changed_when: false
+  failed_when: false
+
+- name: Create ZFS dataset {{ storage_dataset.dataset }}
+  ansible.builtin.command:
+    argv:
+      - zfs
+      - create
+      - -p
+      - -o
+      - "mountpoint={{ storage_dataset.mountpoint }}"
+      - "{{ storage_dataset.dataset }}"
+  when: storage_zfs_list.rc != 0
+
+- name: Read ZFS mountpoint {{ storage_dataset.dataset }}
+  ansible.builtin.command:
+    argv:
+      - zfs
+      - get
+      - -H
+      - -o
+      - value
+      - mountpoint
+      - "{{ storage_dataset.dataset }}"
+  register: storage_zfs_mountpoint
+  changed_when: false
+
+- name: Set ZFS mountpoint {{ storage_dataset.dataset }}
+  ansible.builtin.command:
+    argv:
+      - zfs
+      - set
+      - "mountpoint={{ storage_dataset.mountpoint }}"
+      - "{{ storage_dataset.dataset }}"
+  when: storage_zfs_mountpoint.stdout != storage_dataset.mountpoint
+
+- name: Mount ZFS dataset {{ storage_dataset.dataset }}
+  ansible.builtin.command:
+    argv:
+      - zfs
+      - mount
+      - "{{ storage_dataset.dataset }}"
+  register: storage_zfs_mount
+  changed_when: false
+  failed_when: false
+
+- name: Set host storage ownership {{ storage_dataset.mountpoint }}
+  ansible.builtin.file:
+    path: "{{ storage_dataset.mountpoint }}"
+    state: directory
+    owner: "{{ storage_dataset.uid }}"
+    group: "{{ storage_dataset.gid }}"
+    mode: "0750"

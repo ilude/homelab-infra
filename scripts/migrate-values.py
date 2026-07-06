@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
+import json
 import re
+import secrets
 import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+GENERATED_SECRET_KEYS = {
+    "INFISICAL_ENCRYPTION_KEY": lambda: secrets.token_hex(32),
+    "INFISICAL_AUTH_SECRET": lambda: secrets.token_hex(32),
+    "INFISICAL_POSTGRES_PASSWORD": lambda: secrets.token_urlsafe(32),
+}
 
 SECRET_KEYS = {
     "PROXMOX_VE_API_TOKEN",
@@ -61,6 +70,7 @@ MIGRATION_ENV_KEYS = {
     "TECHNITIUM_API_TOKEN",
     "TECHNITIUM_API_URL",
     "DNS_RECORDS_FILE",
+    *GENERATED_SECRET_KEYS,
     *ENV_TO_INVENTORY,
     *HISTORICAL_ENV_KEYS,
 }
@@ -150,6 +160,38 @@ def remove_env(lines: list[str], entries: dict[str, EnvEntry], key: str) -> bool
     return True
 
 
+def tfvars_raw_value(lines: list[str], key: str) -> str:
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*(?P<value>.+?)\s*(?:#.*)?$")
+    for line in lines:
+        match = pattern.match(line)
+        if match:
+            return match.group("value")
+    return ""
+
+
+def tfvars_scalar_value(lines: list[str], key: str) -> str:
+    raw = tfvars_raw_value(lines, key)
+    if not raw or raw == "null":
+        return ""
+    try:
+        return parse_scalar(raw)
+    except MigrationError:
+        return ""
+
+
+def set_tfvars_raw(lines: list[str], key: str, raw_value: str) -> bool:
+    if tfvars_key_exists(lines, key):
+        return False
+    if lines and lines[-1].strip():
+        lines.append("")
+    lines.append(f"{key} = {raw_value}")
+    return True
+
+
+def hcl_quote(value: str) -> str:
+    return json.dumps(value)
+
+
 def parse_tfvars(lines: list[str], path: Path) -> dict[str, tuple[int, str]]:
     values: dict[str, tuple[int, str]] = {}
     for index, line in enumerate(lines):
@@ -225,6 +267,147 @@ def inventory_has_key(text: str, key: str) -> bool:
     return re.search(rf"(?m)^\s*{re.escape(key)}\s*:", text) is not None
 
 
+def service_domain(tfvars_lines: list[str]) -> str:
+    domain = tfvars_scalar_value(tfvars_lines, "technitium_container_search_domain")
+    if domain:
+        return domain
+    forgejo_server = tfvars_scalar_value(tfvars_lines, "forgejo_server_name")
+    return forgejo_server.removeprefix("git.") if forgejo_server.startswith("git.") else "example.internal"
+
+
+def subnet_ip(tfvars_lines: list[str], host_octet: int) -> str:
+    for key in ("forgejo_lan_ip", "technitium_container_ipv4_address"):
+        value = tfvars_scalar_value(tfvars_lines, key).split("/", 1)[0]
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            continue
+        if isinstance(address, ipaddress.IPv4Address):
+            parts = str(address).split(".")
+            parts[-1] = str(host_octet)
+            return ".".join(parts)
+    return f"192.0.2.{host_octet}"
+
+
+def ensure_optional_service_tfvars(tfvars_lines: list[str]) -> list[str]:
+    changes: list[str] = []
+    domain = service_domain(tfvars_lines)
+    bridge = tfvars_scalar_value(tfvars_lines, "forgejo_container_bridge") or tfvars_scalar_value(tfvars_lines, "technitium_container_bridge") or "vmbr0"
+    dns_servers = tfvars_raw_value(tfvars_lines, "forgejo_container_dns_servers") or tfvars_raw_value(tfvars_lines, "technitium_container_dns_servers") or '["1.1.1.1", "9.9.9.9"]'
+    defaults = {
+        "infisical_container_vmid": "110",
+        "infisical_container_hostname": hcl_quote("infisical"),
+        "infisical_container_description": hcl_quote("Infisical secrets service managed by OpenTofu."),
+        "infisical_container_ipv4_address": hcl_quote("dhcp"),
+        "infisical_container_ipv4_gateway": "null",
+        "infisical_container_mac_address": hcl_quote("BC:24:11:00:00:03"),
+        "infisical_lan_ip": hcl_quote(subnet_ip(tfvars_lines, 70)),
+        "infisical_server_name": hcl_quote(f"infisical.{domain}"),
+        "infisical_container_dns_servers": dns_servers,
+        "infisical_container_search_domain": hcl_quote(domain),
+        "infisical_container_bridge": hcl_quote(bridge),
+        "infisical_container_cores": "2",
+        "infisical_container_memory_mb": "4096",
+        "infisical_container_swap_mb": "1024",
+        "infisical_container_disk_gb": "20",
+        "infisical_started": "true",
+        "infisical_start_on_boot": "true",
+        "hermes_container_vmid": "111",
+        "hermes_container_hostname": hcl_quote("hermes"),
+        "hermes_container_description": hcl_quote("Hermes management LXC managed by OpenTofu."),
+        "hermes_container_ipv4_address": hcl_quote("dhcp"),
+        "hermes_container_ipv4_gateway": "null",
+        "hermes_container_mac_address": hcl_quote("BC:24:11:00:00:04"),
+        "hermes_lan_ip": hcl_quote(subnet_ip(tfvars_lines, 71)),
+        "hermes_server_name": hcl_quote(f"hermes.{domain}"),
+        "hermes_container_dns_servers": dns_servers,
+        "hermes_container_search_domain": hcl_quote(domain),
+        "hermes_container_bridge": hcl_quote(bridge),
+        "hermes_container_cores": "2",
+        "hermes_container_memory_mb": "2048",
+        "hermes_container_swap_mb": "512",
+        "hermes_container_disk_gb": "64",
+        "hermes_started": "true",
+        "hermes_start_on_boot": "true",
+    }
+    for key, raw_value in defaults.items():
+        if set_tfvars_raw(tfvars_lines, key, raw_value):
+            changes.append(f"added {key}")
+    for key in ("infisical_data_dataset", "infisical_data_host_path", "infisical_data_mount_path"):
+        pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+        original_len = len(tfvars_lines)
+        tfvars_lines[:] = [line for line in tfvars_lines if not pattern.match(line)]
+        if len(tfvars_lines) != original_len:
+            changes.append(f"removed {key}")
+    return changes
+
+
+def ensure_inventory_vars(path: Path, text: str, domain: str) -> tuple[str, list[str]]:
+    changes: list[str] = []
+    replacements = {
+        "{{ lookup('env', 'FORGEJO_DOMAIN') }}": f"git.{domain}",
+        "{{ lookup('env', 'SERVER_NAME') }}": f"dns.{domain}",
+    }
+    for old, new in replacements.items():
+        if old in text:
+            text = text.replace(old, new)
+            changes.append("replaced legacy inventory env lookup")
+
+    additions = {
+        "infisical_vmid": "    infisical_vmid: 110",
+        "infisical_domain": f"    infisical_domain: infisical.{domain}",
+        "infisical_version": "    infisical_version: latest",
+        "infisical_data_dir": "    infisical_data_dir: /var/lib/infisical",
+        "infisical_encryption_key": "    infisical_encryption_key: \"{{ lookup('env', 'INFISICAL_ENCRYPTION_KEY') }}\"",
+        "infisical_auth_secret": "    infisical_auth_secret: \"{{ lookup('env', 'INFISICAL_AUTH_SECRET') }}\"",
+        "infisical_postgres_user": "    infisical_postgres_user: infisical",
+        "infisical_postgres_db": "    infisical_postgres_db: infisical",
+        "infisical_postgres_password": "    infisical_postgres_password: \"{{ lookup('env', 'INFISICAL_POSTGRES_PASSWORD') }}\"",
+        "hermes_vmid": "    hermes_vmid: 111",
+        "hermes_domain": f"    hermes_domain: hermes.{domain}",
+        "hermes_repo_path": "    hermes_repo_path: /srv/homelab-infra",
+    }
+    lines = text.rstrip().splitlines() if text.strip() else ["---", "all:", "  vars:"]
+    for key, line in additions.items():
+        if inventory_has_key("\n".join(lines), key):
+            continue
+        lines.append(line)
+        changes.append(f"added inventory {key}")
+    return "\n".join(lines) + "\n", changes
+
+
+def ensure_dns_records(path: Path, domain: str, infisical_ip: str, hermes_ip: str) -> list[str]:
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    records = data.setdefault("a_records", {})
+    if not isinstance(records, dict):
+        raise MigrationError(f"{path}: a_records must be an object")
+    changes: list[str] = []
+    for name, address in {f"infisical.{domain}": infisical_ip, f"hermes.{domain}": hermes_ip}.items():
+        if records.get(name) == address:
+            continue
+        records[name] = address
+        changes.append("added optional service DNS record")
+    if changes:
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return changes
+
+
+def enabled_optional_services(values_dir: Path) -> set[str]:
+    if values_dir != Path("values"):
+        return set()
+    settings_path = Path("settings.local.json")
+    if not settings_path.exists():
+        return set()
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return set()
+    services = data.get("services", [])
+    return {service for service in ("infisical", "hermes") if service in services}
+
+
 def migrate(values_dir: Path) -> list[str]:
     env_path = values_dir / ".env"
     tfvars_path = values_dir / "terraform.tfvars"
@@ -244,7 +427,29 @@ def migrate(values_dir: Path) -> list[str]:
     for old_key, new_key in TECHNITIUM_TFVARS_RENAMES.items():
         if rename_tfvars_key(tfvars_lines, old_key, new_key):
             changes.append(f"renamed {old_key} to {new_key}")
+    optional_services = enabled_optional_services(values_dir)
+    if optional_services:
+        changes.extend(ensure_optional_service_tfvars(tfvars_lines))
     tfvars_values = parse_tfvars(tfvars_lines, tfvars_path)
+
+    inventory_changes: list[str] = []
+    if optional_services:
+        for key, generator in GENERATED_SECRET_KEYS.items():
+            if key not in env_entries:
+                set_env(env_lines, env_entries, key, generator())
+                changes.append(f"generated {key}")
+
+        domain = service_domain(tfvars_lines)
+        inventory_text, inventory_changes = ensure_inventory_vars(inventory_path, inventory_text, domain)
+        changes.extend(inventory_changes)
+        changes.extend(
+            ensure_dns_records(
+                values_dir / "dns-records.local.json",
+                domain,
+                tfvars_scalar_value(tfvars_lines, "infisical_lan_ip"),
+                tfvars_scalar_value(tfvars_lines, "hermes_lan_ip"),
+            )
+        )
 
     old_token = env_entries.get("TF_VAR_technitium_api_token")
     new_token = env_entries.get("TECHNITIUM_API_TOKEN")
@@ -296,6 +501,8 @@ def migrate(values_dir: Path) -> list[str]:
     if changes:
         write_lines(env_path, env_lines)
         write_lines(tfvars_path, tfvars_lines)
+        if inventory_path.exists() or inventory_changes:
+            inventory_path.write_text(inventory_text, encoding="utf-8")
     return changes
 
 

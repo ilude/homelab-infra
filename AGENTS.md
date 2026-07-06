@@ -51,6 +51,8 @@ just apply      # only after explicit approval
 
 Validation performed by `just validate` includes public-safety checks, OpenTofu format/validate, TFLint, ShellCheck, Python compile/unit checks, Technitium DNS JSON validation, Ansible syntax, ansible-lint, and private `values/` wiring checks.
 
+Treat `[private]` just recipes as implementation details for other recipes only. Do not invoke private recipes directly during normal agent work, even for validation. Use the public command surface above, primarily `just validate`.
+
 Containerized tooling is used for Windows/local consistency. Project commands parse `values/.env` as dotenv-style data through `scripts/parse-env.py` / `scripts/run-infra.sh` and run inside the Docker Compose `infra` service. Do not source `values/.env` directly in new workflow code.
 
 Forgejo Actions deployment monitoring helpers are available for the private values repo workflow:
@@ -80,10 +82,11 @@ These route through `scripts/forgejo-actions-monitor.py`, query Forgejo read-onl
 3. Run `just validate` after source or scaffold changes.
 4. If a plan is requested, run `just plan` and summarize creates/changes/destroys.
 5. Apply only after explicit approval using `just apply`; it verifies `tfplan.meta.json` before applying.
-6. Use the user-facing `just` recipes (`setup`, `validate`, `plan`, `apply`) rather than ad hoc shell sequences for normal operations.
-7. Do not add new public `just` recipes unless the user explicitly asks for that exact command. Prefer scripts or internal helpers for implementation details, and keep the public command surface limited to requested commands.
-8. If plan verification fails, rerun `just plan` instead of reusing or editing saved plan files.
-9. For in-LXC service configuration, prefer Ansible playbooks via `just apply` over ad hoc shell changes.
+6. Use the user-facing `just` recipes (`setup`, `validate`, `plan`, `apply`) rather than private recipes or ad hoc shell sequences for normal operations.
+7. Do not run `[private]` just recipes directly. If a narrow diagnostic command is needed to investigate a failure, state why before running it and do not present it as repo validation.
+8. Do not add new public `just` recipes unless the user explicitly asks for that exact command. Prefer scripts or internal helpers for implementation details, and keep the public command surface limited to requested commands.
+9. If plan verification fails, rerun `just plan` instead of reusing or editing saved plan files.
+10. For in-LXC service configuration, prefer Ansible playbooks via `just apply` over ad hoc shell changes.
 
 ## Service HTTPS / Caddy Pattern
 

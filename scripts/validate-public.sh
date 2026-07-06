@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export INFRA_HOST_UID="${INFRA_HOST_UID:-$(scripts/host-id.sh uid)}"
+export INFRA_HOST_GID="${INFRA_HOST_GID:-$(scripts/host-id.sh gid)}"
+
+docker compose config >/dev/null
+
+# shellcheck disable=SC2016
+docker compose run --rm infra bash -euo pipefail -c '
+python scripts/workspace-preflight.py
+
+tofu -chdir=infra/opentofu init -backend=false
+tofu fmt -check -recursive infra/opentofu scaffold/terraform.tfvars
+tofu -chdir=infra/opentofu validate
+tflint --chdir=infra/opentofu --minimum-failure-severity=error
+
+shellcheck scripts/*.sh tools/docker-entrypoint.sh
+
+mapfile -t python_files < <(find infra/ansible scripts tests -type f -name "*.py" | sort)
+python -m py_compile "${python_files[@]}"
+
+python infra/ansible/scripts/apply-technitium-dns.py --check scaffold/dns-records.local.json
+python scripts/parse-env.py --env-file scaffold/.env.example >/dev/null
+python scripts/settings.py --settings settings.example.json validate >/dev/null
+python -m unittest discover -s tests -p "test_*.py"
+
+export ANSIBLE_TFVARS_FILE=scaffold/terraform.tfvars
+ansible-inventory -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --list >/dev/null
+ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check \
+  infra/ansible/playbooks/site.yml \
+  infra/ansible/playbooks/storage-prep.yml
+ansible-lint infra/ansible
+'

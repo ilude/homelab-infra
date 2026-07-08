@@ -220,6 +220,7 @@ def update_dns_records(
     forgejo_ip: str,
     infisical_ip: str,
     hermes_ip: str,
+    searxng_ip: str,
 ) -> None:
     if not path.exists():
         return
@@ -233,6 +234,7 @@ def update_dns_records(
         "git.example.internal",
         "infisical.example.internal",
         "hermes.example.internal",
+        "searxng.apps.example.net",
     ):
         records.pop(placeholder, None)
     records[f"dns.{domain}"] = technitium_ip
@@ -240,6 +242,7 @@ def update_dns_records(
     records[f"git.{domain}"] = forgejo_ip
     records[f"infisical.{domain}"] = infisical_ip
     records[f"hermes.{domain}"] = hermes_ip
+    records[f"searxng.apps.{domain}"] = searxng_ip
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
@@ -295,13 +298,14 @@ def run(args: argparse.Namespace) -> int:
     try:
         validate_ip(technitium_ip, "Technitium DNS/UI IP")
         validate_ip(gateway, "LXC IPv4 gateway")
-        forgejo_ip, forgejo_runner_ip, tailscale_ip, infisical_ip, hermes_ip = service_ip_sequence(service_start_ip, 5)
+        forgejo_ip, forgejo_runner_ip, tailscale_ip, infisical_ip, hermes_ip, searxng_ip = service_ip_sequence(service_start_ip, 6)
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
 
     set_env_value(env_path, "TECHNITIUM_API_URL", f"http://{technitium_ip}:5380/api")
     set_env_value(env_path, "DNS_RECORDS_FILE", "values/dns-records.local.json")
+    set_env_value(env_path, "HERMES_WEB_SEARXNG_URL", f"https://searxng.apps.{domain}")
 
     set_tfvar_string(tfvars_path, "technitium_container_ipv4_address", f"{technitium_ip}/{default_prefix}")
     set_tfvar_string(tfvars_path, "technitium_container_ipv4_gateway", gateway)
@@ -327,19 +331,25 @@ def run(args: argparse.Namespace) -> int:
     set_tfvar_string(tfvars_path, "tailscale_client_ipv4_address", f"{tailscale_ip}/{default_prefix}")
     set_tfvar_string(tfvars_path, "tailscale_client_ipv4_gateway", gateway)
     set_tfvar_string(tfvars_path, "tailscale_client_search_domain", domain)
+    set_tfvar_string(tfvars_path, "onramp_host_ipv4_address", f"{searxng_ip}/{default_prefix}")
+    set_tfvar_string(tfvars_path, "onramp_host_ipv4_gateway", gateway)
+    set_tfvar_string(tfvars_path, "onramp_host_search_domain", domain)
+    set_tfvar_string(tfvars_path, "searxng_server_name", f"searxng.apps.{domain}")
+    set_tfvar_string(tfvars_path, "searxng_public_url", f"https://searxng.apps.{domain}")
 
     update_inventory(inventory_path, domain)
     inventory_text = inventory_path.read_text(encoding="utf-8")
     inventory_text = inventory_text.replace("infisical.example.internal", f"infisical.{domain}")
     inventory_text = inventory_text.replace("hermes.example.internal", f"hermes.{domain}")
+    inventory_text = inventory_text.replace("searxng.apps.example.net", f"searxng.apps.{domain}")
     inventory_path.write_text(inventory_text, encoding="utf-8")
-    update_dns_records(dns_records_path, domain, technitium_ip, forgejo_ip, infisical_ip, hermes_ip)
+    update_dns_records(dns_records_path, domain, technitium_ip, forgejo_ip, infisical_ip, hermes_ip, searxng_ip)
 
     print("Updated domain-derived values:")
     print(f"  TECHNITIUM_API_URL=http://{technitium_ip}:5380/api")
     print(f"  LXC gateway: {gateway}")
-    print(f"  Managed service IPs: git={forgejo_ip}, runner={forgejo_runner_ip}, tailscale={tailscale_ip}, infisical={infisical_ip}, hermes={hermes_ip}")
-    print(f"  DNS records: dns.{domain}, technitium.{domain}, git.{domain}, infisical.{domain}, hermes.{domain}")
+    print(f"  Managed service IPs: git={forgejo_ip}, runner={forgejo_runner_ip}, tailscale={tailscale_ip}, infisical={infisical_ip}, hermes={hermes_ip}, searxng={searxng_ip}")
+    print(f"  DNS records: dns.{domain}, technitium.{domain}, git.{domain}, infisical.{domain}, hermes.{domain}, searxng.apps.{domain}")
     return 0
 
 

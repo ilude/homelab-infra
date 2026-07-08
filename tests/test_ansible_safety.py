@@ -13,6 +13,7 @@ CADDY_TASK_FILES = (
     REPO / "infra" / "ansible" / "roles" / "forgejo" / "tasks" / "caddy.yml",
     REPO / "infra" / "ansible" / "roles" / "infisical" / "tasks" / "main.yml",
     REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",
+    REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml",
 )
 ANSIBLE_TASK_FILES = tuple((REPO / "infra" / "ansible" / "roles").glob("*/tasks/*.yml"))
 ALLOWLIST_PCT = {
@@ -100,6 +101,9 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("forgejo_runner_name", existing_text)
         self.assertEqual(existing.get("changed_when"), False)
         self.assertIn('forgejo_runner_existing_registration.stdout | trim == ""', str(registration.get("when")))
+        self.assertEqual(existing.get("delegate_to"), "{{ groups['forgejo'][0] }}")
+        self.assertEqual(registration.get("delegate_to"), "{{ groups['forgejo'][0] }}")
+        self.assertEqual(task_by_name(RUNNER_TASKS, "Normalize Forgejo repository-scoped runner ownership").get("delegate_to"), "{{ groups['forgejo'][0] }}")
         self.assertNotIn("forgejo_runner_registration.stdout", str(config))
         self.assertIn("forgejo_runner_uuid", str(task_by_name(RUNNER_TASKS, "Set Forgejo runner UUID")))
 
@@ -122,6 +126,7 @@ class AnsibleSafetyTests(unittest.TestCase):
             "infra/ansible/roles/hermes/tasks/main.yml": "/etc/hermes-dashboard.env",
             "infra/ansible/roles/caddy_proxy/tasks/main.yml": "/etc/caddy/env",
             "infra/ansible/roles/forgejo_runner/tasks/main.yml": "/etc/forgejo-runner/config.yml",
+            "infra/ansible/roles/searxng_onramp/tasks/main.yml": "{{ searxng_onramp_base_dir }}/settings.yml",
         }
         for rel_path, dest in checks.items():
             tasks = load_tasks(REPO / rel_path)
@@ -129,6 +134,20 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertTrue(matches, rel_path)
             self.assertTrue(any(task.get("no_log") for task in matches), rel_path)
             self.assertTrue(any("mode" in str(task) for task in matches), rel_path)
+
+    def test_hermes_exports_native_searxng_url_key(self) -> None:
+        template = REPO / "infra" / "ansible" / "roles" / "hermes" / "templates" / "hermes-dashboard.env.j2"
+        text = template.read_text(encoding="utf-8")
+        self.assertIn("HERMES_WEB_SEARXNG_URL={{ hermes_web_searxng_url }}", text)
+        self.assertIn("SEARXNG_URL={{ hermes_web_searxng_url }}", text)
+
+    def test_searxng_onramp_ports_are_loopback_only(self) -> None:
+        compose = REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "templates" / "docker-compose.yml.j2"
+        text = compose.read_text(encoding="utf-8")
+        self.assertIn("{{ searxng_onramp_bind_address }}:{{ searxng_onramp_container_port }}:8080", text)
+        self.assertNotIn("0.0.0.0:{{ searxng_onramp_container_port }}:8080", text)  # public-safety: allow-ip
+        task = task_by_name(REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml", "Validate SearXNG onramp required variables")
+        self.assertIn("searxng_onramp_bind_address in ['127.0.0.1', '::1']", str(task))  # public-safety: allow-ip
 
 
 if __name__ == "__main__":

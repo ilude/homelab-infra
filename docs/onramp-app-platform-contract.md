@@ -4,7 +4,7 @@
 
 This contract defines the boundary between `homelab-infra`, `onramp-vNext`, and Hermes for general Docker application services. It keeps this repository focused on durable infrastructure while allowing Hermes to operate across infrastructure and app-platform workflows.
 
-The selected direction is option 3: `homelab-infra remains the durable infrastructure substrate`, `onramp-vNext owns Docker app services`, and `Hermes operates across both` through approved repo-native commands.
+The selected default direction is option 3: `homelab-infra remains the durable infrastructure substrate`, `onramp-vNext owns Docker app services`, and `Hermes operates across both` through approved repo-native commands. The current SearXNG pilot is a temporary exception: `homelab-infra` owns `searxng_onramp` until the service is handed back to Onramp.
 
 ## Ownership
 
@@ -18,13 +18,13 @@ Hermes is the operator cockpit. It may summarize status, run approved validation
 
 `homelab-infra` may provision DNS needed for the onramp-host substrate and durable infrastructure services. Onramp app services should normally use an approved app-platform DNS convention, such as a wildcard or delegated subdomain, rather than one OpenTofu-managed static record per app.
 
-Specific app DNS records can be promoted into `homelab-infra` only when a separate approved infrastructure plan justifies that they are durable platform resources rather than ordinary app catalog entries.
+Specific app DNS records can be promoted into `homelab-infra` only when a separate approved infrastructure plan justifies that they are durable platform resources or a temporary repo-owned exception. `searxng_onramp` currently uses a Technitium-managed `searxng.apps.example.net` placeholder record mapped to the onramp host.
 
 ## Caddy Contract
 
 First-class infrastructure services in this repository continue to use service-local Caddy by default. Technitium must not become a general ingress proxy for unrelated app services.
 
-Onramp owns Caddy or reverse-proxy configuration for Onramp app services. The Onramp service `port` field means the container/service port reachable on the Compose network; it must not be reinterpreted as a host-published port unless a later contract explicitly changes that convention.
+Onramp owns Caddy or reverse-proxy configuration for Onramp app services by default. The temporary `searxng_onramp` exception installs Caddy on `onramp_host` from this repo and proxies only to the loopback-bound SearXNG container. The Onramp service `port` field means the container/service port reachable on the Compose network; it must not be reinterpreted as a host-published port unless a later contract explicitly changes that convention.
 
 ## Secrets Contract
 
@@ -54,10 +54,10 @@ Podman-in-LXC is experimental. It may be tested for lightweight workloads, but i
 
 SearXNG is classified as an Onramp app-platform service by default. It is useful beyond Hermes, is naturally packaged as an app workload, and should not force this repository to add a first-class LXC for every plugin backend.
 
-For the first pilot, `homelab-infra` should provide only the future onramp-host substrate and any approved DNS or access contract. `onramp-vNext` should own the SearXNG service definition. Hermes should consume the approved SearXNG endpoint without bypassing either repository's workflow.
+Current exception: `homelab-infra` temporarily owns the `searxng_onramp` service. It depends on `onramp_host`, deploys SearXNG with rootless Podman, binds the app only on loopback, publishes HTTPS through Caddy on the onramp host, adds Technitium DNS input, and renders `HERMES_WEB_SEARXNG_URL` for Hermes. This exception should be removed or migrated when Onramp takes over the app definition.
 
 ## Future Provisioning Gate
 
 Future provisioning gate: onramp-host infrastructure work must be implemented in a separate reviewed plan before any live infrastructure mutation. That plan must include public-safe scaffold updates, private values migration guidance if needed, `just validate`, reviewed just plan output, and explicit approval before `just apply`.
 
-Until that gate exists and passes, do not provision the Debian 13 VM, add onramp-host values to `values/terraform.tfvars`, create app DNS records, deploy SearXNG, or wire the Hermes plugin to a live endpoint.
+For live changes, run `just validate`, review `just plan`, and obtain explicit approval before `just apply`. To roll back the temporary SearXNG exception, disable `searxng_onramp`, remove or update the SearXNG DNS/Hermes private values, rerun plan, and apply only after approval.

@@ -44,7 +44,7 @@ class DirectServiceAnsibleHelperTests(unittest.TestCase):
         spec.loader.exec_module(module)
         assert_redacted = module.assert_redacted
         with self.assertRaises(Exception):
-            assert_redacted("token=super-secret-value 192.168.1.10")
+            assert_redacted("token=super-secret-value 192.168.1.10")  # public-safety: allow-ip
         assert_redacted("service=technitium endpoint=example.internal address=192.0.2.10")
 
 

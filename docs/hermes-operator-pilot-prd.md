@@ -107,9 +107,11 @@ Repo automation may run validation, planning, deployment, and status checks, but
 
 ## SearXNG pilot decision
 
-SearXNG is the first expected search backend pilot for Hermes. The default classification is app-platform service, because search is a general application capability rather than a durable infrastructure primitive. `onramp-vNext owns Docker app services`, so the SearXNG container/catalog definition should live there when implementation begins.
+SearXNG is the first expected search backend pilot for Hermes. The default classification is app-platform service, because search is a general application capability rather than a durable infrastructure primitive. `onramp-vNext owns Docker app services` remains the target boundary.
 
-`homelab-infra remains the durable infrastructure substrate` for the onramp host itself, DNS contract, and any future approved infrastructure resources. `Hermes operates across both` by reading or invoking the approved workflow in each repository rather than inventing a third deployment path.
+Current exception: `homelab-infra` temporarily owns `searxng_onramp` on `onramp_host`. The service is rootless Podman behind host-local Caddy, has Technitium DNS input, and passes `HERMES_WEB_SEARXNG_URL` to Hermes. This keeps the pilot moving without making SearXNG a first-class LXC or a permanent Hermes-local dependency.
+
+`homelab-infra remains the durable infrastructure substrate` for the onramp host itself, DNS contract, and this temporary SearXNG exception. `Hermes operates across both` by reading or invoking the approved workflow in each repository rather than inventing a third deployment path.
 
 The default runtime target is a Debian 13 VM running Podman. Podman-in-LXC is experimental because nested containers in Proxmox LXCs require additional kernel, namespace, mount, and fuse trade-offs. Arch or CachyOS VMs are not the default because a rolling-release host is a poor fit for durable homelab app infrastructure unless a specific runtime feature requires it.
 
@@ -128,7 +130,7 @@ The default runtime target is a Debian 13 VM running Podman. Podman-in-LXC is ex
 - Hermes refuses or pauses for approval before any live mutation command.
 - Hermes does not print secrets, tokens, real domains, real IPs, private DNS records, or private inventory in summaries.
 - Adding a plugin backend includes an explicit classification decision: Hermes-local, durable platform service, or app-platform service.
-- For the search backend pilot, the PRD records that SearXNG belongs in Onramp or an app-services host by default, not in Hermes or a first-class LXC unless a later plan justifies that change.
+- For the search backend pilot, the PRD records that SearXNG belongs in Onramp or an app-services host by default, with the current `searxng_onramp` implementation treated as a temporary `homelab-infra` exception rather than a first-class LXC.
 
 ## Dependencies
 
@@ -136,7 +138,7 @@ The default runtime target is a Debian 13 VM running Podman. Podman-in-LXC is ex
 - Private `values/` repo with current tfvars, inventory, DNS records, environment values, and OpenTofu state.
 - Working local tooling container for `just validate`, `just plan`, and `just apply`.
 - Forgejo and private values repo workflow if remote deployment or monitoring is in scope.
-- `onramp-vNext` direction if plugin backends are treated as app-platform services.
+- `onramp-vNext` direction if plugin backends are treated as app-platform services, plus a handoff path for retiring the temporary `searxng_onramp` exception.
 
 ## Risks
 

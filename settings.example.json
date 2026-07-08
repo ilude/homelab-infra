@@ -8,6 +8,7 @@
     "forgejo_runner",
     "infisical",
     "hermes",
-    "onramp_host"
+    "onramp_host",
+    "searxng_onramp"
   ]
 }

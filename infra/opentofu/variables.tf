@@ -5,9 +5,9 @@ variable "enabled_services" {
 
   validation {
     condition = alltrue([
-      for service in var.enabled_services : contains(["technitium", "forgejo", "tailscale_client", "forgejo_runner", "infisical", "hermes", "onramp_host"], service)
+      for service in var.enabled_services : contains(["technitium", "forgejo", "tailscale_client", "forgejo_runner", "infisical", "hermes", "onramp_host", "searxng_onramp"], service)
     ])
-    error_message = "enabled_services may contain only technitium, forgejo, tailscale_client, forgejo_runner, infisical, hermes, and onramp_host."
+    error_message = "enabled_services may contain only technitium, forgejo, tailscale_client, forgejo_runner, infisical, hermes, onramp_host, and searxng_onramp."
   }
 }
 
@@ -1079,4 +1079,46 @@ variable "tailscale_client_startup_down_delay" {
   description = "Seconds to wait after shutting down the Tailscale client LXC before shutting down the next guest."
   type        = string
   default     = "10"
+}
+
+variable "searxng_server_name" {
+  description = "DNS hostname for the temporary SearXNG onramp workload. Ansible/DNS consume this value."
+  type        = string
+  default     = "searxng.apps.example.net"
+}
+
+variable "searxng_public_url" {
+  description = "Public HTTPS URL for the temporary SearXNG onramp workload. Hermes can consume this value."
+  type        = string
+  default     = "https://searxng.apps.example.net"
+}
+
+variable "searxng_container_image" {
+  description = "Container image used by the SearXNG onramp workload."
+  type        = string
+  default     = "docker.io/searxng/searxng:latest"
+}
+
+variable "searxng_container_port" {
+  description = "Loopback port exposed by the rootless SearXNG container for Caddy."
+  type        = number
+  default     = 8080
+}
+
+variable "searxng_bind_address" {
+  description = "Host address that receives the rootless SearXNG container port. Keep this loopback-only."
+  type        = string
+  default     = "127.0.0.1"
+}
+
+variable "searxng_instance_name" {
+  description = "Display name for the SearXNG instance."
+  type        = string
+  default     = "Homelab SearXNG"
+}
+
+variable "searxng_enable_public_url" {
+  description = "Whether SearXNG should advertise searxng_public_url in its settings."
+  type        = bool
+  default     = true
 }

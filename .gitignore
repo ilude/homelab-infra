@@ -35,6 +35,9 @@ infra/ansible/inventory/local.yml
 __pycache__/
 *.py[cod]
 
+# Local scratch/log output
+.tmp/
+
 # OS/editor
 .DS_Store
 Thumbs.db

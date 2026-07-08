@@ -75,6 +75,28 @@ class BootstrapDomainTests(unittest.TestCase):
             ],
         )
 
+    def test_update_dns_records_adds_searxng_onramp_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            dns_path = Path(temp) / "dns-records.local.json"
+            dns_path.write_text(
+                '{"a_records":{"searxng.apps.example.net":"192.0.2.72"}}\n',
+                encoding="utf-8",
+            )
+
+            bootstrap_domain.update_dns_records(
+                dns_path,
+                "lab.example",
+                "192.0.2.53",
+                "192.0.2.62",
+                "192.0.2.70",
+                "192.0.2.71",
+                "192.0.2.72",
+            )
+
+            text = dns_path.read_text(encoding="utf-8")
+            self.assertIn('"searxng.apps.lab.example": "192.0.2.72"', text)
+            self.assertNotIn("searxng.apps.example.net", text)
+
     def test_update_inventory_writes_concrete_caddy_names(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             inventory_path = Path(temp) / "local.yml"

@@ -224,20 +224,29 @@ class MigrateValuesTests(unittest.TestCase):
             self.assertNotIn("onramp_host", (values / "terraform.tfvars").read_text(encoding="utf-8"))
             self.assertFalse(any("onramp_host" in change for change in changes))
 
-    def test_adds_hermes_searxng_placeholder_without_printing_value(self) -> None:
+    def test_adds_searxng_onramp_values_without_printing_url(self) -> None:
         temp, values = self.make_values()
         with temp:
             (values / ".env").write_text("", encoding="utf-8")
-            (values / "terraform.tfvars").write_text("", encoding="utf-8")
+            (values / "terraform.tfvars").write_text(
+                'technitium_container_ipv4_address = "192.0.2.53/24"\n'
+                'technitium_container_ipv4_gateway = "192.0.2.1"\n'
+                'technitium_container_search_domain = "lab.example"\n'
+                'technitium_container_bridge = "vmbr0"\n'
+                'technitium_container_dns_servers = ["192.0.2.1"]\n',
+                encoding="utf-8",
+            )
+            (values / "dns-records.local.json").write_text('{"a_records":{}}\n', encoding="utf-8")
             settings = values.parent / "settings.local.json"
             original = settings.read_text(encoding="utf-8") if settings.exists() else None
-            settings.write_text('{"services":["hermes"]}\n', encoding="utf-8")
+            settings.write_text('{"services":["onramp_host","searxng_onramp"]}\n', encoding="utf-8")
             original_cwd = Path.cwd()
             try:
                 import os
 
                 os.chdir(values.parent)
                 changes = migrate_values.migrate(Path("values"))
+                second_changes = migrate_values.migrate(Path("values"))
             finally:
                 os.chdir(original_cwd)
                 if original is None:
@@ -246,9 +255,15 @@ class MigrateValuesTests(unittest.TestCase):
                     settings.write_text(original, encoding="utf-8")
 
             env_text = (values / ".env").read_text(encoding="utf-8")
-            self.assertIn("HERMES_WEB_SEARXNG_URL=https://searxng.apps.example.net", env_text)
-            self.assertIn("added HERMES_WEB_SEARXNG_URL placeholder", changes)
-            self.assertNotIn("https://searxng.apps.example.net", "\n".join(changes))
+            tfvars_text = (values / "terraform.tfvars").read_text(encoding="utf-8")
+            dns_text = (values / "dns-records.local.json").read_text(encoding="utf-8")
+            self.assertIn("SEARXNG_SECRET_KEY=", env_text)  # public-safety: allow-secret
+            self.assertIn("HERMES_WEB_SEARXNG_URL=https://searxng.apps.lab.example", env_text)
+            self.assertIn('searxng_server_name = "searxng.apps.lab.example"', tfvars_text)
+            self.assertIn('"searxng.apps.lab.example": "192.0.2.72"', dns_text)
+            self.assertIn("added HERMES_WEB_SEARXNG_URL for SearXNG onramp", changes)
+            self.assertNotIn("https://searxng.apps.lab.example", "\n".join(changes))
+            self.assertEqual(second_changes, [])
 
     def test_idempotent_after_first_run(self) -> None:
         temp, values = self.make_values()

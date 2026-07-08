@@ -44,6 +44,10 @@ SERVICES = {
         "playbooks": ("infra/ansible/playbooks/onramp-host.yml",),
         "dependencies": (),
     },
+    "searxng_onramp": {
+        "playbooks": ("infra/ansible/playbooks/searxng-onramp.yml",),
+        "dependencies": ("onramp_host",),
+    },
 }
 SERVICE_PLAYBOOKS = {name: config["playbooks"] for name, config in SERVICES.items()}
 SERVICE_NAMES = set(SERVICES)

@@ -1,0 +1,12 @@
+---
+searxng_onramp_container_image: "{{ searxng_container_image | default('docker.io/searxng/searxng:latest') }}"
+searxng_onramp_container_port: "{{ searxng_container_port | default(8080) }}"
+searxng_onramp_bind_address: "{{ searxng_bind_address | default('127.0.0.1') }}"
+searxng_onramp_instance_name: "{{ searxng_instance_name | default('Homelab SearXNG') }}"
+searxng_onramp_enable_public_url: "{{ searxng_enable_public_url | default(true) }}"
+searxng_onramp_base_dir: "{{ onramp_host_deploy_dir }}/searxng"
+searxng_onramp_compose_provider_command: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
+searxng_onramp_required_packages:
+  - caddy
+  - curl
+  - golang

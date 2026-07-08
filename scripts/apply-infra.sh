@@ -44,17 +44,8 @@ ansible-playbook \
 
 tofu -chdir=infra/opentofu apply -state=../../values/terraform.tfstate ../../tfplan
 
-mapfile -t playbooks < <(python scripts/settings.py ansible-playbooks)
-for playbook in "${playbooks[@]}"; do
-  if [[ "${playbook}" == "infra/ansible/playbooks/technitium-dns.yml" ]]; then
-    python scripts/bootstrap-technitium-api-token.py --env-file values/.env
-    # Refresh the current process environment so the DNS sync playbook can see
-    # a token generated during this apply run.
-    source <(python scripts/parse-env.py values/.env)
-  fi
-  ansible-playbook \
-    -i values/ansible/inventory/local.yml \
-    -i infra/ansible/inventory/tfvars.py \
-    "${playbook}"
-done
+python scripts/apply-ansible-services.py \
+  --inventory values/ansible/inventory/local.yml \
+  --inventory infra/ansible/inventory/tfvars.py \
+  --env-file values/.env
 ' bash "${destroy_verify_flag}"

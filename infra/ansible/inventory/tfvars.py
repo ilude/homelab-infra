@@ -92,6 +92,27 @@ SERVICE_HOSTS = {
             "onramp_host_allowed_ssh_cidrs": "onramp_host_allowed_ssh_cidrs",
         },
     },
+    "searxng_onramp": {
+        "host": "onramp_host_vm",
+        "group": "onramp_host",
+        "vmid_var": "onramp_host_vmid",
+        "tf_vmid": "onramp_host_vmid",
+        "tf_host": "onramp_host_ipv4_address",
+        "domain_var": "onramp_host_hostname",
+        "tf_domain": "onramp_host_hostname",
+        "user_var": "onramp_host_deploy_user",
+        "tf_user": "onramp_host_deploy_user",
+        "extra_play_vars": {
+            "onramp_host_deploy_dir": "onramp_host_deploy_dir",
+            "searxng_server_name": "searxng_server_name",
+            "searxng_public_url": "searxng_public_url",
+            "searxng_container_image": "searxng_container_image",
+            "searxng_container_port": "searxng_container_port",
+            "searxng_bind_address": "searxng_bind_address",
+            "searxng_instance_name": "searxng_instance_name",
+            "searxng_enable_public_url": "searxng_enable_public_url",
+        },
+    },
 }
 
 

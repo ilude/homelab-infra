@@ -47,6 +47,14 @@ all:
     hermes_dashboard_basic_auth_username: admin
     hermes_dashboard_basic_auth_password_hash: "{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH') }}"
     hermes_dashboard_basic_auth_secret: "{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_SECRET') }}"
+    hermes_web_searxng_url: "{{ lookup('env', 'HERMES_WEB_SEARXNG_URL') }}"
+    searxng_server_name: searxng.apps.example.net
+    searxng_public_url: https://searxng.apps.example.net
+    searxng_secret_key: "{{ lookup('env', 'SEARXNG_SECRET_KEY') }}"
+    searxng_container_image: docker.io/searxng/searxng:latest
+    searxng_container_port: 8080
+    searxng_bind_address: 127.0.0.1
+    searxng_instance_name: Homelab SearXNG
     tailscale_client_enabled: false
     tailscale_client_vmid: 108
     tailscale_client_restore_backup: false

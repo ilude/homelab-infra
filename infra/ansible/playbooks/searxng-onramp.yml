@@ -1,0 +1,7 @@
+---
+- name: Deploy temporary SearXNG on the Podman onramp host
+  hosts: onramp_host
+  gather_facts: true
+  become: true
+  roles:
+    - searxng_onramp

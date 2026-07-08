@@ -116,6 +116,28 @@ class SettingsTests(unittest.TestCase):
             ["infra/ansible/playbooks/onramp-host.yml"],
         )
 
+    def test_searxng_onramp_requires_onramp_host(self) -> None:
+        path = self.write_settings({"services": ["searxng_onramp"]})
+        try:
+            with self.assertRaises(settings_script.SettingsError):
+                settings_script.load_settings(path)
+        finally:
+            path.unlink()
+
+    def test_searxng_onramp_adds_playbook_after_onramp_host(self) -> None:
+        path = self.write_settings({"services": ["onramp_host", "searxng_onramp"]})
+        try:
+            settings = settings_script.load_settings(path)
+        finally:
+            path.unlink()
+        self.assertEqual(
+            settings_script.ansible_playbooks(settings["services"]),
+            [
+                "infra/ansible/playbooks/onramp-host.yml",
+                "infra/ansible/playbooks/searxng-onramp.yml",
+            ],
+        )
+
     def test_hermes_does_not_require_onramp_host(self) -> None:
         path = self.write_settings({"services": ["hermes"]})
         try:

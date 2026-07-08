@@ -31,7 +31,7 @@ Keep non-public material in `values/` or outside this checkout; do not add anoth
 - [Docs index](docs/README.md) lists public-safe operator and architecture notes.
 - [Hermes operator pilot PRD](docs/hermes-operator-pilot-prd.md) defines the Hermes cockpit requirements and safety boundaries.
 - [Onramp app-platform contract](docs/onramp-app-platform-contract.md) defines how `homelab-infra`, `onramp-vNext`, and Hermes split onramp-host ownership.
-- [Onramp SearXNG handoff](docs/onramp-searxng-handoff.md) documents the future Onramp-owned SearXNG service contract for Hermes.
+- [Onramp SearXNG handoff](docs/onramp-searxng-handoff.md) documents the default future Onramp-owned SearXNG contract and the current temporary `homelab-infra` exception.
 - [App-host runbook](docs/onramp-host-runbook.md) covers `onramp_host` rollback and future deployment validation.
 
 ## Fresh setup
@@ -44,7 +44,7 @@ From a fresh checkout, optionally copy the local settings template:
 cp settings.example.json settings.local.json
 ```
 
-Edit `settings.local.json` if you want `just setup` to clone your private `values/` Git repo. For example, set `values_repo.remote` to your Forgejo SSH URL. The file is ignored by Git. Supported services are `technitium`, `forgejo`, `tailscale_client`, `forgejo_runner`, `infisical`, `hermes`, and `onramp_host`; `technitium` includes its Caddy proxy, browser-facing first-class services use in-LXC Caddy, `onramp_host` prepares a Debian 13 Podman VM for Onramp-managed services, and `forgejo_runner` creates/configures a separate Forgejo Actions runner LXC.
+Edit `settings.local.json` if you want `just setup` to clone your private `values/` Git repo. For example, set `values_repo.remote` to your Forgejo SSH URL. The file is ignored by Git. Supported services are `technitium`, `forgejo`, `tailscale_client`, `forgejo_runner`, `infisical`, `hermes`, `onramp_host`, and `searxng_onramp`; `technitium` includes its Caddy proxy, browser-facing first-class services use in-LXC Caddy, `onramp_host` prepares a Debian 13 Podman VM, `searxng_onramp` temporarily deploys SearXNG on that VM, and `forgejo_runner` creates/configures a separate Forgejo Actions runner LXC.
 
 Then run:
 
@@ -52,7 +52,7 @@ Then run:
 just setup
 ```
 
-This builds the local tooling container and creates `values/` from `scaffold/`, or clones the `values_repo.remote` configured in `settings.local.json`. If no remote is configured and setup is interactive, it can ask for a base domain, probe `git.<domain>` for an accessible `homelab-infra-values` repository, save the discovered remote in ignored `settings.local.json`, and clone it. It also starts setup wizards for Proxmox API access and domain-derived service names. The Proxmox wizard asks for your Proxmox host, verifies root SSH key access, offers an alternate key file or a command to authorize your default public SSH key if default keys fail, creates/updates a dedicated Proxmox API user/token, and writes the endpoint/token/SSH target to `values/.env` without printing the token secret. The domain wizard asks for your base domain plus service IPs, then derives names such as `dns.<domain>`, `technitium.<domain>`, `git.<domain>`, `infisical.<domain>`, and `hermes.<domain>` in the authoritative private values files.
+This builds the local tooling container and creates `values/` from `scaffold/`, or clones the `values_repo.remote` configured in `settings.local.json`. If no remote is configured and setup is interactive, it can ask for a base domain, probe `git.<domain>` for an accessible `homelab-infra-values` repository, save the discovered remote in ignored `settings.local.json`, and clone it. It also starts setup wizards for Proxmox API access and domain-derived service names. The Proxmox wizard asks for your Proxmox host, verifies root SSH key access, offers an alternate key file or a command to authorize your default public SSH key if default keys fail, creates/updates a dedicated Proxmox API user/token, and writes the endpoint/token/SSH target to `values/.env` without printing the token secret. The domain wizard asks for your base domain plus service IPs, then derives names such as `dns.<domain>`, `technitium.<domain>`, `git.<domain>`, `infisical.<domain>`, `hermes.<domain>`, and `searxng.apps.<domain>` in the authoritative private values files.
 
 You can also pass the values repo URL directly:
 
@@ -111,7 +111,7 @@ Apply the reviewed plan and configure services with Ansible:
 just apply
 ```
 
-`just plan` writes `tfplan` plus `tfplan.meta.json`. `just apply` refuses to run if the saved plan or its inputs changed, then applies infrastructure, runs enabled Ansible playbooks, and syncs Technitium DNS records after the DNS service is installed. It removes plan artifacts after the apply attempt. `TECHNITIUM_API_URL` should use the direct LXC API endpoint (`http://<technitium-lxc-ip>:5380/api`) so DNS sync does not depend on records it creates. If the Technitium token is missing or still a placeholder, apply bootstraps one through the local API and stores it in `values/.env` without printing the token.
+`just plan` writes `tfplan` plus `tfplan.meta.json`. `just apply` refuses to run if the saved plan or its inputs changed, then applies infrastructure, runs enabled Ansible service chains in dependency-safe parallel waves, and syncs Technitium DNS records after the DNS service is installed. Set `INFRA_APPLY_ANSIBLE_MODE=sequential` to use the older one-playbook-at-a-time behavior, or `INFRA_APPLY_ANSIBLE_MAX_WORKERS=<n>` to cap parallel service chains. It removes plan artifacts after the apply attempt. `TECHNITIUM_API_URL` should use the direct LXC API endpoint (`http://<technitium-lxc-ip>:5380/api`) so DNS sync does not depend on records it creates. If the Technitium token is missing or still a placeholder, apply bootstraps one through the local API and stores it in `values/.env` without printing the token.
 
 After a successful apply, review and commit the private `values/` repo because OpenTofu state and local inventory may have changed:
 
@@ -167,7 +167,7 @@ OpenTofu manages:
 - Optional Forgejo Actions runner LXC when `forgejo_runner` is enabled in local settings
 - Optional Infisical secrets service LXC with a service-local Caddy frontend
 - Optional Hermes management LXC with SSH tooling and a service-local Caddy reverse proxy for the Hermes Agent web dashboard
-- Optional Debian 13 Podman `onramp_host` VM substrate for Onramp-managed app services. The boot source is a clean Debian 13 genericcloud image imported by OpenTofu from the URL declared in private `values/terraform.tfvars`.
+- Optional Debian 13 Podman `onramp_host` VM substrate for app services. The boot source is a clean Debian 13 genericcloud image imported by OpenTofu from the URL declared in private `values/terraform.tfvars`.
 - LXC bind mount attachments for services that use host storage
 
 Ansible manages:
@@ -181,7 +181,8 @@ Ansible manages:
 - Forgejo Actions runner installation/registration on a separate LXC
 - Infisical Docker Compose stack, including PostgreSQL, Redis, and Caddy
 - Hermes management tooling, SSH-oriented bootstrap directories, the Hermes Agent web dashboard, and Caddy
-- App-host SSH hardening, rootless Podman readiness, deploy-user setup, default-deny host firewall policy, and Onramp deployment directory preparation
+- App-host SSH hardening, rootless Podman readiness, deploy-user setup, default-deny host firewall policy, and deployment directory preparation
+- Temporary SearXNG onramp workload deployment with rootless Podman, service-local Caddy, Technitium DNS record input, and Hermes endpoint env wiring when `searxng_onramp` is enabled
 - Optional Tailscale installation and private backup restore on the Tailscale client LXC
 - Technitium DNS records/settings through `infra/ansible/playbooks/technitium-dns.yml`
 
@@ -207,10 +208,12 @@ Hermes dashboard uses a form-login provider named `basic`. Store
 `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH` in private values instead of a
 plaintext password; generate it with `python scripts/hermes-password-hash.py`.
 The service-local Caddy config rewrites the upstream provider redirect to the
-form login route and proxies only to the loopback-bound dashboard. A future
-Hermes `web-searxng` plugin/runtime should read `HERMES_WEB_SEARXNG_URL` from
-private values; this source slice documents the endpoint contract but does not
-claim a live SearXNG backend exists.
+form login route and proxies only to the loopback-bound dashboard. Hermes `web-searxng` plugin/runtime should read the SearXNG endpoint from the
+Hermes-native `SEARXNG_URL` environment key. Private values keep the same
+endpoint as `HERMES_WEB_SEARXNG_URL`, and Ansible renders both names into the
+Hermes dashboard environment for compatibility. When `searxng_onramp` is
+enabled, this repo temporarily manages that endpoint on `onramp_host` as
+`https://searxng.apps.<domain>` or the private equivalent.
 
 `values/.env` is parsed as dotenv-style data by `scripts/parse-env.py`; it is not sourced as shell. Keep required variables from `scaffold/.env.example` in sync with your private `values/.env`.
 

@@ -1,0 +1,13 @@
+---
+services:
+  searxng:
+    image: {{ searxng_onramp_container_image }}
+    container_name: searxng-onramp
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: {{ searxng_public_url }}
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro,Z
+      - ./data:/var/cache/searxng:Z
+    ports:
+      - "{{ searxng_onramp_bind_address }}:{{ searxng_onramp_container_port }}:8080"

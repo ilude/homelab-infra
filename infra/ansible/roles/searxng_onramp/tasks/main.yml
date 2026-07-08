@@ -1,0 +1,193 @@
+---
+- name: Validate SearXNG onramp required variables
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version | int >= 13
+      - onramp_host_deploy_user is defined
+      - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_host_deploy_user != 'root'
+      - onramp_host_deploy_dir is defined
+      - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
+      - searxng_server_name is defined
+      - searxng_server_name is match('^[A-Za-z0-9.-]+$')
+      - searxng_public_url is defined
+      - searxng_public_url is match('^https://')
+      - searxng_secret_key is defined
+      - searxng_secret_key | length >= 16
+      - caddy_email is defined
+      - caddy_cloudflare_api_token is defined
+      - searxng_onramp_bind_address in ['127.0.0.1', '::1']
+      - searxng_onramp_container_port | int > 0
+      - searxng_onramp_container_port | int < 65536
+    fail_msg: SearXNG onramp requires a Debian 13 onramp host, loopback bind address, HTTPS public URL, secret key, and Caddy DNS-01 variables.
+  no_log: true
+
+- name: Install SearXNG onramp OS dependencies
+  ansible.builtin.apt:
+    name: "{{ searxng_onramp_required_packages }}"
+    state: present
+    update_cache: true
+
+- name: Ensure SearXNG deployment directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ searxng_onramp_base_dir }}"
+      mode: "0750"
+    - path: "{{ searxng_onramp_base_dir }}/data"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
+      mode: "0750"
+
+- name: Install SearXNG settings
+  ansible.builtin.template:
+    src: settings.yml.j2
+    dest: "{{ searxng_onramp_base_dir }}/settings.yml"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart searxng
+
+- name: Install SearXNG compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ searxng_onramp_base_dir }}/docker-compose.yml"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  notify: Restart searxng
+
+- name: Resolve SearXNG deploy user UID
+  ansible.builtin.command:
+    argv:
+      - id
+      - -u
+      - "{{ onramp_host_deploy_user }}"
+  register: searxng_onramp_deploy_user_uid
+  changed_when: false
+
+- name: Install SearXNG rootless systemd unit
+  ansible.builtin.template:
+    src: searxng-onramp.service.j2
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/searxng-onramp.service"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  notify: Restart searxng
+
+- name: Enable SearXNG rootless systemd unit
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: searxng-onramp.service
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
+
+- name: Check whether SearXNG Caddy has Cloudflare DNS module
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - caddy list-modules 2>/dev/null | grep -Fx dns.providers.cloudflare
+  register: searxng_onramp_caddy_cloudflare_module
+  changed_when: false
+  failed_when: false
+
+- name: Build SearXNG Caddy with Cloudflare DNS module
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - curl -fsSL https://go.dev/dl/go1.24.4.linux-amd64.tar.gz -o /tmp/go.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz && PATH=/usr/local/go/bin:${PATH} GOBIN=/usr/local/bin /usr/local/go/bin/go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest && PATH=/usr/local/go/bin:${PATH} /usr/local/bin/xcaddy build --with github.com/caddy-dns/cloudflare --output /tmp/caddy-cloudflare && install -m 0755 /tmp/caddy-cloudflare /usr/bin/caddy  # yamllint disable-line rule:line-length
+  when: searxng_onramp_caddy_cloudflare_module.rc != 0
+  changed_when: true
+  notify: Restart caddy
+
+- name: Install SearXNG Caddy env
+  ansible.builtin.template:
+    src: caddy.env.j2
+    dest: /etc/caddy/env
+    mode: "0600"
+    owner: root
+    group: caddy
+  no_log: true
+  notify: Restart caddy
+
+- name: Ensure SearXNG Caddy systemd override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/caddy.service.d
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Install SearXNG Caddy systemd override
+  ansible.builtin.template:
+    src: caddy-override.conf.j2
+    dest: /etc/systemd/system/caddy.service.d/override.conf
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Restart caddy
+
+- name: Install SearXNG Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Restart caddy
+
+- name: Validate SearXNG Caddy config
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
+  changed_when: false
+
+- name: Enable SearXNG Caddy service
+  ansible.builtin.systemd_service:
+    name: caddy
+    enabled: true
+    state: started
+
+- name: Flush SearXNG service restarts before endpoint checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify SearXNG loopback endpoint
+  ansible.builtin.command:
+    argv:
+      - curl
+      - -fsS
+      - --max-time
+      - "10"
+      - "http://127.0.0.1:{{ searxng_onramp_container_port }}/"
+  changed_when: false
+
+- name: Verify SearXNG Caddy route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - -kfsS
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ searxng_server_name }}:443:127.0.0.1"
+      - "https://{{ searxng_server_name }}/"
+  changed_when: false

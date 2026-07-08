@@ -125,6 +125,7 @@
       - select ar.uuid from action_runner ar join repository r on r.id=ar.repo_id where ar.name='{{ forgejo_runner_name | default('homelab-deploy') }}' and lower(r.owner_name || '/' || r.lower_name)=lower('{{ forgejo_runner_scope }}') and ar.repo_id != 0 limit 1;  # yamllint disable-line rule:line-length
   register: forgejo_runner_existing_registration
   changed_when: false
+  delegate_to: "{{ groups['forgejo'][0] }}"
   no_log: true
 - name: Register Forgejo Actions runner with Forgejo
   ansible.builtin.command:
@@ -139,6 +140,7 @@
     FORGEJO_RUNNER_SECRET: '{{ forgejo_runner_registration_secret }}'
   register: forgejo_runner_registration
   changed_when: false
+  delegate_to: "{{ groups['forgejo'][0] }}"
   no_log: true
   when: forgejo_runner_existing_registration.stdout | trim == ""
 - name: Set Forgejo runner UUID
@@ -163,6 +165,7 @@
       - /var/lib/forgejo/data/forgejo.db
       - update action_runner set owner_id=0 where uuid='{{ forgejo_runner_uuid }}' and repo_id != 0 and owner_id != 0;
   changed_when: false
+  delegate_to: "{{ groups['forgejo'][0] }}"
 - name: Install Forgejo runner env
   ansible.builtin.template:
     src: runner.env.j2

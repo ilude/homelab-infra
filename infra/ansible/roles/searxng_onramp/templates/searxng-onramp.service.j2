@@ -1,0 +1,16 @@
+[Unit]
+Description=Temporary SearXNG onramp Podman workload
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ searxng_onramp_base_dir }}
+ExecStart={{ searxng_onramp_compose_provider_command }} -f {{ searxng_onramp_base_dir }}/docker-compose.yml up -d
+ExecStop={{ searxng_onramp_compose_provider_command }} -f {{ searxng_onramp_base_dir }}/docker-compose.yml down
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target

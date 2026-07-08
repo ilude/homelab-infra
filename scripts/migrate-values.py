@@ -21,6 +21,7 @@ GENERATED_SECRET_KEYS = {
     "INFISICAL_AUTH_SECRET": lambda: secrets.token_hex(32),
     "INFISICAL_POSTGRES_PASSWORD": lambda: secrets.token_urlsafe(32),
     "HERMES_DASHBOARD_BASIC_AUTH_SECRET": lambda: secrets.token_urlsafe(48),
+    "SEARXNG_SECRET_KEY": lambda: secrets.token_urlsafe(48),
 }
 
 SECRET_KEYS = {
@@ -40,6 +41,7 @@ SECRET_KEYS = {
     "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH",
     "HERMES_DASHBOARD_BASIC_AUTH_SECRET",
     "HERMES_WEB_SEARXNG_URL",
+    "SEARXNG_SECRET_KEY",
 }
 
 ENV_TO_INVENTORY = {
@@ -411,7 +413,7 @@ def ensure_optional_service_tfvars(tfvars_lines: list[str], optional_services: s
             "hermes_started": "true",
             "hermes_start_on_boot": "true",
         })
-    if "onramp_host" in optional_services:
+    if "onramp_host" in optional_services or "searxng_onramp" in optional_services:
         defaults.update({
             "onramp_host_vmid": "112",
             "onramp_host_hostname": hcl_quote("onramp-host"),
@@ -439,6 +441,16 @@ def ensure_optional_service_tfvars(tfvars_lines: list[str], optional_services: s
             "onramp_host_allowed_ssh_cidrs": json.dumps(["192.0.2.0/24"]),
             "onramp_host_started": "true",
             "onramp_host_start_on_boot": "true",
+        })
+    if "searxng_onramp" in optional_services:
+        defaults.update({
+            "searxng_server_name": hcl_quote(f"searxng.apps.{domain}"),
+            "searxng_public_url": hcl_quote(f"https://searxng.apps.{domain}"),
+            "searxng_container_image": hcl_quote("docker.io/searxng/searxng:latest"),
+            "searxng_container_port": "8080",
+            "searxng_bind_address": hcl_quote("127.0.0.1"),
+            "searxng_instance_name": hcl_quote("Homelab SearXNG"),
+            "searxng_enable_public_url": "true",
         })
     for key, raw_value in defaults.items():
         if set_tfvars_raw(tfvars_lines, key, raw_value):
@@ -492,6 +504,14 @@ def ensure_inventory_vars(path: Path, text: str, domain: str) -> tuple[str, list
         "hermes_dashboard_basic_auth_username": "    hermes_dashboard_basic_auth_username: admin",
         "hermes_dashboard_basic_auth_password_hash": "    hermes_dashboard_basic_auth_password_hash: \"{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH') }}\"",
         "hermes_dashboard_basic_auth_secret": "    hermes_dashboard_basic_auth_secret: \"{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_SECRET') }}\"",
+        "hermes_web_searxng_url": "    hermes_web_searxng_url: \"{{ lookup('env', 'HERMES_WEB_SEARXNG_URL') }}\"",
+        "searxng_server_name": f"    searxng_server_name: searxng.apps.{domain}",
+        "searxng_public_url": f"    searxng_public_url: https://searxng.apps.{domain}",
+        "searxng_secret_key": "    searxng_secret_key: \"{{ lookup('env', 'SEARXNG_SECRET_KEY') }}\"",
+        "searxng_container_image": "    searxng_container_image: docker.io/searxng/searxng:latest",
+        "searxng_container_port": "    searxng_container_port: 8080",
+        "searxng_bind_address": "    searxng_bind_address: 127.0.0.1",
+        "searxng_instance_name": "    searxng_instance_name: Homelab SearXNG",
     }
     lines = text.rstrip().splitlines() if text.strip() else ["---", "all:", "  vars:"]
     for key, line in additions.items():
@@ -502,7 +522,13 @@ def ensure_inventory_vars(path: Path, text: str, domain: str) -> tuple[str, list
     return "\n".join(lines) + "\n", changes
 
 
-def ensure_dns_records(path: Path, domain: str, infisical_ip: str, hermes_ip: str) -> list[str]:
+def ensure_dns_records(
+    path: Path,
+    domain: str,
+    infisical_ip: str,
+    hermes_ip: str,
+    searxng_ip: str = "",
+) -> list[str]:
     if not path.exists():
         return []
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -510,8 +536,11 @@ def ensure_dns_records(path: Path, domain: str, infisical_ip: str, hermes_ip: st
     if not isinstance(records, dict):
         raise MigrationError(f"{path}: a_records must be an object")
     changes: list[str] = []
-    for name, address in {f"infisical.{domain}": infisical_ip, f"hermes.{domain}": hermes_ip}.items():
-        if records.get(name) == address:
+    desired = {f"infisical.{domain}": infisical_ip, f"hermes.{domain}": hermes_ip}
+    if searxng_ip:
+        desired[f"searxng.apps.{domain}"] = searxng_ip
+    for name, address in desired.items():
+        if not address or records.get(name) == address:
             continue
         records[name] = address
         changes.append("added optional service DNS record")
@@ -531,7 +560,7 @@ def enabled_optional_services(values_dir: Path) -> set[str]:
     except json.JSONDecodeError:
         return set()
     services = data.get("services", [])
-    return {service for service in ("infisical", "hermes", "onramp_host") if service in services}
+    return {service for service in ("infisical", "hermes", "onramp_host", "searxng_onramp") if service in services}
 
 
 def migrate(values_dir: Path) -> list[str]:
@@ -572,15 +601,18 @@ def migrate(values_dir: Path) -> list[str]:
         domain = service_domain(tfvars_lines)
         inventory_text, inventory_changes = ensure_inventory_vars(inventory_path, inventory_text, domain)
         changes.extend(inventory_changes)
-        if "hermes" in optional_services and "HERMES_WEB_SEARXNG_URL" not in env_entries:
-            set_env(env_lines, env_entries, "HERMES_WEB_SEARXNG_URL", "https://searxng.apps.example.net")
-            changes.append("added HERMES_WEB_SEARXNG_URL placeholder")
+        if "searxng_onramp" in optional_services and "HERMES_WEB_SEARXNG_URL" not in env_entries:
+            set_env(env_lines, env_entries, "HERMES_WEB_SEARXNG_URL", f"https://searxng.apps.{domain}")
+            changes.append("added HERMES_WEB_SEARXNG_URL for SearXNG onramp")
         changes.extend(
             ensure_dns_records(
                 values_dir / "dns-records.local.json",
                 domain,
                 tfvars_scalar_value(tfvars_lines, "infisical_lan_ip"),
                 tfvars_scalar_value(tfvars_lines, "hermes_lan_ip"),
+                tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0]
+                if "searxng_onramp" in optional_services
+                else "",
             )
         )
 

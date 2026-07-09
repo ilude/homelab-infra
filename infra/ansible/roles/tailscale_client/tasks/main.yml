@@ -64,6 +64,21 @@
     - not tailscale_client_restore_backup | default(false) | bool
     - tailscale_client_auth_key is defined
     - tailscale_client_auth_key | length > 0
+- name: Flush Tailscale restart before service checks
+  ansible.builtin.meta: flush_handlers
+  when: tailscale_client_enabled | default(false) | bool
+- name: Verify tailscaled service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - tailscaled
+  register: tailscale_client_active
+  changed_when: false
+  retries: 6
+  delay: 5
+  until: tailscale_client_active.rc == 0
+  when: tailscale_client_enabled | default(false) | bool
 - name: Check Tailscale client status
   ansible.builtin.command:
     argv:
@@ -71,5 +86,4 @@
       - status
   register: tailscale_client_status
   changed_when: false
-  failed_when: false
   when: tailscale_client_enabled | default(false) | bool

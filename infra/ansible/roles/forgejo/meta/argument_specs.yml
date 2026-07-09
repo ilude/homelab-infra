@@ -1,0 +1,53 @@
+---
+argument_specs:
+  main:
+    short_description: "Install and configure Forgejo with optional local Caddy and SSH integration."
+    options:
+      forgejo_domain:
+        type: str
+        required: true
+        description: "Canonical Forgejo hostname used for app URL and SSH host matching."
+      forgejo_version:
+        type: str
+        required: true
+        description: "Forgejo release version string to install."
+      forgejo_root_url:
+        type: str
+        required: false
+        description: "Public Forgejo root URL (default: https://{{ forgejo_domain }}/)."
+      forgejo_ssh_port:
+        type: int
+        required: false
+        description: "SSH-facing Forgejo port value in generated app.ini (default: 22)."
+      forgejo_download_base:
+        type: str
+        required: false
+        description: "Base URL for Forgejo binary downloads (default: https://code.forgejo.org/forgejo/forgejo/releases/download)."
+      forgejo_enable_caddy:
+        type: bool
+        required: false
+        description: "If true, enables in-role Caddy install/configuration for Forgejo public exposure (default: false)."
+      caddy_email:
+        type: str
+        required: false
+        description: "Required only when forgejo_enable_caddy is true; Caddy TLS contact email."
+      caddy_cloudflare_api_token:
+        type: str
+        required: false
+        description: "Required only when forgejo_enable_caddy is true; token for Cloudflare DNS challenge."
+      forgejo_configure_system_ssh:
+        type: bool
+        required: false
+        description: "Controls installation of Forgejo's custom SSHD snippet on the host (default: true)."
+      forgejo_write_initial_config:
+        type: bool
+        required: false
+        description: "Controls generation of initial app.ini file on first run (default: false)."
+      forgejo_actions_enabled:
+        type: bool
+        required: false
+        description: "Enables [actions] section in app.ini and actions bootstrap logic (default: true)."
+      forgejo_actions_default_url:
+        type: str
+        required: false
+        description: "Default actions runner endpoint URL (default: https://data.forgejo.org)."

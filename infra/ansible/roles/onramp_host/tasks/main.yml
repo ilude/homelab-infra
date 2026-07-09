@@ -65,7 +65,7 @@
 
 - name: Document onramp-host sudo policy
   ansible.builtin.debug:
-    msg: "No broad sudo policy is installed by default; rootless Podman and deployment directory ownership are the Onramp runtime contract."
+    msg: "No broad sudo policy is installed by default; Rootless Podman and deployment directory ownership are the Onramp runtime contract."
 
 - name: Enable linger for rootless Podman user services
   ansible.builtin.command:
@@ -191,21 +191,13 @@
     onramp_host_deploy_dir_stat.stat.pw_name != onramp_host_deploy_user or
     onramp_host_deploy_dir_stat.stat.gr_name != onramp_host_deploy_user
 
-- name: Verify harmless rootless Podman smoke check
+- name: Verify rootless Podman user namespace as deploy user
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
     argv:
       - podman
-      - run
-      - --rm
-      - --pull=never
-      - localhost/hello-world:homelab-smoke
-  register: onramp_host_podman_smoke
+      - unshare
+      - 'true'
+  register: onramp_host_podman_unshare
   changed_when: false
-  failed_when: false
-
-- name: Document deferred onramp-host smoke image
-  ansible.builtin.debug:
-    msg: "Rootless Podman is installed; image-based smoke checks are deferred unless a local non-secret smoke image is present."
-  when: onramp_host_podman_smoke.rc != 0

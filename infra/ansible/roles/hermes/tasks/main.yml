@@ -144,34 +144,74 @@
   changed_when: false
 - name: Flush Hermes service restarts before endpoint checks
   ansible.builtin.meta: flush_handlers
-- name: Verify Hermes dashboard services are active
+- name: Verify Hermes Caddy service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - caddy
+  changed_when: false
+  register: hermes_caddy_active
+  retries: 6
+  delay: 5
+  until: hermes_caddy_active.rc == 0
+- name: Verify Hermes dashboard service is active
   ansible.builtin.command:
     argv:
       - systemctl
       - is-active
       - hermes-dashboard
-      - caddy
   when: hermes_dashboard_enabled | default(true) | bool
   changed_when: false
+  register: hermes_dashboard_active
+  retries: 6
+  delay: 5
+  until: hermes_dashboard_active.rc == 0
 - name: Verify Hermes dashboard login page
-  ansible.builtin.command:
-    argv:
-      - curl
-      - -fsS
-      - --max-time
-      - '10'
-      - http://127.0.0.1:{{ hermes_dashboard_port | default(9119) }}/login
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ hermes_dashboard_port | default(9119) }}/login"
+    status_code: 200
+    return_content: false
   when: hermes_dashboard_enabled | default(true) | bool
-  changed_when: false
+  register: hermes_dashboard_login_check
+  retries: 12
+  delay: 5
+  until: hermes_dashboard_login_check.status == 200
 - name: Verify Hermes Caddy basic-auth login rewrite
   ansible.builtin.command:
     argv:
       - curl
-      - -kfsS
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
       - --max-time
-      - '10'
+      - "10"
       - --resolve
-      - '{{ hermes_domain }}:443:127.0.0.1'
-      - https://{{ hermes_domain }}/auth/login?provider=basic&next=%2F
-  when: hermes_dashboard_enabled | default(true) | bool
+      - "{{ hermes_domain }}:443:127.0.0.1"
+      - "https://{{ hermes_domain }}/auth/login?provider=basic&next=%2F"
   changed_when: false
+  when: hermes_dashboard_enabled | default(true) | bool
+  register: hermes_https_login_check
+  retries: 12
+  delay: 5
+  until: hermes_https_login_check.rc == 0
+- name: Verify Hermes static HTTPS route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ hermes_domain }}:443:127.0.0.1"
+      - "https://{{ hermes_domain }}/"
+  changed_when: false
+  when: not (hermes_dashboard_enabled | default(true) | bool)
+  register: hermes_static_https_check
+  retries: 12
+  delay: 5
+  until: hermes_static_https_check.rc == 0

@@ -6,6 +6,7 @@
       - -lc
       - cd /opt/infisical && set -a && . /etc/infisical/infisical.env && set +a && docker compose -f docker-compose.yml up -d
   changed_when: true
+  no_log: true
 - name: Restart caddy
   ansible.builtin.systemd:
     name: caddy

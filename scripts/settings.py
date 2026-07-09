@@ -10,44 +10,34 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_SETTINGS = Path("settings.local.json")
-DEFAULT_SERVICES = ("technitium", "forgejo")
+REPO = Path(__file__).resolve().parents[1]
+SERVICE_REGISTRY = REPO / "infra" / "services.json"
+
+
+def load_service_registry(path: Path = SERVICE_REGISTRY) -> dict[str, Any]:
+    try:
+        registry = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Invalid JSON in {path}: {error}") from error
+    if not isinstance(registry, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    services = registry.get("services")
+    defaults = registry.get("default_services")
+    if not isinstance(services, dict):
+        raise ValueError(f"{path}: services must be an object")
+    if not isinstance(defaults, list) or not all(isinstance(item, str) for item in defaults):
+        raise ValueError(f"{path}: default_services must be a list of strings")
+    return registry
+
+
+SERVICE_REGISTRY_DATA = load_service_registry()
+DEFAULT_SERVICES = tuple(SERVICE_REGISTRY_DATA["default_services"])
 SERVICES = {
-    "technitium": {
-        "playbooks": (
-            "infra/ansible/playbooks/technitium.yml",
-            "infra/ansible/playbooks/caddy-proxy.yml",
-            "infra/ansible/playbooks/technitium-dns.yml",
-        ),
-        "dependencies": (),
-    },
-    "forgejo": {
-        "playbooks": ("infra/ansible/playbooks/forgejo.yml",),
-        "dependencies": (),
-    },
-    "tailscale_client": {
-        "playbooks": ("infra/ansible/playbooks/tailscale-client.yml",),
-        "dependencies": (),
-    },
-    "forgejo_runner": {
-        "playbooks": ("infra/ansible/playbooks/forgejo-runner.yml",),
-        "dependencies": ("forgejo",),
-    },
-    "infisical": {
-        "playbooks": ("infra/ansible/playbooks/infisical.yml",),
-        "dependencies": (),
-    },
-    "hermes": {
-        "playbooks": ("infra/ansible/playbooks/hermes.yml",),
-        "dependencies": (),
-    },
-    "onramp_host": {
-        "playbooks": ("infra/ansible/playbooks/onramp-host.yml",),
-        "dependencies": (),
-    },
-    "searxng_onramp": {
-        "playbooks": ("infra/ansible/playbooks/searxng-onramp.yml",),
-        "dependencies": ("onramp_host",),
-    },
+    name: {
+        "playbooks": tuple(config["playbooks"]),
+        "dependencies": tuple(config["dependencies"]),
+    }
+    for name, config in SERVICE_REGISTRY_DATA["services"].items()
 }
 SERVICE_PLAYBOOKS = {name: config["playbooks"] for name, config in SERVICES.items()}
 SERVICE_NAMES = set(SERVICES)

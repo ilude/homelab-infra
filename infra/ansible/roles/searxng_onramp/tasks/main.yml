@@ -166,28 +166,65 @@
     name: caddy
     enabled: true
     state: started
+    daemon_reload: true
 
 - name: Flush SearXNG service restarts before endpoint checks
   ansible.builtin.meta: flush_handlers
 
-- name: Verify SearXNG loopback endpoint
+- name: Verify SearXNG rootless service is active
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
     argv:
-      - curl
-      - -fsS
-      - --max-time
-      - "10"
-      - "http://127.0.0.1:{{ searxng_onramp_container_port }}/"
+      - systemctl
+      - --user
+      - is-active
+      - searxng-onramp.service
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
   changed_when: false
+  register: searxng_onramp_service_active
+  retries: 6
+  delay: 5
+  until: searxng_onramp_service_active.rc == 0
 
-- name: Verify SearXNG Caddy route locally
+- name: Verify SearXNG Caddy service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - caddy
+  changed_when: false
+  register: searxng_onramp_caddy_active
+  retries: 6
+  delay: 5
+  until: searxng_onramp_caddy_active.rc == 0
+
+- name: Verify SearXNG loopback endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ searxng_onramp_container_port }}/"
+    status_code: 200
+    return_content: false
+  register: searxng_onramp_loopback_check
+  retries: 24
+  delay: 5
+  until: searxng_onramp_loopback_check.status == 200
+
+- name: Verify SearXNG HTTPS route locally
   ansible.builtin.command:
     argv:
       - curl
-      - -kfsS
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
       - --max-time
       - "10"
       - --resolve
       - "{{ searxng_server_name }}:443:127.0.0.1"
       - "https://{{ searxng_server_name }}/"
   changed_when: false
+  register: searxng_onramp_https_check
+  retries: 24
+  delay: 5
+  until: searxng_onramp_https_check.rc == 0

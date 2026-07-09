@@ -1,14 +1,7 @@
 variable "enabled_services" {
-  description = "Services OpenTofu should build and maintain. Service selection is normally supplied from settings.local.json by just plan."
+  description = "Services OpenTofu should build and maintain. Service selection is normally supplied from settings.local.json by just plan. Null uses infra/services.json default_services."
   type        = list(string)
-  default     = ["technitium", "forgejo"]
-
-  validation {
-    condition = alltrue([
-      for service in var.enabled_services : contains(["technitium", "forgejo", "tailscale_client", "forgejo_runner", "infisical", "hermes", "onramp_host", "searxng_onramp"], service)
-    ])
-    error_message = "enabled_services may contain only technitium, forgejo, tailscale_client, forgejo_runner, infisical, hermes, onramp_host, and searxng_onramp."
-  }
+  default     = null
 }
 
 

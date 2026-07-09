@@ -10,6 +10,7 @@
     XDG_RUNTIME_DIR: "/run/user/{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
 
 - name: Restart caddy
-  ansible.builtin.service:
+  ansible.builtin.systemd_service:
     name: caddy
     state: restarted
+    daemon_reload: true

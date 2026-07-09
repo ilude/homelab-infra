@@ -1,0 +1,61 @@
+---
+argument_specs:
+  main:
+    short_description: "Install Hermes dashboard and local service proxy stack on the Hermes host."
+    options:
+      hermes_vmid:
+        type: int
+        required: true
+        description: "Hermes LXC VMID asserted by role entry checks."
+      hermes_domain:
+        type: str
+        required: true
+        description: "Public Hermes host name used for Caddy and landing/docs links."
+      caddy_email:
+        type: str
+        required: true
+        description: "Caddy TLS contact email used for certificate issuance."
+      caddy_cloudflare_api_token:
+        type: str
+        required: true
+        description: "Cloudflare DNS API token for Caddy DNS-01 challenge."
+      hermes_dashboard_enabled:
+        type: bool
+        required: false
+        description: "Enables Hermes dashboard install, verification, and auth checks (default: true)."
+      hermes_compose_version:
+        type: str
+        required: false
+        description: "Docker Compose plugin version to ensure in the host stack (default: 5.3.0)."
+      hermes_just_version:
+        type: str
+        required: false
+        description: "Just utility version to ensure in the host stack (default: 1.55.1)."
+      hermes_repo_path:
+        type: str
+        required: false
+        description: "Repository path written into the landing page helper (default: /srv/homelab-infra)."
+      hermes_dashboard_port:
+        type: int
+        required: false
+        description: "Hermes dashboard bind port in local loopback service checks and proxies (default: 9119)."
+      hermes_dashboard_host:
+        type: str
+        required: false
+        description: "Dashboard bind host (default: 127.0.0.1)."
+      hermes_dashboard_basic_auth_username:
+        type: str
+        required: false
+        description: "Required when hermes_dashboard_enabled is true; basic-auth username injected into dashboard env."
+      hermes_dashboard_basic_auth_password_hash:
+        type: str
+        required: false
+        description: "Required when hermes_dashboard_enabled is true; argon/scrypt hash for dashboard basic-auth."
+      hermes_dashboard_basic_auth_secret:
+        type: str
+        required: false
+        description: "Required when hermes_dashboard_enabled is true; Hermes dashboard auth secret."
+      hermes_web_searxng_url:
+        type: str
+        required: false
+        description: "Optional public/searxng URL injected for web search integration if set."

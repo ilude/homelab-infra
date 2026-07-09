@@ -30,6 +30,11 @@ class PublicSafetyScanTests(unittest.TestCase):
         findings = public_safety.scan_ips("README.md", 1, "host fd00::1")  # public-safety: allow-ip
         self.assertEqual(len(findings), 1)
 
+    def test_unspecified_and_loopback_addresses_pass(self) -> None:
+        for line in ("bind 0.0.0.0", "bind ::1", "bind 127.0.0.1"):  # public-safety: allow-ip
+            findings = public_safety.scan_ips("README.md", 1, line)
+            self.assertEqual(findings, [], line)
+
     def test_allow_comment_skips_ip_scan(self) -> None:
         findings = public_safety.scan_ips(
             "README.md", 1, "host 192.168.1.10 # public-safety: allow-ip"

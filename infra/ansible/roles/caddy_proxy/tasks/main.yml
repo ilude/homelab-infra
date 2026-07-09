@@ -79,3 +79,45 @@
       - --now
       - caddy
   changed_when: false
+- name: Flush DNS LXC Caddy restart before endpoint checks
+  ansible.builtin.meta: flush_handlers
+- name: Verify DNS LXC Caddy service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - caddy
+  changed_when: false
+  register: caddy_proxy_active
+  retries: 6
+  delay: 5
+  until: caddy_proxy_active.rc == 0
+- name: Verify DNS LXC Caddy upstream responds locally
+  ansible.builtin.uri:
+    url: "http://{{ caddy_upstream }}/"
+    status_code:
+      - 200
+      - 302
+    return_content: false
+  register: caddy_proxy_upstream_check
+  retries: 12
+  delay: 5
+  until: caddy_proxy_upstream_check.status in [200, 302]
+- name: Verify DNS LXC HTTPS proxy route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ (caddy_server_names if caddy_server_names is defined else [caddy_server_name]) | first }}:443:127.0.0.1"
+      - "https://{{ (caddy_server_names if caddy_server_names is defined else [caddy_server_name]) | first }}/"
+  changed_when: false
+  register: caddy_proxy_https_check
+  retries: 12
+  delay: 5
+  until: caddy_proxy_https_check.rc == 0

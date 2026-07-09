@@ -1,6 +1,6 @@
 output "technitium_container_vmid" {
   description = "Proxmox VMID for the Technitium DNS LXC, or null when disabled."
-  value       = local.technitium_enabled ? proxmox_virtual_environment_container.technitium_dns[0].vm_id : null
+  value       = local.technitium_enabled ? module.technitium_dns[0].vm_id : null
 }
 
 output "technitium_dns_ip" {
@@ -20,7 +20,7 @@ output "technitium_dns_endpoint" {
 
 output "forgejo_container_vmid" {
   description = "Proxmox VMID for the Forgejo LXC, or null when disabled."
-  value       = local.forgejo_enabled ? proxmox_virtual_environment_container.forgejo[0].vm_id : null
+  value       = local.forgejo_enabled ? module.forgejo[0].vm_id : null
 }
 
 output "forgejo_lan_ip" {
@@ -45,7 +45,7 @@ output "forgejo_data_mount" {
 
 output "infisical_container_vmid" {
   description = "Proxmox VMID for the Infisical LXC, or null when disabled."
-  value       = local.infisical_enabled ? proxmox_virtual_environment_container.infisical[0].vm_id : null
+  value       = local.infisical_enabled ? module.infisical[0].vm_id : null
 }
 
 output "infisical_lan_ip" {
@@ -60,7 +60,7 @@ output "infisical_https_url" {
 
 output "hermes_container_vmid" {
   description = "Proxmox VMID for the Hermes management LXC, or null when disabled."
-  value       = local.hermes_enabled ? proxmox_virtual_environment_container.hermes[0].vm_id : null
+  value       = local.hermes_enabled ? module.hermes[0].vm_id : null
 }
 
 output "hermes_lan_ip" {
@@ -105,7 +105,7 @@ output "onramp_host_target" {
 
 output "tailscale_client_container_vmid" {
   description = "Proxmox VMID for the Tailscale client LXC, or null when disabled."
-  value       = local.tailscale_client_enabled ? proxmox_virtual_environment_container.tailscale_client[0].vm_id : null
+  value       = local.tailscale_client_enabled ? module.tailscale_client[0].vm_id : null
 }
 
 output "tailscale_client_ipv4_address" {

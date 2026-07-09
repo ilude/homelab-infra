@@ -106,3 +106,56 @@
       - --now
       - forgejo
   changed_when: false
+- name: Flush Forgejo service restarts before endpoint checks
+  ansible.builtin.meta: flush_handlers
+- name: Verify Forgejo service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - forgejo
+  changed_when: false
+  register: forgejo_active
+  retries: 6
+  delay: 5
+  until: forgejo_active.rc == 0
+- name: Verify Forgejo health endpoint on loopback
+  ansible.builtin.uri:
+    url: http://127.0.0.1:3000/api/healthz
+    status_code: 200
+    return_content: false
+  register: forgejo_health_check
+  retries: 12
+  delay: 5
+  until: forgejo_health_check.status == 200
+- name: Verify Forgejo Caddy service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - caddy
+  changed_when: false
+  register: forgejo_caddy_active
+  retries: 6
+  delay: 5
+  until: forgejo_caddy_active.rc == 0
+  when: forgejo_enable_caddy | default(false) | bool
+- name: Verify Forgejo HTTPS health route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ forgejo_domain }}:443:127.0.0.1"
+      - "https://{{ forgejo_domain }}/api/healthz"
+  changed_when: false
+  register: forgejo_https_health_check
+  retries: 12
+  delay: 5
+  until: forgejo_https_health_check.rc == 0
+  when: forgejo_enable_caddy | default(false) | bool

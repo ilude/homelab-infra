@@ -29,6 +29,7 @@ Keep non-public material in `values/` or outside this checkout; do not add anoth
 ## Documentation
 
 - [Docs index](docs/README.md) lists public-safe operator and architecture notes.
+- [Debian baseline split](docs/debian-baseline.md) explains why LXCs use Debian 12 templates while `onramp_host` uses Debian 13 genericcloud.
 - [Hermes operator pilot PRD](docs/hermes-operator-pilot-prd.md) defines the Hermes cockpit requirements and safety boundaries.
 - [Onramp app-platform contract](docs/onramp-app-platform-contract.md) defines how `homelab-infra`, `onramp-vNext`, and Hermes split onramp-host ownership.
 - [Onramp SearXNG handoff](docs/onramp-searxng-handoff.md) documents the default future Onramp-owned SearXNG contract and the current temporary `homelab-infra` exception.
@@ -44,7 +45,7 @@ From a fresh checkout, optionally copy the local settings template:
 cp settings.example.json settings.local.json
 ```
 
-Edit `settings.local.json` if you want `just setup` to clone your private `values/` Git repo. For example, set `values_repo.remote` to your Forgejo SSH URL. The file is ignored by Git. Supported services are `technitium`, `forgejo`, `tailscale_client`, `forgejo_runner`, `infisical`, `hermes`, `onramp_host`, and `searxng_onramp`; `technitium` includes its Caddy proxy, browser-facing first-class services use in-LXC Caddy, `onramp_host` prepares a Debian 13 Podman VM, `searxng_onramp` temporarily deploys SearXNG on that VM, and `forgejo_runner` creates/configures a separate Forgejo Actions runner LXC.
+Edit `settings.local.json` if you want `just setup` to clone your private `values/` Git repo. For example, set `values_repo.remote` to your Forgejo SSH URL. The file is ignored by Git. Supported services are defined in `infra/services.json` and currently include `technitium`, `forgejo`, `tailscale_client`, `forgejo_runner`, `infisical`, `hermes`, `onramp_host`, and `searxng_onramp`; `technitium` includes its Caddy proxy, browser-facing first-class services use in-LXC Caddy, `onramp_host` prepares a Debian 13 Podman VM, `searxng_onramp` temporarily deploys SearXNG on that VM, and `forgejo_runner` creates/configures a separate Forgejo Actions runner LXC.
 
 Then run:
 

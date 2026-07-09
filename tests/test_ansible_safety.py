@@ -16,6 +16,14 @@ CADDY_TASK_FILES = (
     REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml",
 )
 ANSIBLE_TASK_FILES = tuple((REPO / "infra" / "ansible" / "roles").glob("*/tasks/*.yml"))
+SERVICE_SMOKE_TASK_FILES = (
+    REPO / "infra" / "ansible" / "roles" / "technitium" / "tasks" / "main.yml",
+    REPO / "infra" / "ansible" / "roles" / "caddy_proxy" / "tasks" / "main.yml",
+    REPO / "infra" / "ansible" / "roles" / "forgejo" / "tasks" / "main.yml",
+    REPO / "infra" / "ansible" / "roles" / "infisical" / "tasks" / "main.yml",
+    REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",
+    REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml",
+)
 ALLOWLIST_PCT = {
     REPO / "infra" / "ansible" / "roles" / "lxc_ready" / "tasks" / "main.yml",
 }
@@ -87,6 +95,24 @@ class AnsibleSafetyTests(unittest.TestCase):
                 r"curl[^\n]*\n\s+-o\b",
                 f"{path} has curl URL and -o split across YAML lines; folded blocks preserve the newline here, causing curl to stream binary to Ansible stdout",
             )
+
+    def test_browser_facing_service_roles_have_http_smoke_checks(self) -> None:
+        for path in SERVICE_SMOKE_TASK_FILES:
+            text = path.read_text(encoding="utf-8")
+            has_http_check = "ansible.builtin.uri:" in text or "      - curl\n" in text
+            self.assertTrue(has_http_check, str(path))
+            self.assertIn("retries:", text, str(path))
+            self.assertIn("until:", text, str(path))
+
+    def test_lightweight_service_roles_fail_on_active_checks(self) -> None:
+        checks = {
+            "infra/ansible/roles/forgejo_runner/tasks/main.yml": "Verify Forgejo runner service is active",
+            "infra/ansible/roles/onramp_host/tasks/main.yml": "Verify rootless Podman user namespace as deploy user",
+            "infra/ansible/roles/tailscale_client/tasks/main.yml": "Verify tailscaled service is active",
+        }
+        for rel_path, task_name in checks.items():
+            task = task_by_name(REPO / rel_path, task_name)
+            self.assertNotEqual(task.get("failed_when"), False, rel_path)
 
     def test_forgejo_runner_registration_is_guarded_by_existing_lookup(self) -> None:
         existing = task_by_name(RUNNER_TASKS, "Check existing Forgejo Actions runner registration")

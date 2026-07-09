@@ -62,8 +62,15 @@ all:
     tailscale_client_enable_ip_forwarding: true
     tailscale_client_auth_key: "{{ lookup('env', 'TAILSCALE_AUTH_KEY') }}"
     tailscale_client_up_args: []
+
+    # Shared Caddy ACME settings used by each service-local Caddy instance.
+    # Keep the token secret in values/.env as CF_DNS_API_TOKEN.
     caddy_email: admin@example.internal
     caddy_cloudflare_api_token: "{{ lookup('env', 'CF_DNS_API_TOKEN') }}"
+
+    # Technitium DNS UI Caddy proxy only. Other services use their own
+    # service-specific domain variables such as forgejo_domain, infisical_domain,
+    # hermes_domain, and searxng_server_name.
     caddy_server_name: dns.example.internal
     caddy_server_names:
       - dns.example.internal

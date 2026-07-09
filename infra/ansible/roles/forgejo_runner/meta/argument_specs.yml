@@ -1,0 +1,77 @@
+---
+argument_specs:
+  main:
+    short_description: "Provision and register a Forgejo Actions runner host."
+    options:
+      forgejo_runner_vmid:
+        type: int
+        required: true
+        description: "Runner LXC VMID used by task assertions and runtime wiring."
+      forgejo_vmid:
+        type: int
+        required: true
+        description: "Forgejo LXC VMID used for registration queries against the database and service."
+      forgejo_runner_url:
+        type: str
+        required: true
+        description: "Forgejo base URL used by runner config and registration checks."
+      forgejo_runner_scope:
+        type: str
+        required: true
+        description: "Repository scope for repository-scoped runner registration."
+      forgejo_runner_registration_secret:
+        type: str
+        required: true
+        description: "Registration secret token (minimum length enforced) for joining the runner."
+      forgejo_runner_label:
+        type: str
+        required: true
+        description: "Runner label used when registering and falling back to a default host label list."
+      forgejo_runner_dns_servers:
+        type: list
+        required: false
+        description: "Optional resolver IPs to write into /etc/resolv.conf in the runner container (default: [])."
+      forgejo_runner_hosts:
+        type: list
+        required: false
+        description: "Optional list of host mappings for /etc/hosts; each item includes name and address (default: [])."
+      forgejo_runner_compose_version:
+        type: str
+        required: false
+        description: "Docker Compose plugin version for install/check logic (default: 5.3.0)."
+      forgejo_runner_just_version:
+        type: str
+        required: false
+        description: "Just command version for install/check logic (default: 1.55.1)."
+      forgejo_runner_version:
+        type: str
+        required: false
+        description: "Forgejo runner binary version; if missing uses default (default: 12.7.3)."
+      forgejo_runner_name:
+        type: str
+        required: false
+        description: "Runner name used at registration (default: homelab-deploy)."
+      forgejo_runner_hostname:
+        type: str
+        required: false
+        description: "SSH key comment base name for the runner host key (default: forgejo-runner)."
+      forgejo_runner_capacity:
+        type: int
+        required: false
+        description: "Runner capacity value written to config (default: 1)."
+      forgejo_runner_job_timeout:
+        type: str
+        required: false
+        description: "Runner job timeout for config (default: 3h)."
+      forgejo_runner_labels:
+        type: list
+        required: false
+        description: "Optional runner labels list (default: [<forgejo_runner_label>:host])."
+      forgejo_runner_cache_enabled:
+        type: bool
+        required: false
+        description: "Enables runner cache block in config (default: false)."
+      forgejo_runner_connection_name:
+        type: str
+        required: false
+        description: "Named connection key in runner config (default: forgejo)."

@@ -1,0 +1,33 @@
+---
+argument_specs:
+  main:
+    short_description: "Configure a Caddy reverse proxy and TLS policy on a DNS/utility host."
+    options:
+      technitium_vmid:
+        type: int
+        required: true
+        description: "LXC VMID used by the host role for required task gating."
+      caddy_server_name:
+        type: str
+        required: false
+        description: "Primary server name for the main TLS site; must be set when caddy_server_names is not provided."
+      caddy_server_names:
+        type: list
+        required: false
+        description: "Alternate list of server names for the main site; must be set when caddy_server_name is not provided."
+      caddy_upstream:
+        type: str
+        required: true
+        description: "Upstream target (host:port) for the main reverse-proxy route."
+      caddy_email:
+        type: str
+        required: true
+        description: "Contact email used in the Caddy TLS block."
+      caddy_cloudflare_api_token:
+        type: str
+        required: true
+        description: "Cloudflare DNS API token used by Caddy's DNS challenge provider."
+      caddy_extra_vhosts:
+        type: list
+        required: false
+        description: "Optional extra vhosts, each with server_name/server_names and upstream (default: [])."

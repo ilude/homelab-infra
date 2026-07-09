@@ -1,0 +1,53 @@
+---
+argument_specs:
+  main:
+    short_description: "Deploy Infisical plus PostgreSQL/Redis and proxy with local Caddy."
+    options:
+      infisical_vmid:
+        type: int
+        required: true
+        description: "Infisical LXC VMID asserted by role tasks."
+      infisical_domain:
+        type: str
+        required: true
+        description: "Public domain for Infisical and Caddy reverse-proxy host matching."
+      infisical_encryption_key:
+        type: str
+        required: true
+        description: "Long-form encryption key required by Infisical runtime."
+      infisical_auth_secret:
+        type: str
+        required: true
+        description: "Long-form auth secret required by Infisical."
+      infisical_postgres_password:
+        type: str
+        required: true
+        description: "PostgreSQL password for Infisical container credentials."
+      caddy_email:
+        type: str
+        required: true
+        description: "Caddy TLS contact email used for certificate issuance."
+      caddy_cloudflare_api_token:
+        type: str
+        required: true
+        description: "Cloudflare DNS API token for Caddy DNS-01 challenge."
+      infisical_compose_version:
+        type: str
+        required: false
+        description: "Docker Compose plugin version used when updating the LXC runtime tools (default: 5.3.0)."
+      infisical_data_dir:
+        type: str
+        required: false
+        description: "Host directory for Infisical data, PostgreSQL, and Redis mounts (default: /var/lib/infisical)."
+      infisical_postgres_user:
+        type: str
+        required: false
+        description: "PostgreSQL username for the containerized database (default: infisical)."
+      infisical_postgres_db:
+        type: str
+        required: false
+        description: "PostgreSQL database name for the containerized service (default: infisical)."
+      infisical_version:
+        type: str
+        required: false
+        description: "Infisical container image tag to deploy (default: latest)."

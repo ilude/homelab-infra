@@ -15,6 +15,19 @@ spec.loader.exec_module(migrate_values)
 
 
 class MigrateValuesTests(unittest.TestCase):
+    def test_infisical_encryption_key_generator_matches_current_format(self) -> None:
+        value = migrate_values.GENERATED_SECRET_KEYS["INFISICAL_ENCRYPTION_KEY"]()
+        self.assertRegex(value, r"^[0-9a-f]{32}$")
+
+    def test_normalizes_historical_infisical_encryption_key(self) -> None:
+        lines = ["INFISICAL_ENCRYPTION_KEY=" + "a" * 64 + "\n"]
+        entries = migrate_values.parse_env_lines(lines, Path("values/.env"))
+
+        changes = migrate_values.migrate_infisical_secret_formats(lines, entries)
+
+        self.assertEqual(changes, ["normalized INFISICAL_ENCRYPTION_KEY to Infisical 16-byte hex format"])
+        self.assertEqual(migrate_values.envfile_parse_scalar(entries["INFISICAL_ENCRYPTION_KEY"].value), "a" * 32)
+
     def make_values(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)

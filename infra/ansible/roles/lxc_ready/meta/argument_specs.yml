@@ -1,0 +1,25 @@
+---
+argument_specs:
+  main:
+    short_description: "Wait for LXC instance lifecycle state and systemd readiness checks."
+    options:
+      lxc_ready_vmid:
+        type: int
+        required: true
+        description: "LXC VMID to poll with pct status and pct exec for readiness."
+      lxc_ready_name:
+        type: str
+        required: false
+        description: "Friendly name used in logging when provided; defaults to lxc_ready_vmid."
+      lxc_ready_retries:
+        type: int
+        required: false
+        description: "Retry count for initial LXC running check (default: 20)."
+      lxc_ready_delay_seconds:
+        type: int
+        required: false
+        description: "Delay between poll attempts for both readiness loops (default: 3)."
+      lxc_ready_systemd_retries:
+        type: int
+        required: false
+        description: "Retry count for systemctl readiness check (default: 30)."

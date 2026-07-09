@@ -5,7 +5,7 @@
       - infisical_vmid is defined
       - infisical_domain is defined
       - infisical_encryption_key is defined
-      - infisical_encryption_key | length >= 32
+      - infisical_encryption_key is match('^[0-9a-fA-F]{32}$')
       - infisical_auth_secret is defined
       - infisical_auth_secret | length >= 32
       - infisical_postgres_password is defined
@@ -42,6 +42,7 @@
     owner: root
     group: root
   no_log: true
+  notify: Restart infisical
 - name: Install Infisical Compose file
   ansible.builtin.template:
     src: docker-compose.yml.j2
@@ -49,6 +50,7 @@
     mode: '0644'
     owner: root
     group: root
+  notify: Restart infisical
 - name: Start Infisical Compose stack
   ansible.builtin.command:
     argv:
@@ -121,3 +123,61 @@
       - --now
       - caddy
   changed_when: false
+- name: Flush Infisical service restarts before endpoint checks
+  ansible.builtin.meta: flush_handlers
+- name: Verify Infisical Docker service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - docker
+  changed_when: false
+  register: infisical_docker_active
+  retries: 6
+  delay: 5
+  until: infisical_docker_active.rc == 0
+- name: Verify Infisical Caddy service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - caddy
+  changed_when: false
+  register: infisical_caddy_active
+  retries: 6
+  delay: 5
+  until: infisical_caddy_active.rc == 0
+- name: Verify Infisical Compose services are running
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail;
+        running="$(docker compose -f /opt/infisical/docker-compose.yml ps --status running --services)";
+        for service in db redis infisical; do
+          grep -Fx "${service}" <<<"${running}" >/dev/null;
+        done
+  changed_when: false
+  register: infisical_compose_running_check
+  retries: 24
+  delay: 5
+  until: infisical_compose_running_check.rc == 0
+- name: Verify Infisical HTTPS route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ infisical_domain }}:443:127.0.0.1"
+      - "https://{{ infisical_domain }}/"
+  changed_when: false
+  register: infisical_https_check
+  retries: 24
+  delay: 5
+  until: infisical_https_check.rc == 0

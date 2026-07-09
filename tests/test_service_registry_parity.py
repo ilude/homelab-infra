@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
-import re
+import json
 import sys
+import types
 import unittest
 from pathlib import Path
 
@@ -14,6 +15,14 @@ assert settings_spec and settings_spec.loader
 settings_script = importlib.util.module_from_spec(settings_spec)
 settings_spec.loader.exec_module(settings_script)
 
+try:
+    import hcl2  # noqa: F401
+except ImportError:
+    if "hcl2" not in sys.modules:
+        hcl2_stub = types.ModuleType("hcl2")
+        hcl2_stub.load = lambda _file: {}
+        sys.modules["hcl2"] = hcl2_stub
+
 TFVARS_INVENTORY = REPO / "infra" / "ansible" / "inventory" / "tfvars.py"
 tfvars_spec = importlib.util.spec_from_file_location("tfvars_inventory", TFVARS_INVENTORY)
 assert tfvars_spec and tfvars_spec.loader
@@ -21,18 +30,37 @@ tfvars_inventory = importlib.util.module_from_spec(tfvars_spec)
 sys.modules[tfvars_spec.name] = tfvars_inventory
 tfvars_spec.loader.exec_module(tfvars_inventory)
 
+SERVICE_REGISTRY = REPO / "infra" / "services.json"
+service_registry = json.loads(SERVICE_REGISTRY.read_text(encoding="utf-8"))
+
 
 class ServiceRegistryParityTests(unittest.TestCase):
-    def test_settings_services_match_opentofu_enabled_services_validation(self) -> None:
-        variables = (REPO / "infra" / "opentofu" / "variables.tf").read_text(encoding="utf-8")
-        match = re.search(r"contains\(\[(?P<services>.*?)\], service\)", variables, re.DOTALL)
-        self.assertIsNotNone(match)
-        assert match is not None
-        tofu_services = set(re.findall(r'"([A-Za-z0-9_]+)"', match.group("services")))
-        self.assertEqual(set(settings_script.SERVICES), tofu_services)
+    def test_settings_services_are_derived_from_registry(self) -> None:
+        expected_services = {
+            name: {
+                "playbooks": tuple(config["playbooks"]),
+                "dependencies": tuple(config["dependencies"]),
+            }
+            for name, config in service_registry["services"].items()
+        }
+        self.assertEqual(tuple(service_registry["default_services"]), settings_script.DEFAULT_SERVICES)
+        self.assertEqual(expected_services, settings_script.SERVICES)
+        self.assertEqual(set(service_registry["services"]), settings_script.SERVICE_NAMES)
 
-    def test_settings_services_match_inventory_service_hosts(self) -> None:
-        self.assertEqual(set(settings_script.SERVICES), set(tfvars_inventory.SERVICE_HOSTS))
+    def test_inventory_service_hosts_are_derived_from_registry(self) -> None:
+        expected_hosts = {
+            name: config["inventory"]
+            for name, config in service_registry["services"].items()
+        }
+        self.assertEqual(expected_hosts, tfvars_inventory.SERVICE_HOSTS)
+
+    def test_opentofu_enabled_services_validation_reads_registry(self) -> None:
+        variables = (REPO / "infra" / "opentofu" / "variables.tf").read_text(encoding="utf-8")
+        services = (REPO / "infra" / "opentofu" / "services.tf").read_text(encoding="utf-8")
+        self.assertIn('jsondecode(file("${path.module}/../services.json"))', services)
+        self.assertIn('resource "terraform_data" "enabled_services_validation"', services)
+        self.assertIn("invalid_enabled_services", services)
+        self.assertNotIn('contains(["technitium"', variables)
 
     def test_settings_playbook_paths_exist(self) -> None:
         for playbook in settings_script.all_ansible_playbooks():

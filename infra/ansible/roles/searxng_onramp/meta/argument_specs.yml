@@ -1,0 +1,65 @@
+---
+argument_specs:
+  main:
+    short_description: "Deploy temporary rootless Podman SearXNG onramp service behind local Caddy."
+    options:
+      onramp_host_deploy_user:
+        type: str
+        required: true
+        description: "Rootless deploy user inherited from onramp host setup for service ownership."
+      onramp_host_deploy_dir:
+        type: str
+        required: true
+        description: "Base deploy directory used to place searxng_onramp_base_dir."
+      searxng_server_name:
+        type: str
+        required: true
+        description: "Caddy server name used for TLS route and validation checks."
+      searxng_public_url:
+        type: str
+        required: true
+        description: "Public HTTPS base URL written into SearXNG settings and container env."
+      searxng_secret_key:
+        type: str
+        required: true
+        description: "Required secret value for SearXNG runtime configuration."
+      caddy_email:
+        type: str
+        required: true
+        description: "Caddy TLS contact email used in the onramp Caddyfile."
+      caddy_cloudflare_api_token:
+        type: str
+        required: true
+        description: "Cloudflare DNS API token used by Caddy DNS-01 challenge."
+      searxng_onramp_bind_address:
+        type: str
+        required: false
+        description: "Container host bind address for SearXNG service (default: 127.0.0.1)."
+      searxng_onramp_container_port:
+        type: int
+        required: false
+        description: "Host port used in compose service mapping and loopback checks (default: 8080)."
+      searxng_onramp_required_packages:
+        type: list
+        required: false
+        description: "VM package dependencies for SearXNG onramp install (default: caddy, curl, golang)."
+      searxng_onramp_container_image:
+        type: str
+        required: false
+        description: "Container image for the SearXNG service (default: docker.io/searxng/searxng:latest)."
+      searxng_onramp_instance_name:
+        type: str
+        required: false
+        description: "UI instance name injected into settings.yml (default: Homelab SearXNG)."
+      searxng_onramp_enable_public_url:
+        type: bool
+        required: false
+        description: "If true, renders base_url from searxng_public_url in settings.yml (default: true)."
+      searxng_onramp_base_dir:
+        type: str
+        required: false
+        description: "Local deployment directory for compose/settings files (default: {{ onramp_host_deploy_dir }}/searxng)."
+      searxng_onramp_compose_provider_command:
+        type: str
+        required: false
+        description: "Compose CLI used by user service (default: podman-compose)."

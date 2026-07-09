@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from envfile import EnvEntry, EnvFileError, parse_env_lines as parse_envfile_lines, parse_scalar as envfile_parse_scalar, read_lines, remove_env, set_env, write_lines
 
 GENERATED_SECRET_KEYS = {
-    "INFISICAL_ENCRYPTION_KEY": lambda: secrets.token_hex(32),
-    "INFISICAL_AUTH_SECRET": lambda: secrets.token_hex(32),
+    "INFISICAL_ENCRYPTION_KEY": lambda: secrets.token_hex(16),
+    "INFISICAL_AUTH_SECRET": lambda: base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
     "INFISICAL_POSTGRES_PASSWORD": lambda: secrets.token_urlsafe(32),
     "HERMES_DASHBOARD_BASIC_AUTH_SECRET": lambda: secrets.token_urlsafe(48),
     "SEARXNG_SECRET_KEY": lambda: secrets.token_urlsafe(48),
@@ -246,6 +246,19 @@ def rename_env_key(
         set_env(lines, entries, new_key, old_entry.value)
     remove_env(lines, entries, old_key)
     return True
+
+
+def migrate_infisical_secret_formats(lines: list[str], entries: dict[str, EnvEntry]) -> list[str]:
+    entry = entries.get("INFISICAL_ENCRYPTION_KEY")
+    if entry is None:
+        return []
+    value = envfile_parse_scalar(entry.value)
+    if re.fullmatch(r"[0-9a-fA-F]{32}", value):
+        return []
+    if re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        set_env(lines, entries, "INFISICAL_ENCRYPTION_KEY", value[:32].lower())
+        return ["normalized INFISICAL_ENCRYPTION_KEY to Infisical 16-byte hex format"]
+    return []
 
 
 def migrate_hermes_dashboard_password_hash(lines: list[str], entries: dict[str, EnvEntry]) -> list[str]:
@@ -583,6 +596,7 @@ def migrate(values_dir: Path) -> list[str]:
         if rename_tfvars_key(tfvars_lines, old_key, new_key):
             changes.append(f"renamed {old_key} to {new_key}")
     optional_services = enabled_optional_services(values_dir)
+    changes.extend(migrate_infisical_secret_formats(env_lines, env_entries))
     changes.extend(migrate_hermes_dashboard_password_hash(env_lines, env_entries))
     if optional_services:
         changes.extend(ensure_optional_service_tfvars(tfvars_lines, optional_services))

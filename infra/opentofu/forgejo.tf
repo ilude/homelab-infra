@@ -1,78 +1,10 @@
-resource "proxmox_virtual_environment_container" "forgejo" {
+resource "terraform_data" "forgejo_storage_validation" {
   count = local.forgejo_enabled ? 1 : 0
 
-  description   = var.forgejo_container_description
-  node_name     = var.proxmox_node_name
-  vm_id         = var.forgejo_container_vmid
-  unprivileged  = true
-  started       = true
-  start_on_boot = true
-  tags          = ["forgejo", "git", "opentofu"]
-
-  cpu {
-    cores = var.forgejo_container_cores
-  }
-
-  memory {
-    dedicated = var.forgejo_container_memory_mb
-    swap      = var.forgejo_container_swap_mb
-  }
-
-  features {
-    nesting = true
-  }
-
-  disk {
-    datastore_id = var.rootfs_datastore_id
-    size         = var.forgejo_container_disk_gb
-  }
-
-  mount_point {
-    volume = var.forgejo_data_host_path
-    path   = var.forgejo_data_mount_path
-  }
-
-  initialization {
-    hostname = var.forgejo_container_hostname
-
-    dns {
-      domain  = var.forgejo_container_search_domain
-      servers = var.forgejo_container_dns_servers
-    }
-
-    ip_config {
-      ipv4 {
-        address = var.forgejo_container_ipv4_address
-        gateway = var.forgejo_container_ipv4_gateway
-      }
-    }
-
-    user_account {
-      password = var.lxc_root_password
-      keys     = var.lxc_ssh_public_keys
-    }
-  }
-
-  network_interface {
-    name        = "eth0"
-    bridge      = var.forgejo_container_bridge
-    mac_address = var.forgejo_container_mac_address
-    vlan_id     = var.forgejo_container_vlan_id
-  }
-
-  operating_system {
-    template_file_id = proxmox_download_file.debian_12_lxc_template[0].id
-    type             = "debian"
-  }
-
-  startup {
-    order      = var.forgejo_startup_order
-    up_delay   = var.forgejo_startup_up_delay
-    down_delay = var.forgejo_startup_down_delay
-  }
-
-  wait_for_ip {
-    ipv4 = true
+  input = {
+    dataset  = var.forgejo_data_dataset
+    host_uid = var.forgejo_data_host_uid
+    host_gid = var.forgejo_data_host_gid
   }
 
   lifecycle {
@@ -84,10 +16,56 @@ resource "proxmox_virtual_environment_container" "forgejo" {
       )
       error_message = "Forgejo storage prep variables must define a dataset and non-negative host UID/GID values."
     }
-
-    ignore_changes = [
-      initialization[0].user_account,
-      operating_system[0].template_file_id,
-    ]
   }
+}
+
+module "forgejo" {
+  source = "./modules/debian-lxc"
+  count  = local.forgejo_enabled ? 1 : 0
+
+  description = var.forgejo_container_description
+  node_name   = var.proxmox_node_name
+  vm_id       = var.forgejo_container_vmid
+  tags        = ["forgejo", "git", "opentofu"]
+
+  cores     = var.forgejo_container_cores
+  memory_mb = var.forgejo_container_memory_mb
+  swap_mb   = var.forgejo_container_swap_mb
+
+  disk = {
+    datastore_id = var.rootfs_datastore_id
+    size_gb      = var.forgejo_container_disk_gb
+  }
+
+  mount_points = [
+    {
+      volume = var.forgejo_data_host_path
+      path   = var.forgejo_data_mount_path
+    },
+  ]
+
+  hostname      = var.forgejo_container_hostname
+  search_domain = var.forgejo_container_search_domain
+  dns_servers   = var.forgejo_container_dns_servers
+  ipv4_address  = var.forgejo_container_ipv4_address
+  ipv4_gateway  = var.forgejo_container_ipv4_gateway
+
+  root_password   = var.lxc_root_password
+  ssh_public_keys = var.lxc_ssh_public_keys
+
+  network = {
+    bridge      = var.forgejo_container_bridge
+    mac_address = var.forgejo_container_mac_address
+    vlan_id     = var.forgejo_container_vlan_id
+  }
+
+  template_file_id = proxmox_download_file.debian_12_lxc_template[0].id
+
+  startup = {
+    order      = var.forgejo_startup_order
+    up_delay   = var.forgejo_startup_up_delay
+    down_delay = var.forgejo_startup_down_delay
+  }
+
+  depends_on = [terraform_data.forgejo_storage_validation]
 }

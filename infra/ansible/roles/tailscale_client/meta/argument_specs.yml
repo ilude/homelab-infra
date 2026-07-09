@@ -1,0 +1,33 @@
+---
+argument_specs:
+  main:
+    short_description: "Install and configure a Tailscale client LXC with optional state restore."
+    options:
+      tailscale_client_vmid:
+        type: int
+        required: true
+        description: "Tailscale client LXC VMID required when tailscale client role is enabled."
+      tailscale_client_enabled:
+        type: bool
+        required: false
+        description: "Master enable switch for this role (default: false)."
+      tailscale_client_restore_backup:
+        type: bool
+        required: false
+        description: "Restores known-good Tailscale state and selected config files when true (default: false)."
+      tailscale_client_backup_archive:
+        type: str
+        required: false
+        description: "Backup archive path required only when tailscale_client_restore_backup is true."
+      tailscale_client_auth_key:
+        type: str
+        required: false
+        description: "Optional auth key used for tailscale up when restore is not used."
+      tailscale_client_enable_ip_forwarding:
+        type: bool
+        required: false
+        description: "Controls writing net.ipv4.ip_forward sysctl in the client LXC (default: true)."
+      tailscale_client_up_args:
+        type: list
+        required: false
+        description: "Optional argument list appended to tailscale up command (default: [])."

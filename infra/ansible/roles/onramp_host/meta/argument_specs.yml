@@ -1,0 +1,48 @@
+---
+argument_specs:
+  main:
+    short_description: "Prepare Debian 13 Podman VM host used for onramp services."
+    options:
+      onramp_host_deploy_user:
+        type: str
+        required: true
+        description: "Non-root user used for deployment and rootless Podman operations."
+      onramp_host_deploy_dir:
+        type: str
+        required: true
+        description: "Base deployment directory prepared for onramp service working trees."
+      onramp_host_password_authentication:
+        type: bool
+        required: true
+        description: "SSH PasswordAuthentication policy written to SSHD config."
+      onramp_host_permit_root_login:
+        type: bool
+        required: true
+        description: "SSH PermitRootLogin policy written to SSHD config."
+      onramp_host_allowed_ssh_cidrs:
+        type: list
+        required: true
+        description: "CIDRs allowed to connect to SSH port 22."
+      onramp_host_ssh_public_keys:
+        type: list
+        required: false
+        description: "Authorized key entries installed for the deploy user (default: [])."
+      onramp_host_podman_packages:
+        type: list
+        required: false
+        description: >-
+          Podman/dependency package list installed by APT (default: podman,
+          podman-compose, slirp4netns, fuse-overlayfs, uidmap,
+          dbus-user-session, acl, ufw).
+      onramp_host_compose_provider_command:
+        type: str
+        required: false
+        description: "Compose command used for rootless workloads (default: podman-compose)."
+      onramp_host_enable_docker_compat_socket:
+        type: bool
+        required: false
+        description: "Enables rootless podman.socket unit for docker-compat client mode (default: true)."
+      onramp_host_allowed_reverse_proxy_ports:
+        type: list
+        required: false
+        description: "Ports allowed through UFW for reverse-proxy ingress (default: 80 and 443)."

@@ -196,3 +196,31 @@
       - -lc
       - systemctl daemon-reload && systemctl enable --now forgejo-runner
   changed_when: false
+- name: Flush Forgejo runner restart before service checks
+  ansible.builtin.meta: flush_handlers
+- name: Verify Forgejo runner service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - forgejo-runner
+  changed_when: false
+  register: forgejo_runner_active
+  retries: 6
+  delay: 5
+  until: forgejo_runner_active.rc == 0
+- name: Verify Forgejo Actions runner registration remains present
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - git
+      - --
+      - sqlite3
+      - /var/lib/forgejo/data/forgejo.db
+      - select ar.uuid from action_runner ar join repository r on r.id=ar.repo_id where ar.name='{{ forgejo_runner_name | default('homelab-deploy') }}' and lower(r.owner_name || '/' || r.lower_name)=lower('{{ forgejo_runner_scope }}') and ar.repo_id != 0 limit 1;  # yamllint disable-line rule:line-length
+  register: forgejo_runner_verify_registration
+  changed_when: false
+  failed_when: forgejo_runner_verify_registration.stdout | trim != forgejo_runner_uuid
+  delegate_to: "{{ groups['forgejo'][0] }}"
+  no_log: true

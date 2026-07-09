@@ -6,6 +6,7 @@ Public-safe documentation for this homelab infrastructure runbook.
 
 - [Hermes operator pilot PRD](hermes-operator-pilot-prd.md) defines the Hermes cockpit requirements, safety boundaries, and SearXNG pilot classification.
 - [Onramp app-platform contract](onramp-app-platform-contract.md) defines the `homelab-infra`, `onramp-vNext`, and Hermes ownership split for onramp-host services.
+- [Debian baseline split](debian-baseline.md) explains the current LXC/host Debian versions, rationale, and the reviewed migration path.
 - [Onramp SearXNG handoff](onramp-searxng-handoff.md) gives `onramp-vNext` the future SearXNG-on-Podman contract and records the current temporary `searxng_onramp` exception.
 - [App-host runbook](onramp-host-runbook.md) covers `onramp_host` and `searxng_onramp` enable/disable, rollback, and live deployment validation.
 

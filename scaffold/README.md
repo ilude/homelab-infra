@@ -55,6 +55,8 @@ just validate
 
 Keep `.env` in dotenv-style `KEY=value` or `export KEY=value` format. The runbooks parse it as data and reject shell execution patterns.
 
+Optional EdgeRouter access uses `EDGEROUTER_ADDR` (for example, `firewall.example.internal`) and `EDGEROUTER_USER` (for example, `ubnt`). Configure that account for key-based, read-only SSH access. Do not store `EDGEROUTER_PASS`.
+
 For Hermes dashboard form login, store `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH`, not a plaintext password. Generate it with:
 
 ```bash

@@ -63,6 +63,10 @@ def load_service_registry(path: Path = SERVICE_REGISTRY) -> dict[str, Any]:
             not isinstance(config["execution_resource"], str) or not config["execution_resource"].strip()
         ):
             raise ValueError(f"{path}: service {name} execution_resource must be a non-empty string")
+        if "terraform_module" in config and (
+            not isinstance(config["terraform_module"], str) or not config["terraform_module"].strip()
+        ):
+            raise ValueError(f"{path}: service {name} terraform_module must be a non-empty string")
 
         if "conflicts" in config:
             conflicts = config["conflicts"]
@@ -106,6 +110,7 @@ SERVICES = {
         "dependencies": tuple(config["dependencies"]),
         "conflicts": tuple(config.get("conflicts", [])),
         "execution_resource": str(config.get("execution_resource", name)),
+        "terraform_module": config.get("terraform_module"),
     }
     for name, config in SERVICE_REGISTRY_DATA["services"].items()
 }
@@ -179,6 +184,15 @@ def ansible_playbooks(services: list[str]) -> list[str]:
     ]
 
 
+def tofu_target(settings: dict[str, Any], service: str) -> str:
+    if service not in settings["services"]:
+        raise SettingsError(f"Service is not enabled: {service}")
+    terraform_module = SERVICES[service]["terraform_module"]
+    if not terraform_module:
+        raise SettingsError(f"Service has no OpenTofu module target: {service}")
+    return f"module.{terraform_module}"
+
+
 def all_ansible_playbooks() -> list[str]:
     playbooks: list[str] = []
     for service in SERVICES:
@@ -245,6 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     ansible_playbooks_parser.add_argument("--settings", type=Path, default=None)
     subparsers.add_parser("summary")
     subparsers.add_parser("tofu-var")
+    tofu_target = subparsers.add_parser("tofu-target")
+    tofu_target.add_argument("service")
     args = parser.parse_args(argv)
 
     try:
@@ -267,6 +283,12 @@ def main(argv: list[str] | None = None) -> int:
         print(settings_summary(settings))
     elif args.command == "tofu-var":
         print(json.dumps(settings["services"]))
+    elif args.command == "tofu-target":
+        try:
+            print(tofu_target(settings, args.service))
+        except SettingsError as error:
+            print(error, file=sys.stderr)
+            return 1
     return 0
 
 

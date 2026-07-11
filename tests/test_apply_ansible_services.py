@@ -55,6 +55,16 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
 
         self.assertEqual(waves, [["onramp_host", "hermes"], ["infisical_onramp"], ["searxng_onramp"]])
 
+    def test_recovery_selection_targets_only_enabled_services(self) -> None:
+        self.assertEqual(
+            apply_ansible_services.selected_services(["forgejo", "hermes"], ["hermes"]),
+            ["hermes"],
+        )
+        with self.assertRaisesRegex(apply_ansible_services.settings.SettingsError, "not enabled"):
+            apply_ansible_services.selected_services(["forgejo"], ["hermes"])
+        with self.assertRaisesRegex(apply_ansible_services.settings.SettingsError, "duplicates"):
+            apply_ansible_services.selected_services(["forgejo"], ["forgejo", "forgejo"])
+
     def test_run_service_keeps_service_playbooks_sequential(self) -> None:
         commands: list[list[str]] = []
 

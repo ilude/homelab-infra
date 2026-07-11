@@ -33,8 +33,15 @@
     argv:
       - bash
       - -lc
-      - install -d -m 0750 -o git -g git /var/lib/forgejo /var/lib/forgejo/custom /var/lib/forgejo/data /var/lib/forgejo/log && install -d -m 0770 -o root -g git /etc/forgejo  # yamllint disable-line rule:line-length
+      - install -d -m 0750 -o git -g git /var/lib/forgejo /var/lib/forgejo/custom /var/lib/forgejo/data /var/lib/forgejo/log && chown -R git:git /var/lib/forgejo && install -d -m 0770 -o root -g git /etc/forgejo  # yamllint disable-line rule:line-length
   changed_when: false
+- name: Ensure Forgejo default CLI config directory exists
+  ansible.builtin.file:
+    path: /var/lib/forgejo/custom/conf
+    state: directory
+    owner: git
+    group: git
+    mode: '0750'
 - name: Check installed Forgejo version
   ansible.builtin.command:
     argv:
@@ -85,6 +92,48 @@
     group: git
   when: forgejo_write_initial_config | default(false) | bool or forgejo_app_ini_check.rc != 0
   no_log: true
+- name: Check Forgejo security section
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -q
+      - '^\[security\]$'
+      - /etc/forgejo/app.ini
+  register: forgejo_security_section
+  changed_when: false
+  failed_when: forgejo_security_section.rc not in [0, 1]
+- name: Add missing Forgejo security section
+  ansible.builtin.blockinfile:
+    path: /etc/forgejo/app.ini
+    marker: '# {mark} ANSIBLE MANAGED FORGEJO SECURITY'
+    block: |-
+      [security]
+      INSTALL_LOCK = true
+  when: forgejo_security_section.rc == 1
+  notify: Restart forgejo
+- name: Enforce Forgejo install lock
+  ansible.builtin.lineinfile:
+    path: /etc/forgejo/app.ini
+    regexp: '^INSTALL_LOCK\s*='
+    line: INSTALL_LOCK = true
+    insertafter: '^\[security\]$'
+  when: forgejo_security_section.rc == 0
+  notify: Restart forgejo
+- name: Enforce Forgejo config ownership
+  ansible.builtin.file:
+    path: /etc/forgejo/app.ini
+    state: file
+    owner: root
+    group: git
+    mode: '0640'
+- name: Expose Forgejo config at its default CLI path
+  ansible.builtin.file:
+    src: /etc/forgejo/app.ini
+    dest: /var/lib/forgejo/custom/conf/app.ini
+    state: link
+    owner: git
+    group: git
+    force: true
 - name: Configure Forgejo Actions settings
   ansible.builtin.command:
     argv:
@@ -103,6 +152,7 @@
     mode: '0644'
     owner: root
     group: root
+  notify: Restart ssh
   when: forgejo_configure_system_ssh | default(true) | bool
 - name: Configure Caddy on Forgejo LXC
   ansible.builtin.include_tasks: caddy.yml

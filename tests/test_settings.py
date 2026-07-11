@@ -76,6 +76,9 @@ class SettingsTests(unittest.TestCase):
             "execution_resource": {
                 "first": {"playbooks": ["first.yml"], "dependencies": [], "execution_resource": ""},
             },
+            "terraform_module": {
+                "first": {"playbooks": ["first.yml"], "dependencies": [], "terraform_module": ""},
+            },
         }
         for message, services in cases.items():
             with self.subTest(message=message):
@@ -227,6 +230,12 @@ class SettingsTests(unittest.TestCase):
                 "infra/ansible/playbooks/tailscale-client.yml",
             ],
         )
+
+    def test_tofu_target_returns_enabled_service_module(self) -> None:
+        settings = {"services": ["forgejo"]}
+        self.assertEqual(settings_script.tofu_target(settings, "forgejo"), "module.forgejo")
+        with self.assertRaisesRegex(settings_script.SettingsError, "not enabled"):
+            settings_script.tofu_target(settings, "hermes")
 
     def test_all_ansible_playbooks_are_unique(self) -> None:
         playbooks = settings_script.all_ansible_playbooks()

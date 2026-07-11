@@ -73,7 +73,8 @@ both files when this repo starts managing a new stateful service.
 
 ## Operator notes
 
-- Run backups before rebuilding or replacing a service host.
+- Run backups before rebuilding or replacing a service host. `just apply` verifies the newest archive checksum and manifest for every affected stateful service and requires it to be no older than 24 hours.
+- A destructive plan affecting multiple stateful services is blocked by default. Use `INFRA_TARGET_SERVICE=<service> just plan` for the canary rollout, verify its direct endpoint and state, then create the next plan.
 - Review and commit/push the private `values/` repo after a successful backup if
   you want the archive stored in the private remote.
 - Restore is intentionally explicit and service-scoped; it should not run as part

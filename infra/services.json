@@ -20,7 +20,8 @@
         "vmid_var": "technitium_vmid",
         "tf_vmid": "technitium_container_vmid",
         "tf_host": "technitium_container_ipv4_address"
-      }
+      },
+      "terraform_module": "technitium_dns"
     },
     "forgejo": {
       "execution_resource": "direct_lxc_known_hosts",
@@ -42,7 +43,8 @@
           "forgejo_data_host_path": "forgejo_data_host_path",
           "forgejo_data_mount_path": "forgejo_data_mount_path"
         }
-      }
+      },
+      "terraform_module": "forgejo"
     },
     "tailscale_client": {
       "execution_resource": "direct_lxc_known_hosts",
@@ -60,7 +62,8 @@
         "extra_play_vars": {
           "tailscale_client_enabled": "tailscale_client_enabled"
         }
-      }
+      },
+      "terraform_module": "tailscale_client"
     },
     "forgejo_runner": {
       "state_capable": false,
@@ -80,7 +83,8 @@
         "extra_play_vars": {
           "forgejo_runner_pve_node_name": "proxmox_node_name"
         }
-      }
+      },
+      "terraform_module": "forgejo_runner"
     },
     "infisical": {
       "state_capable": false,
@@ -100,7 +104,8 @@
         "tf_host": "infisical_lan_ip",
         "domain_var": "infisical_domain",
         "tf_domain": "infisical_server_name"
-      }
+      },
+      "terraform_module": "infisical"
     },
     "infisical_onramp": {
       "state_capable": true,
@@ -130,7 +135,8 @@
           "infisical_container_port": "infisical_container_port",
           "infisical_bind_address": "infisical_bind_address"
         }
-      }
+      },
+      "terraform_module": "onramp_host"
     },
     "hermes": {
       "execution_resource": "direct_lxc_known_hosts",
@@ -153,7 +159,8 @@
           "hermes_runtime_user": "hermes_runtime_user",
           "hermes_ssh_public_keys": "lxc_ssh_public_keys"
         }
-      }
+      },
+      "terraform_module": "hermes"
     },
     "onramp_host": {
       "state_capable": true,
@@ -182,7 +189,8 @@
           "onramp_host_allow_passwordless_sudo": "onramp_host_allow_passwordless_sudo",
           "onramp_host_allowed_ssh_cidrs": "onramp_host_allowed_ssh_cidrs"
         }
-      }
+      },
+      "terraform_module": "onramp_host"
     },
     "searxng_onramp": {
       "state_capable": true,
@@ -214,7 +222,8 @@
           "searxng_instance_name": "searxng_instance_name",
           "searxng_enable_public_url": "searxng_enable_public_url"
         }
-      }
+      },
+      "terraform_module": "onramp_host"
     }
   }
 }

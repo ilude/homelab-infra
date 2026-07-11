@@ -11,6 +11,10 @@
   ansible.builtin.import_playbook: direct-access-ready.yml
   vars:
     direct_access_target_group: forgejo_runner
+- name: Refresh direct access for Forgejo registration API calls
+  ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: forgejo
 - name: Configure Forgejo Actions runner directly
   hosts: forgejo_runner
   gather_facts: false

@@ -127,7 +127,7 @@
           - pip
           - download
           - --require-hashes
-          - --only-binary=:all:
+          - '--only-binary=:all:'
           - --index-url
           - https://pypi.org/simple
           - --dest
@@ -154,7 +154,7 @@
           - --find-links
           - "{{ hermes_release_directory }}/wheelhouse"
           - --require-hashes
-          - --only-binary=:all:
+          - '--only-binary=:all:'
           - --no-deps
           - --requirement
           - "{{ hermes_install_root }}/requirements-{{ hermes_discovery_version }}.lock"

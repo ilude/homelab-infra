@@ -1,3 +1,4 @@
 Match User git
+    SetEnv GITEA_WORK_DIR=/var/lib/forgejo
     AuthorizedKeysCommandUser git
     AuthorizedKeysCommand /usr/local/bin/forgejo keys -c /etc/forgejo/app.ini -e git -u %u -t %t -k %k

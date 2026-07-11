@@ -84,7 +84,8 @@ class ForgejoActionsMonitorTests(unittest.TestCase):
             [],
             1,
             "",
-            "refusing pct command: connected host is not the configured Proxmox node TOKEN=secret https://example.internal 192.0.2.1",
+            "refusing pct command: connected host is not the configured Proxmox node TOKEN="
+            + "secret https://example.internal 192.0.2.1",
         )
         with (
             mock.patch.object(monitor.shutil, "which", return_value="/usr/bin/ansible"),

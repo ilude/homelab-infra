@@ -66,6 +66,16 @@ def dependency_waves(services: Iterable[str]) -> list[list[str]]:
     return waves
 
 
+def selected_services(configured: list[str], requested: list[str] | None) -> list[str]:
+    services = requested or configured
+    unknown_services = sorted(set(services) - set(configured))
+    if unknown_services:
+        raise settings.SettingsError(f"service is not enabled: {', '.join(unknown_services)}")
+    if len(services) != len(set(services)):
+        raise settings.SettingsError("service selections contain duplicates")
+    return services
+
+
 def inventory_args(inventories: Iterable[str]) -> list[str]:
     args: list[str] = []
     for inventory in inventories:
@@ -185,7 +195,13 @@ def summarize_failures(results: list[ServiceResult]) -> int:
     print("Ansible service configuration failed:", file=sys.stderr)
     for result in failed:
         print(f"  {result.service}: exit {result.returncode}; log {result.log_path}", file=sys.stderr)
-    print("Review the log file(s), fix the failure, rerun just plan if needed, then rerun just apply.", file=sys.stderr)
+    print("Enter incident mode: preserve healthy services and recover one failed service directly.", file=sys.stderr)
+    for result in failed:
+        print(
+            f"  scripts/apply-service.sh {result.service}",
+            file=sys.stderr,
+        )
+    print("Resume broad orchestration only after direct endpoint and state checks pass.", file=sys.stderr)
     return 1
 
 
@@ -194,12 +210,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--settings", type=Path, default=None)
     parser.add_argument("--inventory", action="append", default=None)
     parser.add_argument("--env-file", type=Path, default=Path("values/.env"))
-    parser.add_argument("--mode", choices=("parallel", "sequential"), default=os.environ.get("INFRA_APPLY_ANSIBLE_MODE", "parallel"))
+    parser.add_argument("--service", action="append", default=None)
+    parser.add_argument("--mode", choices=("parallel", "sequential"), default=os.environ.get("INFRA_APPLY_ANSIBLE_MODE", "sequential"))
     parser.add_argument("--max-workers", type=int, default=int(os.environ.get("INFRA_APPLY_ANSIBLE_MAX_WORKERS", "4")))
     parser.add_argument("--log-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
-    services = enabled_services(args.settings)
+    configured_services = enabled_services(args.settings)
+    try:
+        services = selected_services(configured_services, args.service)
+    except settings.SettingsError as error:
+        parser.error(str(error))
     inventories = tuple(args.inventory or DEFAULT_INVENTORY)
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     log_dir = args.log_dir or Path(".tmp") / f"apply-ansible-{timestamp.replace(':', '')}"

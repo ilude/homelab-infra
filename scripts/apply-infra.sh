@@ -5,6 +5,10 @@ destroy_verify_flag=""
 if [[ "${INFRA_ALLOW_DESTROY:-}" == "1" ]]; then
   destroy_verify_flag="--allow-destroy"
 fi
+stateful_batch_verify_flag=""
+if [[ "${INFRA_ALLOW_STATEFUL_BATCH:-}" == "1" ]]; then
+  stateful_batch_verify_flag="--allow-stateful-batch"
+fi
 
 # shellcheck disable=SC2016
 INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c '
@@ -24,9 +28,11 @@ if [[ ! -f tfplan.meta.json ]]; then
 fi
 
 verify_args=()
-if [[ -n "${1:-}" ]]; then
-  verify_args+=("$1")
-fi
+for verify_arg in "$@"; do
+  if [[ -n "${verify_arg}" ]]; then
+    verify_args+=("${verify_arg}")
+  fi
+done
 python scripts/tfplan-metadata.py verify --plan tfplan --metadata tfplan.meta.json "${verify_args[@]}"
 python scripts/tfplan-metadata.py summary --metadata tfplan.meta.json
 python scripts/settings.py summary
@@ -48,4 +54,4 @@ python scripts/apply-ansible-services.py \
   --inventory values/ansible/inventory/local.yml \
   --inventory infra/ansible/inventory/tfvars.py \
   --env-file values/.env
-' bash "${destroy_verify_flag}"
+' bash "${destroy_verify_flag}" "${stateful_batch_verify_flag}"

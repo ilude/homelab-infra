@@ -13,7 +13,7 @@
     direct_access_target_group: hermes
 - name: Configure Hermes management service directly
   hosts: hermes
-  gather_facts: false
+  gather_facts: true
   become: true
   roles:
     - hermes

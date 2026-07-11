@@ -19,6 +19,9 @@ SSH_PORT = {{ forgejo_ssh_port | default(22) }}
 SSH_USER = git
 START_SSH_SERVER = false
 
+[security]
+INSTALL_LOCK = true
+
 [actions]
 ENABLED = {{ forgejo_actions_enabled | default(true) | bool | lower }}
 DEFAULT_ACTIONS_URL = {{ forgejo_actions_default_url | default('https://data.forgejo.org') }}

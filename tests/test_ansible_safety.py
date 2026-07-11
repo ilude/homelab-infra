@@ -339,6 +339,14 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("HERMES_WEB_SEARXNG_URL={{ hermes_web_searxng_url }}", text)
         self.assertIn("SEARXNG_URL={{ hermes_web_searxng_url }}", text)
 
+    def test_hermes_dashboard_uses_packaged_tui_bundle(self) -> None:
+        env_template = REPO / "infra" / "ansible" / "roles" / "hermes" / "templates" / "hermes-dashboard.env.j2"
+        tasks = REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml"
+        self.assertIn("HERMES_TUI_DIR=/usr/local/lib/hermes-agent/tui", env_template.read_text(encoding="utf-8"))
+        text = tasks.read_text(encoding="utf-8")
+        self.assertIn("Resolve bundled Hermes TUI entrypoint", text)
+        self.assertIn("/usr/local/lib/hermes-agent/tui/dist/entry.js", text)
+
     def test_hermes_enables_linger_for_gateway_user_service(self) -> None:
         task = task_by_name(
             REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",

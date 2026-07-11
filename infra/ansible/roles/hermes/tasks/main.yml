@@ -146,6 +146,39 @@
 - name: Install managed Hermes Agent runtime
   ansible.builtin.include_tasks: managed-runtime.yml
   when: hermes_dashboard_enabled | default(true) | bool
+- name: Resolve bundled Hermes TUI entrypoint
+  ansible.builtin.command:
+    argv:
+      - /usr/local/lib/hermes-agent/venv/bin/python
+      - -c
+      - >-
+        from pathlib import Path;
+        import sys;
+        import hermes_cli;
+        path = Path(hermes_cli.__file__).parent / 'tui_dist' / 'entry.js';
+        print(path);
+        sys.exit(0 if path.is_file() else 1)
+  register: hermes_tui_entrypoint
+  changed_when: false
+  when: hermes_dashboard_enabled | default(true) | bool
+- name: Ensure Hermes TUI bundle directory exists
+  ansible.builtin.file:
+    path: /usr/local/lib/hermes-agent/tui/dist
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: hermes_dashboard_enabled | default(true) | bool
+- name: Link Hermes dashboard TUI bundle
+  ansible.builtin.file:
+    src: "{{ hermes_tui_entrypoint.stdout | trim }}"
+    dest: /usr/local/lib/hermes-agent/tui/dist/entry.js
+    state: link
+    force: true
+    owner: root
+    group: root
+  when: hermes_dashboard_enabled | default(true) | bool
+  notify: Restart hermes dashboard
 - name: Configure Hermes context compression and delegation limits
   ansible.builtin.command:
     argv:

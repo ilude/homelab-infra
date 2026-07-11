@@ -49,6 +49,17 @@ def load_tfvars(path: Path) -> dict[str, str | int]:
     }
 
 
+def selected_services(enabled_services: list[str], requested_services: list[str] | None) -> list[str]:
+    if not requested_services:
+        return enabled_services
+    unknown_services = sorted(set(requested_services) - set(enabled_services))
+    if unknown_services:
+        raise StorageVarsError(f"service is not enabled: {', '.join(unknown_services)}")
+    if len(requested_services) != len(set(requested_services)):
+        raise StorageVarsError("service selections contain duplicates")
+    return requested_services
+
+
 def build_storage_datasets(enabled_services: list[str], tfvars: dict[str, str | int]) -> list[dict[str, str | int]]:
     datasets: list[dict[str, str | int]] = []
     for service in enabled_services:
@@ -93,13 +104,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tfvars", type=Path, default=DEFAULT_TFVARS)
     parser.add_argument("--settings", type=Path, default=None)
+    parser.add_argument("--service", action="append", default=None)
     parser.add_argument("--summary", action="store_true")
     args = parser.parse_args(argv)
 
     try:
         loaded_settings = settings.load_settings(args.settings)
+        services = selected_services(loaded_settings["services"], args.service)
         tfvars = load_tfvars(args.tfvars)
-        datasets = build_storage_datasets(loaded_settings["services"], tfvars)
+        datasets = build_storage_datasets(services, tfvars)
         payload = {"storage_datasets": datasets}
     except (settings.SettingsError, StorageVarsError, OSError) as error:
         print(f"storage vars failed: {error}", file=sys.stderr)

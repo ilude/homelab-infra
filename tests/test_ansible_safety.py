@@ -339,6 +339,36 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("HERMES_WEB_SEARXNG_URL={{ hermes_web_searxng_url }}", text)
         self.assertIn("SEARXNG_URL={{ hermes_web_searxng_url }}", text)
 
+    def test_hermes_enables_linger_for_gateway_user_service(self) -> None:
+        task = task_by_name(
+            REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",
+            "Enable linger for Hermes runtime user services",
+        )
+        text = command_text(task)
+        self.assertIn("loginctl\nenable-linger", text)
+        self.assertIn("{{ hermes_runtime_user | default('anvil') }}", text)
+        self.assertEqual(task.get("changed_when"), False)
+
+    def test_targeted_apply_limits_ansible_to_target_service(self) -> None:
+        text = (REPO / "scripts" / "apply-infra.sh").read_text(encoding="utf-8")
+        self.assertIn('target_service="${INFRA_TARGET_SERVICE:-}"', text)
+        self.assertIn('storage_vars_args+=(--service "${target_service}")', text)
+        self.assertIn('json.loads(sys.argv[1]).get(\\"storage_datasets\\")', text)
+        self.assertIn('ansible_service_args+=(--service "${target_service}")', text)
+        self.assertIn('"${ansible_service_args[@]}"', text)
+
+    def test_public_workflow_entrypoints_are_executable(self) -> None:
+        executable_paths = (
+            "infra/ansible/inventory/tfvars.py",
+            "scripts/apply-infra.sh",
+            "scripts/apply-service.sh",
+            "scripts/discover-values-remote.sh",
+            "scripts/plan-infra.sh",
+        )
+        for rel_path in executable_paths:
+            mode = (REPO / rel_path).stat().st_mode
+            self.assertTrue(mode & 0o111, rel_path)
+
     def test_searxng_onramp_ports_are_loopback_only(self) -> None:
         compose = REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "templates" / "docker-compose.yml.j2"
         text = compose.read_text(encoding="utf-8")

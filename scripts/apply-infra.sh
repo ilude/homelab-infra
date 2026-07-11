@@ -9,6 +9,7 @@ stateful_batch_verify_flag=""
 if [[ "${INFRA_ALLOW_STATEFUL_BATCH:-}" == "1" ]]; then
   stateful_batch_verify_flag="--allow-stateful-batch"
 fi
+target_service="${INFRA_TARGET_SERVICE:-}"
 
 # shellcheck disable=SC2016
 INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c '
@@ -27,6 +28,9 @@ if [[ ! -f tfplan.meta.json ]]; then
   exit 1
 fi
 
+target_service="${1:-}"
+shift || true
+
 verify_args=()
 for verify_arg in "$@"; do
   if [[ -n "${verify_arg}" ]]; then
@@ -36,22 +40,34 @@ done
 python scripts/tfplan-metadata.py verify --plan tfplan --metadata tfplan.meta.json "${verify_args[@]}"
 python scripts/tfplan-metadata.py summary --metadata tfplan.meta.json
 python scripts/settings.py summary
-python scripts/storage-vars.py --summary
+storage_vars_args=()
+if [[ -n "${target_service}" ]]; then
+  storage_vars_args+=(--service "${target_service}")
+fi
+python scripts/storage-vars.py --summary "${storage_vars_args[@]}"
 
 printf "Applying verified tfplan created by just plan.\n"
 trap "rm -f tfplan tfplan.meta.json ./*.tfplan ./*.tfplan.meta.json" EXIT
 
-storage_vars="$(python scripts/storage-vars.py)"
-ansible-playbook \
-  -i values/ansible/inventory/local.yml \
-  -i infra/ansible/inventory/tfvars.py \
-  -e "${storage_vars}" \
-  infra/ansible/playbooks/storage-prep.yml
+storage_vars="$(python scripts/storage-vars.py "${storage_vars_args[@]}")"
+if python -c "import json, sys; raise SystemExit(0 if json.loads(sys.argv[1]).get(\"storage_datasets\") else 1)" "${storage_vars}"; then
+  ansible-playbook \
+    -i values/ansible/inventory/local.yml \
+    -i infra/ansible/inventory/tfvars.py \
+    -e "${storage_vars}" \
+    infra/ansible/playbooks/storage-prep.yml
+fi
 
 tofu -chdir=infra/opentofu apply -state=../../values/terraform.tfstate ../../tfplan
+
+ansible_service_args=()
+if [[ -n "${target_service}" ]]; then
+  ansible_service_args+=(--service "${target_service}")
+fi
 
 python scripts/apply-ansible-services.py \
   --inventory values/ansible/inventory/local.yml \
   --inventory infra/ansible/inventory/tfvars.py \
-  --env-file values/.env
-' bash "${destroy_verify_flag}" "${stateful_batch_verify_flag}"
+  --env-file values/.env \
+  "${ansible_service_args[@]}"
+' bash "${target_service}" "${destroy_verify_flag}" "${stateful_batch_verify_flag}"

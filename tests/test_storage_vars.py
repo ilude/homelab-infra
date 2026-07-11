@@ -43,6 +43,13 @@ class StorageVarsTests(unittest.TestCase):
             ],
         )
 
+    def test_selected_services_limits_storage_scope(self) -> None:
+        self.assertEqual(storage_vars.selected_services(["forgejo", "hermes"], ["hermes"]), ["hermes"])
+        with self.assertRaisesRegex(storage_vars.StorageVarsError, "not enabled"):
+            storage_vars.selected_services(["forgejo"], ["hermes"])
+        with self.assertRaisesRegex(storage_vars.StorageVarsError, "duplicates"):
+            storage_vars.selected_services(["forgejo"], ["forgejo", "forgejo"])
+
     def test_format_storage_summary_outputs_none(self) -> None:
         self.assertEqual(storage_vars.format_storage_summary([]), "Storage prep summary:\n  none")
 
@@ -97,6 +104,30 @@ class StorageVarsTests(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             self.assertIn("Storage prep summary:", buffer.getvalue())
+
+    def test_main_filters_storage_summary_to_requested_service(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings_path = root / "settings.json"
+            tfvars_path = root / "terraform.tfvars"
+            settings_path.write_text('{"services":["forgejo","hermes"]}\n', encoding="utf-8")
+            tfvars_path.write_text(
+                'forgejo_data_dataset = "tank/forgejo"\n'
+                'forgejo_data_host_path = "/tank/forgejo"\n',
+                encoding="utf-8",
+            )
+
+            import contextlib
+            import io
+
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                rc = storage_vars.main(
+                    ["--settings", str(settings_path), "--tfvars", str(tfvars_path), "--service", "hermes", "--summary"]
+                )
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(buffer.getvalue().strip(), "Storage prep summary:\n  none")
 
 
 if __name__ == "__main__":

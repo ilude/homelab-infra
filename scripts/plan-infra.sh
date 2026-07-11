@@ -9,7 +9,11 @@ target_service="${INFRA_TARGET_SERVICE:-}"
 scripts/run-infra.sh bash -euo pipefail -c '
 python scripts/workspace-preflight.py --require-values
 python scripts/settings.py summary
-python scripts/storage-vars.py --summary
+storage_vars_args=()
+if [[ -n "${1:-}" ]]; then
+  storage_vars_args+=(--service "${1}")
+fi
+python scripts/storage-vars.py --summary "${storage_vars_args[@]}"
 
 tofu -chdir=infra/opentofu init
 

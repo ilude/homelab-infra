@@ -237,6 +237,23 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(settings_script.SettingsError, "not enabled"):
             settings_script.tofu_target(settings, "hermes")
 
+    def test_tofu_target_command_returns_enabled_service_module(self) -> None:
+        path = self.write_settings({"services": ["hermes"]})
+        try:
+            with tempfile.TemporaryFile("w+", encoding="utf-8") as stdout:
+                original_stdout = settings_script.sys.stdout
+                settings_script.sys.stdout = stdout
+                try:
+                    rc = settings_script.main(["--settings", str(path), "tofu-target", "hermes"])
+                finally:
+                    settings_script.sys.stdout = original_stdout
+                stdout.seek(0)
+                output = stdout.read().strip()
+        finally:
+            path.unlink()
+        self.assertEqual(rc, 0)
+        self.assertEqual(output, "module.hermes")
+
     def test_all_ansible_playbooks_are_unique(self) -> None:
         playbooks = settings_script.all_ansible_playbooks()
         self.assertIn("infra/ansible/playbooks/tailscale-client.yml", playbooks)

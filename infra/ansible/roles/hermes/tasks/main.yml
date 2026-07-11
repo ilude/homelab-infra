@@ -29,6 +29,14 @@
     groups: users
     append: true
 
+- name: Enable linger for Hermes runtime user services
+  ansible.builtin.command:
+    argv:
+      - loginctl
+      - enable-linger
+      - "{{ hermes_runtime_user | default('anvil') }}"
+  changed_when: false
+
 - name: Ensure Hermes runtime SSH directory exists
   ansible.builtin.file:
     path: "/home/{{ hermes_runtime_user | default('anvil') }}/.ssh"

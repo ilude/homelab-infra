@@ -259,8 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     ansible_playbooks_parser.add_argument("--settings", type=Path, default=None)
     subparsers.add_parser("summary")
     subparsers.add_parser("tofu-var")
-    tofu_target = subparsers.add_parser("tofu-target")
-    tofu_target.add_argument("service")
+    tofu_target_parser = subparsers.add_parser("tofu-target")
+    tofu_target_parser.add_argument("service")
     args = parser.parse_args(argv)
 
     try:

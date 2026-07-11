@@ -15,7 +15,8 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 INVENTORY = "values/ansible/inventory/local.yml"
-HOST = "pve"
+TFVARS_INVENTORY = "infra/ansible/inventory/tfvars.py"
+HOST = "pve_target"
 
 STATUS = {
     0: "unknown",
@@ -104,16 +105,16 @@ def shell_quote(value: str) -> str:
 
 
 def run_ansible_shell(command: str) -> str:
+    inventory_args = ["-i", INVENTORY, "-i", TFVARS_INVENTORY]
     if shutil.which("ansible") and Path("/workspace").exists():
-        argv = ["ansible", HOST, "-i", INVENTORY, "-m", "shell", "-a", command]
+        argv = ["ansible", HOST, *inventory_args, "-m", "shell", "-a", command]
     else:
         argv = [
             "bash",
             "scripts/run-infra.sh",
             "ansible",
             HOST,
-            "-i",
-            INVENTORY,
+            *inventory_args,
             "-m",
             "shell",
             "-a",
@@ -138,13 +139,26 @@ def run_ansible_shell(command: str) -> str:
     return "\n".join(lines).strip()
 
 
+def run_pve_pct(command: str) -> str:
+    guarded_command = (
+        'expected={{ proxmox_node_name | quote }}; '
+        'actual="$(hostname -s 2>/dev/null || true)"; '
+        'if [ "$actual" != "$expected" ]; then '
+        'printf "%s\\n" "refusing pct command: connected host is not the configured Proxmox node" >&2; '
+        "exit 1; "
+        "fi; "
+        + command
+    )
+    return run_ansible_shell(guarded_command)
+
+
 def forgejo_sql(query: str) -> list[dict[str, Any]]:
     escaped = shell_quote(query)
     command = (
         "pct exec {{ forgejo_vmid | string }} -- runuser -u git -- "
         f"sqlite3 -readonly -json /var/lib/forgejo/data/forgejo.db {escaped}"
     )
-    raw = run_ansible_shell(command)
+    raw = run_pve_pct(command)
     if not raw:
         return []
     try:
@@ -228,7 +242,7 @@ def print_runners(as_json: bool) -> None:
         "select id, name, owner_id, repo_id, last_online, last_active, agent_labels "
         "from action_runner order by id"
     )
-    service = run_ansible_shell(
+    service = run_pve_pct(
         "pct exec {{ forgejo_runner_vmid | string }} -- systemctl is-active forgejo-runner || true"
     ).splitlines()[-1].strip()
     if as_json:
@@ -259,7 +273,7 @@ def print_logs(run: str, tail: int, unsafe: bool) -> None:
             + str(int(tail))
         )
     )
-    text = run_ansible_shell(command)
+    text = run_pve_pct(command)
     print(text if unsafe else redact(text))
 
 

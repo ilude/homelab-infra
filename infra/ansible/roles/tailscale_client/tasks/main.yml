@@ -6,13 +6,37 @@
       - not (tailscale_client_restore_backup | default(false) | bool) or tailscale_client_backup_archive is defined
     fail_msg: tailscale_client_vmid is required, and tailscale_client_backup_archive is required when restore is enabled.
   when: tailscale_client_enabled | default(false) | bool
-- name: Install Tailscale package in LXC
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - "set -euo pipefail; if ! command -v tailscale >/dev/null 2>&1; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl;\n  curl -fsSL https://tailscale.com/install.sh | sh;\nfi"  # yamllint disable-line rule:line-length
-  changed_when: false
+- name: Install Tailscale APT repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    state: present
+    update_cache: true
+  when: tailscale_client_enabled | default(false) | bool
+- name: Install Tailscale Debian 13 signing keyring
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg
+    checksum: sha256:3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    mode: '0644'
+    owner: root
+    group: root
+  when: tailscale_client_enabled | default(false) | bool
+- name: Install Tailscale Debian 13 APT source
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/debian/trixie.tailscale-keyring.list
+    checksum: sha256:5a1b21b30892bf22fb5d7c4f52fefe9b65efda2100e82abba2e0849da2a2264b
+    dest: /etc/apt/sources.list.d/tailscale.list
+    mode: '0644'
+    owner: root
+    group: root
+  when: tailscale_client_enabled | default(false) | bool
+- name: Install Tailscale package from signed APT repository
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
   when: tailscale_client_enabled | default(false) | bool
 - name: Enable IPv4 forwarding in Tailscale client LXC
   ansible.builtin.command:

@@ -9,6 +9,8 @@
         lxc_ready_name: tailscale_client
 - name: Run direct access handoff for Tailscale client
   ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: tailscale_client
 - name: Configure Tailscale client directly
   hosts: tailscale_client
   gather_facts: false

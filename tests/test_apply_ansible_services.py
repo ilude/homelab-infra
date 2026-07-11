@@ -21,8 +21,39 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
             ["technitium", "forgejo", "forgejo_runner", "onramp_host", "searxng_onramp", "hermes"]
         )
 
-        self.assertEqual(waves[0], ["technitium", "forgejo", "onramp_host", "hermes"])
-        self.assertEqual(waves[1], ["forgejo_runner", "searxng_onramp"])
+        self.assertEqual(waves[0], ["technitium", "onramp_host"])
+        self.assertEqual(waves[1], ["forgejo", "searxng_onramp"])
+        self.assertEqual(waves[2], ["forgejo_runner"])
+        self.assertEqual(waves[3], ["hermes"])
+
+    def test_direct_lxc_services_serialize_managed_known_hosts_refreshes(self) -> None:
+        services = apply_ansible_services.settings.SERVICES
+        direct_lxc_services = {
+            service
+            for service, config in services.items()
+            if config["execution_resource"] == "direct_lxc_known_hosts"
+        }
+
+        self.assertEqual(
+            direct_lxc_services,
+            {
+                "technitium",
+                "forgejo",
+                "tailscale_client",
+                "forgejo_runner",
+                "infisical",
+                "hermes",
+            },
+        )
+        waves = apply_ansible_services.dependency_waves(sorted(direct_lxc_services))
+        self.assertTrue(all(len(wave) == 1 for wave in waves))
+
+    def test_dependency_waves_serialize_shared_execution_resources(self) -> None:
+        waves = apply_ansible_services.dependency_waves(
+            ["onramp_host", "infisical_onramp", "searxng_onramp", "hermes"]
+        )
+
+        self.assertEqual(waves, [["onramp_host", "hermes"], ["infisical_onramp"], ["searxng_onramp"]])
 
     def test_run_service_keeps_service_playbooks_sequential(self) -> None:
         commands: list[list[str]] = []

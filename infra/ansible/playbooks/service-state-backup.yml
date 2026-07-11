@@ -43,7 +43,7 @@
 
     - name: Check managed service-state paths
       ansible.builtin.stat:
-        path: "{{ item }}"
+        path: "{{ item.path }}"
       loop: "{{ service_state_definition.paths }}"
       register: service_state_path_stats
 
@@ -52,7 +52,13 @@
         service_state_existing_paths: >-
           {{ service_state_path_stats.results
              | selectattr('stat.exists')
-             | map(attribute='item')
+             | map(attribute='item.path')
+             | list }}
+        service_state_existing_archive_paths: >-
+          {{ service_state_path_stats.results
+             | selectattr('stat.exists')
+             | map(attribute='item.path')
+             | map('regex_replace', '^/', '')
              | list }}
 
     - name: Fail when no managed service-state paths exist
@@ -76,7 +82,9 @@
         mode: "0600"
         content: |
           {
-            "service": {{ service_state_service | to_json }},
+            "schema_version": 1,
+            "target": {{ service_state_service | to_json }},
+            "archive_kind": "backup",
             "created_utc": {{ service_state_timestamp | to_json }},
             "description": {{ service_state_definition.description | default('') | to_json }},
             "paths": {{ service_state_existing_paths | to_json }}
@@ -84,14 +92,9 @@
 
     - name: Create service-state archive on service host
       ansible.builtin.command:
-        argv:
-          - tar
-          - --numeric-owner
-          - -C
-          - "{{ service_state_snapshot_dir.path }}"
-          - -czf
-          - "{{ service_state_remote_archive }}"
-          - .
+        argv: >-
+          {{ ['tar', '--numeric-owner', '-C', service_state_snapshot_dir.path, '-czf',
+              service_state_remote_archive, 'MANIFEST.json'] + service_state_existing_archive_paths }}
       changed_when: true
 
     - name: Fetch service-state archive into private values

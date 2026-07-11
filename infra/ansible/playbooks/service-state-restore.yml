@@ -26,6 +26,41 @@
         service_state_definition: "{{ managed_service_state_catalog[service_state_service] }}"
         service_state_timestamp: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
 
+    - name: Build managed service-state path and account lists
+      ansible.builtin.set_fact:
+        service_state_managed_paths: "{{ service_state_definition.paths | map(attribute='path') | list }}"
+        service_state_managed_users: "{{ service_state_definition.paths | map(attribute='owner') | unique | list }}"
+        service_state_managed_groups: "{{ service_state_definition.paths | map(attribute='group') | unique | list }}"
+
+    - name: Validate selected target, host cardinality, and service scopes
+      ansible.builtin.assert:
+        that:
+          - service_state_hosts == service_state_definition.group
+          - service_state_definition.group in groups
+          - groups[service_state_definition.group] | length > 0
+          - ansible_play_hosts_all | length == 1
+          - service_state_definition.paths | length > 0
+          - (service_state_definition.services | default([]) | length) == (service_state_definition.services | default([]) | unique | length)
+          - (service_state_definition.user_services | default([]) | length) == (service_state_definition.user_services | default([]) | unique | length)
+          - (service_state_definition.services | default([]) | intersect(service_state_definition.user_services | default([])) | length) == 0
+        fail_msg: The selected target, destination host count, catalog paths, or service scopes are invalid.
+
+    - name: Validate managed service-state ownership metadata
+      ansible.builtin.assert:
+        that:
+          - item.path is string
+          - item.path | length > 0
+          - item.path is match('^/')
+          - item.owner is defined
+          - item.owner is string
+          - item.owner | length > 0
+          - item.group is defined
+          - item.group is string
+          - item.group | length > 0
+          - item.recurse is boolean
+        fail_msg: Every managed path must declare absolute path, owner, group, and Boolean recurse values.
+      loop: "{{ service_state_definition.paths }}"
+
     - name: Set service-state restore archive paths
       ansible.builtin.set_fact:
         service_state_local_dir: "{{ service_state_backup_root }}/{{ service_state_service }}"
@@ -54,44 +89,43 @@
           - "{{ service_state_restore_file }}.sha256"
       args:
         chdir: "{{ service_state_restore_file | dirname }}"
-      register: service_state_restore_checksum
       changed_when: false
       delegate_to: localhost
       become: false
       when: lookup('ansible.builtin.fileglob', service_state_restore_file ~ '.sha256', wantlist=True) | length > 0
 
-    - name: Validate service-state restore archive member names
+    - name: Validate service-state restore archive contents
       ansible.builtin.command:
         argv:
-          - bash
-          - -lc
-          - |
-            set -euo pipefail
-            tar -tzf "$1" | awk '
-              $0 ~ /^\// { bad = 1 }
-              $0 ~ /(^|\/)\.\.($|\/) { bad = 1 }
-              END { exit bad }
-            '
-          - bash
+          - python
+          - /workspace/infra/ansible/scripts/validate-service-state-archive.py
+          - --archive
           - "{{ service_state_restore_file }}"
+          - --target
+          - "{{ service_state_service }}"
+          - --paths-json
+          - "{{ service_state_managed_paths | to_json }}"
       changed_when: false
       delegate_to: localhost
       become: false
 
-    - name: Ensure local service-state backup directory exists
-      ansible.builtin.file:
-        path: "{{ service_state_local_dir }}"
-        state: directory
-        mode: "0700"
-      delegate_to: localhost
-      become: false
+    - name: Validate managed service-state users exist
+      ansible.builtin.command:
+        argv:
+          - getent
+          - passwd
+          - "{{ item }}"
+      loop: "{{ service_state_managed_users }}"
+      changed_when: false
 
-    - name: Stop managed system services before restore
-      ansible.builtin.systemd_service:
-        name: "{{ item }}"
-        state: stopped
-      loop: "{{ service_state_definition.services | default([]) }}"
-      failed_when: false
+    - name: Validate managed service-state groups exist
+      ansible.builtin.command:
+        argv:
+          - getent
+          - group
+          - "{{ item }}"
+      loop: "{{ service_state_managed_groups }}"
+      changed_when: false
 
     - name: Resolve service-state user service owner UID
       ansible.builtin.command:
@@ -103,6 +137,24 @@
       changed_when: false
       when: service_state_definition.user_services | default([]) | length > 0
 
+    - name: Ensure local service-state backup directory exists
+      ansible.builtin.file:
+        path: "{{ service_state_local_dir }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    - name: Initialize pre-restore recovery status
+      ansible.builtin.set_fact:
+        service_state_recovery_ready: false
+
+    - name: Stop managed system services before restore
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+      loop: "{{ service_state_definition.services | default([]) }}"
+
     - name: Stop managed user services before restore
       become: true
       become_user: "{{ service_state_definition.user_service_owner }}"
@@ -113,112 +165,244 @@
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
       loop: "{{ service_state_definition.user_services | default([]) }}"
-      failed_when: false
       when: service_state_definition.user_services | default([]) | length > 0
 
-    - name: Create temporary pre-restore service-state snapshot directory
-      ansible.builtin.tempfile:
-        state: directory
-        suffix: "{{ service_state_service }}-pre-restore"
-      register: service_state_pre_restore_snapshot_dir
+    - name: Restore service state after successful preflight and stops
+      block:
+        - name: Create temporary pre-restore service-state snapshot directory
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: "{{ service_state_service }}-pre-restore"
+          register: service_state_pre_restore_snapshot_dir
 
-    - name: Check existing managed service-state paths before restore
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      loop: "{{ service_state_definition.paths }}"
-      register: service_state_existing_path_stats
+        - name: Check existing managed service-state paths before restore
+          ansible.builtin.stat:
+            path: "{{ item.path }}"
+          loop: "{{ service_state_definition.paths }}"
+          register: service_state_existing_path_stats
 
-    - name: Build existing pre-restore path list
-      ansible.builtin.set_fact:
-        service_state_existing_paths: >-
-          {{ service_state_existing_path_stats.results
-             | selectattr('stat.exists')
-             | map(attribute='item')
-             | list }}
+        - name: Build existing pre-restore path lists
+          ansible.builtin.set_fact:
+            service_state_existing_paths: >-
+              {{ service_state_existing_path_stats.results
+                 | selectattr('stat.exists')
+                 | map(attribute='item.path')
+                 | list }}
+            service_state_existing_archive_paths: >-
+              {{ service_state_existing_path_stats.results
+                 | selectattr('stat.exists')
+                 | map(attribute='item.path')
+                 | map('regex_replace', '^/', '')
+                 | list }}
 
-    - name: Snapshot current managed service-state paths before restore
-      ansible.builtin.command:
-        argv:
-          - rsync
-          - -aR
-          - "{{ item }}"
-          - "{{ service_state_pre_restore_snapshot_dir.path }}/"
-      loop: "{{ service_state_existing_paths }}"
-      changed_when: true
-      when: service_state_existing_paths | length > 0
+        - name: Snapshot current managed service-state paths before restore
+          ansible.builtin.command:
+            argv:
+              - rsync
+              - -aR
+              - "{{ item }}"
+              - "{{ service_state_pre_restore_snapshot_dir.path }}/"
+          loop: "{{ service_state_existing_paths }}"
+          changed_when: true
+          when: service_state_existing_paths | length > 0
 
-    - name: Create pre-restore service-state archive on service host
-      ansible.builtin.command:
-        argv:
-          - tar
-          - --numeric-owner
-          - -C
-          - "{{ service_state_pre_restore_snapshot_dir.path }}"
-          - -czf
-          - "{{ service_state_remote_pre_restore }}"
-          - .
-      changed_when: true
-      when: service_state_existing_paths | length > 0
+        - name: Write pre-restore service-state manifest
+          ansible.builtin.copy:
+            dest: "{{ service_state_pre_restore_snapshot_dir.path }}/MANIFEST.json"
+            mode: "0600"
+            content: |
+              {
+                "schema_version": 1,
+                "target": {{ service_state_service | to_json }},
+                "archive_kind": "pre_restore",
+                "created_utc": {{ service_state_timestamp | to_json }},
+                "description": {{ service_state_definition.description | default('') | to_json }},
+                "paths": {{ service_state_existing_paths | to_json }}
+              }
+          when: service_state_existing_paths | length > 0
 
-    - name: Fetch pre-restore service-state archive into private values
-      ansible.builtin.fetch:
-        src: "{{ service_state_remote_pre_restore }}"
-        dest: "{{ service_state_local_pre_restore }}"
-        flat: true
-      when: service_state_existing_paths | length > 0
+        - name: Create pre-restore service-state archive on service host
+          ansible.builtin.command:
+            argv: >-
+              {{ ['tar', '--numeric-owner', '-C', service_state_pre_restore_snapshot_dir.path, '-czf',
+                  service_state_remote_pre_restore, 'MANIFEST.json'] + service_state_existing_archive_paths }}
+          changed_when: true
+          when: service_state_existing_paths | length > 0
 
-    - name: Copy service-state restore archive to service host
-      ansible.builtin.copy:
-        src: "{{ service_state_restore_file }}"
-        dest: "{{ service_state_remote_restore }}"
-        mode: "0600"
+        - name: Fetch pre-restore service-state archive into private values
+          ansible.builtin.fetch:
+            src: "{{ service_state_remote_pre_restore }}"
+            dest: "{{ service_state_local_pre_restore }}"
+            flat: true
+          when: service_state_existing_paths | length > 0
 
-    - name: Remove existing managed service-state paths before restore
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop: "{{ service_state_definition.paths }}"
+        - name: Restrict local pre-restore service-state archive permissions
+          ansible.builtin.file:
+            path: "{{ service_state_local_pre_restore }}"
+            mode: "0600"
+          delegate_to: localhost
+          become: false
+          when: service_state_existing_paths | length > 0
 
-    - name: Restore managed service-state archive
-      ansible.builtin.unarchive:
-        src: "{{ service_state_remote_restore }}"
-        dest: /
-        remote_src: true
+        - name: Calculate local pre-restore service-state archive checksum
+          ansible.builtin.command:
+            argv:
+              - sha256sum
+              - "{{ service_state_local_pre_restore }}"
+          register: service_state_pre_restore_checksum
+          changed_when: false
+          delegate_to: localhost
+          become: false
+          when: service_state_existing_paths | length > 0
 
-    - name: Remove temporary service-state restore artifacts from service host
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "{{ service_state_pre_restore_snapshot_dir.path }}"
-        - "{{ service_state_remote_pre_restore }}"
-        - "{{ service_state_remote_restore }}"
+        - name: Write local pre-restore service-state checksum
+          ansible.builtin.copy:
+            dest: "{{ service_state_local_pre_restore }}.sha256"
+            mode: "0600"
+            content: "{{ service_state_pre_restore_checksum.stdout }}\n"
+          delegate_to: localhost
+          become: false
+          when: service_state_existing_paths | length > 0
 
-    - name: Restart managed user services after restore
-      become: true
-      become_user: "{{ service_state_definition.user_service_owner }}"
-      ansible.builtin.systemd_service:
-        name: "{{ item }}"
-        scope: user
-        state: started
-        enabled: true
-        daemon_reload: true
-      environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
-      loop: "{{ service_state_definition.user_services | default([]) }}"
-      when: service_state_definition.user_services | default([]) | length > 0
+        - name: Mark pre-restore recovery archive as secured
+          ansible.builtin.set_fact:
+            service_state_recovery_ready: true
+          when: service_state_existing_paths | length > 0
 
-    - name: Restart managed system services after restore
-      ansible.builtin.systemd_service:
-        name: "{{ item }}"
-        state: started
-        enabled: true
-        daemon_reload: true
-      loop: "{{ service_state_definition.services | default([]) }}"
-      failed_when: false
+        - name: Copy service-state restore archive to service host
+          ansible.builtin.copy:
+            src: "{{ service_state_restore_file }}"
+            dest: "{{ service_state_remote_restore }}"
+            mode: "0600"
+
+        - name: Remove existing managed service-state paths before restore
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ service_state_definition.paths }}"
+
+        - name: Restore managed service-state archive
+          ansible.builtin.unarchive:
+            src: "{{ service_state_remote_restore }}"
+            dest: /
+            remote_src: true
+
+        - name: Check restored managed service-state paths
+          ansible.builtin.stat:
+            path: "{{ item.path }}"
+          loop: "{{ service_state_definition.paths }}"
+          register: service_state_restored_path_stats
+
+        - name: Apply catalog ownership to restored path roots
+          ansible.builtin.file:
+            path: "{{ item.item.path }}"
+            owner: "{{ item.item.owner }}"
+            group: "{{ item.item.group }}"
+            follow: false
+          loop: "{{ service_state_restored_path_stats.results }}"
+          when: item.stat.exists
+
+        - name: Apply recursive catalog ownership to restored directories
+          ansible.builtin.file:
+            path: "{{ item.item.path }}"
+            state: directory
+            owner: "{{ item.item.owner }}"
+            group: "{{ item.item.group }}"
+            recurse: true
+            follow: false
+          loop: "{{ service_state_restored_path_stats.results }}"
+          when:
+            - item.stat.exists
+            - item.stat.isdir
+            - item.item.recurse
+
+        - name: Discover descendant symlinks in restored managed paths
+          ansible.builtin.find:
+            paths: "{{ item.item.path }}"
+            recurse: true
+            file_type: link
+            follow: false
+          loop: "{{ service_state_restored_path_stats.results }}"
+          register: service_state_restored_symlink_stats
+          when:
+            - item.stat.exists
+            - item.stat.isdir
+
+        - name: Apply catalog ownership to restored symlinks
+          ansible.builtin.file:
+            path: "{{ item.1.path }}"
+            owner: "{{ item.0.item.item.owner }}"
+            group: "{{ item.0.item.item.group }}"
+            follow: false
+          loop: "{{ service_state_restored_symlink_stats.results | subelements('files', skip_missing=True) }}"
+
+        - name: Remove temporary service-state restore artifacts from service host
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ service_state_pre_restore_snapshot_dir.path }}"
+            - "{{ service_state_remote_pre_restore }}"
+            - "{{ service_state_remote_restore }}"
+
+        - name: Restart managed user services after restore
+          become: true
+          become_user: "{{ service_state_definition.user_service_owner }}"
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            scope: user
+            state: started
+            enabled: true
+            daemon_reload: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
+          loop: "{{ service_state_definition.user_services | default([]) | reverse | list }}"
+          when: service_state_definition.user_services | default([]) | length > 0
+
+        - name: Restart managed system services after restore
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            state: started
+            enabled: true
+            daemon_reload: true
+          loop: "{{ service_state_definition.services | default([]) | reverse | list }}"
+      rescue:
+        - name: Report stopped-state recovery details
+          ansible.builtin.debug:
+            msg: >-
+              Restore failed after services were stopped. Services will be kept stopped; no automatic rollback was attempted.
+              Recovery archive: {{ service_state_local_pre_restore
+              if service_state_recovery_ready
+              else 'not available (no prior paths or failure before recovery archive was secured)' }};
+              checksum: {{ (service_state_local_pre_restore ~ '.sha256')
+              if service_state_recovery_ready else 'not available' }}.
+
+        - name: Keep managed system services stopped after restore failure
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            state: stopped
+          loop: "{{ service_state_definition.services | default([]) }}"
+
+        - name: Keep managed user services stopped after restore failure
+          become: true
+          become_user: "{{ service_state_definition.user_service_owner }}"
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            scope: user
+            state: stopped
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
+          loop: "{{ service_state_definition.user_services | default([]) }}"
+          when: service_state_definition.user_services | default([]) | length > 0
+
+        - name: Fail managed service-state restore
+          ansible.builtin.fail:
+            msg: Managed service-state restore failed after services were stopped; use the reported recovery archive for manual recovery.
 
     - name: Report service-state restore result
       ansible.builtin.debug:
         msg: >-
           {{ service_state_service }} state restored from {{ service_state_restore_file }};
-          pre-restore backup written to {{ service_state_local_pre_restore }} when previous state existed.
+          pre-restore backup {{ service_state_local_pre_restore
+          if service_state_existing_paths | length > 0
+          else 'not created because no previous state existed' }}.

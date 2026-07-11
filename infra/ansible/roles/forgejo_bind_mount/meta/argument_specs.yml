@@ -1,0 +1,17 @@
+---
+argument_specs:
+  main:
+    short_description: Attach the Ansible-owned Forgejo data bind mount through Proxmox pct.
+    options:
+      forgejo_vmid:
+        type: int
+        required: true
+      forgejo_data_host_path:
+        type: str
+        required: true
+      forgejo_data_mount_path:
+        type: str
+        required: true
+      proxmox_node_name:
+        type: str
+        required: true

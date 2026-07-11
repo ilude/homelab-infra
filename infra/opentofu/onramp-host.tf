@@ -1,6 +1,8 @@
 resource "proxmox_download_file" "debian_13_onramp_host_image" {
   count = local.onramp_host_enabled ? 1 : 0
 
+  checksum            = var.onramp_host_image_checksum
+  checksum_algorithm  = var.onramp_host_image_checksum_algorithm
   content_type        = "import"
   datastore_id        = var.onramp_host_image_datastore_id
   file_name           = var.onramp_host_image_file_name

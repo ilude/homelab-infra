@@ -1,0 +1,8 @@
+---
+- name: Reboot Forgejo LXC after bind mount attachment
+  ansible.builtin.command:
+    argv:
+      - pct
+      - reboot
+      - "{{ forgejo_vmid | string }}"
+  changed_when: true

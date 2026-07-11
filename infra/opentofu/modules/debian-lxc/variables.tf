@@ -71,15 +71,6 @@ variable "disk" {
   })
 }
 
-variable "mount_points" {
-  description = "Bind mounts from the Proxmox host into the LXC."
-  type = list(object({
-    volume = string
-    path   = string
-  }))
-  default = []
-}
-
 variable "hostname" {
   description = "Hostname assigned inside the LXC."
   type        = string

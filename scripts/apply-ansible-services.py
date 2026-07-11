@@ -52,9 +52,17 @@ def dependency_waves(services: Iterable[str]) -> list[list[str]]:
         if not ready:
             unresolved = ", ".join(pending)
             raise settings.SettingsError(f"cannot resolve service dependency order: {unresolved}")
-        waves.append(ready)
-        completed.update(ready)
-        pending = [service for service in pending if service not in ready]
+        resources: set[str] = set()
+        wave = []
+        for service in ready:
+            resource = settings.SERVICES[service]["execution_resource"]
+            if resource in resources:
+                continue
+            resources.add(resource)
+            wave.append(service)
+        waves.append(wave)
+        completed.update(wave)
+        pending = [service for service in pending if service not in wave]
     return waves
 
 

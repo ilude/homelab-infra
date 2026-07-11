@@ -35,14 +35,38 @@ argument_specs:
         type: list
         required: false
         description: "Optional list of host mappings for /etc/hosts; each item includes name and address (default: [])."
+      forgejo_runner_sha256_amd64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Forgejo runner linux-amd64 binary."
+      forgejo_runner_sha256_arm64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Forgejo runner linux-arm64 binary."
       forgejo_runner_compose_version:
         type: str
         required: false
         description: "Docker Compose plugin version for install/check logic (default: 5.3.0)."
+      forgejo_runner_compose_sha256_amd64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Docker Compose linux-amd64 binary."
+      forgejo_runner_compose_sha256_arm64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Docker Compose linux-arm64 binary."
       forgejo_runner_just_version:
         type: str
         required: false
         description: "Just command version for install/check logic (default: 1.55.1)."
+      forgejo_runner_just_sha256_amd64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned just linux-amd64 archive."
+      forgejo_runner_just_sha256_arm64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned just linux-arm64 archive."
       forgejo_runner_version:
         type: str
         required: false

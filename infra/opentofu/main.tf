@@ -1,11 +1,13 @@
-resource "proxmox_download_file" "debian_12_lxc_template" {
+resource "proxmox_download_file" "debian_13_lxc_template" {
   count = local.lxc_template_enabled ? 1 : 0
 
+  checksum            = var.debian_13_lxc_template_checksum
+  checksum_algorithm  = var.debian_13_lxc_template_checksum_algorithm
   content_type        = "vztmpl"
   datastore_id        = var.template_datastore_id
-  file_name           = var.debian_template_file_name
+  file_name           = var.debian_13_lxc_template_file_name
   node_name           = var.proxmox_node_name
-  url                 = var.debian_template_url
+  url                 = var.debian_13_lxc_template_url
   overwrite           = false
   overwrite_unmanaged = false
 }
@@ -42,7 +44,7 @@ module "technitium_dns" {
     vlan_id = var.technitium_container_vlan_id
   }
 
-  template_file_id = proxmox_download_file.debian_12_lxc_template[0].id
+  template_file_id = proxmox_download_file.debian_13_lxc_template[0].id
 
   startup = {
     order      = "1"

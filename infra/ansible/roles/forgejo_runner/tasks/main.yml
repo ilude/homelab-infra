@@ -9,7 +9,9 @@
       - forgejo_runner_registration_secret is defined
       - forgejo_runner_registration_secret | length >= 40
       - forgejo_runner_label is defined
-    fail_msg: forgejo_runner_vmid, forgejo_vmid, forgejo_runner_url, forgejo_runner_scope, forgejo_runner_registration_secret, and forgejo_runner_label are required.  # yamllint disable-line rule:line-length
+      - groups['pve'] is defined
+      - groups['pve'] | length == 1
+    fail_msg: forgejo_runner_vmid, forgejo_vmid, forgejo_runner_url, forgejo_runner_scope, forgejo_runner_registration_secret, forgejo_runner_label, and exactly one pve inventory host are required.  # yamllint disable-line rule:line-length
   no_log: true
 - name: Install Forgejo Actions runner dependencies in LXC
   ansible.builtin.command:
@@ -37,19 +39,45 @@
   register: forgejo_runner_hosts_config
   changed_when: forgejo_runner_hosts_config.rc == 1
   failed_when: forgejo_runner_hosts_config.rc not in [0, 1]
-- name: Install Docker Compose CLI plugin
+- name: Install verified Docker Compose CLI plugin
   ansible.builtin.command:
     argv:
       - bash
       - -lc
-      - "set -euo pipefail; version=\"{{ forgejo_runner_compose_version | default('5.3.0') }}\"; current=\"$(docker compose version --short 2>/dev/null || true)\"; if [[ \"${current}\" != \"${version}\" ]]; then\n  arch=\"$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')\";\n  install -d -m 0755 /usr/local/lib/docker/cli-plugins;\n  compose_url=\"https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}\";\n  curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \"${compose_url}\";\n  chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose;\nfi"  # yamllint disable-line rule:line-length
+      - >-
+        set -euo pipefail; version="{{ forgejo_runner_compose_version | default('5.3.0') }}";
+        current="$(docker compose version --short 2>/dev/null || true)";
+        if [[ "${current}" != "${version}" ]]; then arch="$(uname -m)";
+        case "${arch}" in x86_64) asset_arch=x86_64; sha256="{{ forgejo_runner_compose_sha256_amd64 }}" ;;
+        aarch64) asset_arch=aarch64; sha256="{{ forgejo_runner_compose_sha256_arm64 }}" ;;
+        *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; esac;
+        tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT;
+        artifact="${tmp}/docker-compose";
+        curl -fsSL -o "${artifact}" "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${asset_arch}";
+        printf '%s  %s\n' "${sha256}" "${artifact}" | sha256sum -c -;
+        install -d -m 0755 /usr/local/lib/docker/cli-plugins;
+        install -m 0755 "${artifact}" /usr/local/lib/docker/cli-plugins/.docker-compose-new;
+        mv -f /usr/local/lib/docker/cli-plugins/.docker-compose-new /usr/local/lib/docker/cli-plugins/docker-compose; fi
   changed_when: false
-- name: Install just command runner
+- name: Install verified just command runner
   ansible.builtin.command:
     argv:
       - bash
       - -lc
-      - "set -euo pipefail; version=\"{{ forgejo_runner_just_version | default('1.55.1') }}\"; current=\"$(just --version 2>/dev/null | awk '{print $2}' || true)\"; if [[ \"${current}\" != \"${version}\" ]]; then\n  arch=\"$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')\";\n  target=\"${arch}-unknown-linux-musl\";\n  tmp=\"$(mktemp -d)\";\n  trap 'rm -rf \"${tmp}\"' EXIT;\n  curl -fsSL -o \"${tmp}/just.tar.gz\" \"https://github.com/casey/just/releases/download/${version}/just-${version}-${target}.tar.gz\";\n  tar -xzf \"${tmp}/just.tar.gz\" -C \"${tmp}\" just;\n  install -m 0755 \"${tmp}/just\" /usr/local/bin/just;\nfi"  # yamllint disable-line rule:line-length
+      - >-
+        set -euo pipefail; version="{{ forgejo_runner_just_version | default('1.55.1') }}";
+        current="$(just --version 2>/dev/null | awk '{print $2}' || true)";
+        if [[ "${current}" != "${version}" ]]; then arch="$(uname -m)";
+        case "${arch}" in x86_64) target=x86_64-unknown-linux-musl; sha256="{{ forgejo_runner_just_sha256_amd64 }}" ;;
+        aarch64) target=aarch64-unknown-linux-musl; sha256="{{ forgejo_runner_just_sha256_arm64 }}" ;;
+        *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; esac;
+        tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT;
+        archive="${tmp}/just.tar.gz";
+        curl -fsSL -o "${archive}" "https://github.com/casey/just/releases/download/${version}/just-${version}-${target}.tar.gz";
+        printf '%s  %s\n' "${sha256}" "${archive}" | sha256sum -c -;
+        tar -xzf "${archive}" -C "${tmp}" just;
+        install -m 0755 "${tmp}/just" /usr/local/bin/.just-new;
+        mv -f /usr/local/bin/.just-new /usr/local/bin/just; fi
   changed_when: false
 - name: Ensure runner user and directories exist
   ansible.builtin.command:
@@ -79,6 +107,7 @@
     owner: root
     group: root
     mode: '0700'
+  delegate_to: "{{ groups['pve'][0] }}"
 - name: Authorize Forgejo runner SSH key on Proxmox host
   ansible.builtin.lineinfile:
     path: /root/.ssh/authorized_keys
@@ -88,12 +117,13 @@
     group: root
     mode: '0600'
     state: present
+  delegate_to: "{{ groups['pve'][0] }}"
 - name: Trust Proxmox host key in Forgejo runner LXC
   ansible.builtin.command:
     argv:
       - bash
       - -lc
-      - "set -euo pipefail; install -d -m 0700 -o runner -g runner /var/lib/forgejo-runner/.ssh; tmp=\"$(mktemp)\"; ssh-keyscan -H {{ ansible_host | quote }} > \"${tmp}\" 2>/dev/null; touch /var/lib/forgejo-runner/.ssh/known_hosts; if ! grep -Fxf \"${tmp}\" /var/lib/forgejo-runner/.ssh/known_hosts >/dev/null; then\n  cat \"${tmp}\" >> /var/lib/forgejo-runner/.ssh/known_hosts;\nfi; rm -f \"${tmp}\"; chown runner:runner /var/lib/forgejo-runner/.ssh/known_hosts; chmod 0644 /var/lib/forgejo-runner/.ssh/known_hosts"  # yamllint disable-line rule:line-length
+      - "set -euo pipefail; install -d -m 0700 -o runner -g runner /var/lib/forgejo-runner/.ssh; tmp=\"$(mktemp)\"; ssh-keyscan -H {{ hostvars[groups['pve'][0]].ansible_host | default(groups['pve'][0]) | quote }} > \"${tmp}\" 2>/dev/null; touch /var/lib/forgejo-runner/.ssh/known_hosts; if ! grep -Fxf \"${tmp}\" /var/lib/forgejo-runner/.ssh/known_hosts >/dev/null; then\n  cat \"${tmp}\" >> /var/lib/forgejo-runner/.ssh/known_hosts;\nfi; rm -f \"${tmp}\"; chown runner:runner /var/lib/forgejo-runner/.ssh/known_hosts; chmod 0644 /var/lib/forgejo-runner/.ssh/known_hosts"  # yamllint disable-line rule:line-length
   changed_when: false
 - name: Check installed Forgejo runner version
   ansible.builtin.command:
@@ -104,12 +134,22 @@
   register: forgejo_runner_installed_version
   changed_when: false
   failed_when: false
-- name: Install requested Forgejo runner binary
+- name: Install verified requested Forgejo runner binary
   ansible.builtin.command:
     argv:
       - bash
       - -lc
-      - set -euo pipefail; arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"; version="{{ forgejo_runner_version | default('12.7.3') }}"; base="https://code.forgejo.org/forgejo/runner/releases/download/v${version}"; tmp="$(mktemp)"; trap 'rm -f "${tmp}"' EXIT; curl -fsSL -o "${tmp}" "${base}/forgejo-runner-${version}-linux-${arch}"; install -m 0755 "${tmp}" /usr/local/bin/forgejo-runner  # yamllint disable-line rule:line-length
+      - >-
+        set -euo pipefail; arch="$(uname -m)";
+        case "${arch}" in x86_64) asset_arch=amd64; sha256="{{ forgejo_runner_sha256_amd64 }}" ;;
+        aarch64) asset_arch=arm64; sha256="{{ forgejo_runner_sha256_arm64 }}" ;;
+        *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; esac;
+        version="{{ forgejo_runner_version | default('12.7.3') }}";
+        tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT; artifact="${tmp}/forgejo-runner";
+        curl -fsSL -o "${artifact}" "https://code.forgejo.org/forgejo/runner/releases/download/v${version}/forgejo-runner-${version}-linux-${asset_arch}";
+        printf '%s  %s\n' "${sha256}" "${artifact}" | sha256sum -c -;
+        install -m 0755 "${artifact}" /usr/local/bin/.forgejo-runner-new;
+        mv -f /usr/local/bin/.forgejo-runner-new /usr/local/bin/forgejo-runner
   when: forgejo_runner_installed_version.stdout | trim != forgejo_runner_version | default('12.7.3')
   changed_when: true
   notify: Restart forgejo-runner

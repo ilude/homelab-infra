@@ -8,31 +8,9 @@
       - caddy_email is defined
       - caddy_cloudflare_api_token is defined
     fail_msg: technitium_vmid, caddy_server_name or caddy_server_names, caddy_upstream, caddy_email, and caddy_cloudflare_api_token are required.
-- name: Install Caddy build dependencies in DNS LXC
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - "set -euo pipefail; packages=\"caddy ca-certificates curl\"; missing=0; for package in ${packages}; do\n  dpkg-query -W \"${package}\" >/dev/null 2>&1 || missing=1;\ndone; if [[ \"${missing}\" -eq 1 ]]; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};\nfi"  # yamllint disable-line rule:line-length
-  changed_when: false
-- name: Check whether DNS LXC Caddy has Cloudflare DNS module
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - caddy list-modules 2>/dev/null | grep -Fx dns.providers.cloudflare
-  register: caddy_proxy_cloudflare_module
-  changed_when: false
-  failed_when: false
-- name: Build DNS LXC Caddy with Cloudflare DNS module
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - curl -fsSL https://go.dev/dl/go1.24.4.linux-amd64.tar.gz -o /tmp/go.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz && PATH=/usr/local/go/bin:${PATH} GOBIN=/usr/local/bin /usr/local/go/bin/go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest && PATH=/usr/local/go/bin:${PATH} /usr/local/bin/xcaddy build --with github.com/caddy-dns/cloudflare --output /tmp/caddy-cloudflare && install -m 0755 /tmp/caddy-cloudflare /usr/bin/caddy  # yamllint disable-line rule:line-length
-  when: caddy_proxy_cloudflare_module.rc != 0
-  changed_when: true
-  notify: Restart caddy
+- name: Build pinned Caddy for DNS LXC
+  ansible.builtin.include_role:
+    name: caddy_build
 - name: Install DNS LXC Caddy env
   ansible.builtin.template:
     src: caddy.env.j2
@@ -41,11 +19,20 @@
     owner: root
     group: caddy
   no_log: true
+  notify: Restart caddy
 - name: Install DNS LXC Caddyfile
   ansible.builtin.template:
     src: Caddyfile.j2
     dest: /etc/caddy/Caddyfile
     mode: '0644'
+    owner: root
+    group: root
+  notify: Restart caddy
+- name: Ensure DNS LXC Caddy systemd override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/caddy.service.d
+    state: directory
+    mode: '0755'
     owner: root
     group: root
 - name: Install DNS LXC Caddy systemd override
@@ -55,15 +42,7 @@
     mode: '0644'
     owner: root
     group: root
-- name: Ensure DNS LXC Caddy systemd override directory exists
-  ansible.builtin.command:
-    argv:
-      - install
-      - -d
-      - -m
-      - '0755'
-      - /etc/systemd/system/caddy.service.d
-  changed_when: false
+  notify: Restart caddy
 - name: Validate DNS LXC Caddy config
   ansible.builtin.command:
     argv:

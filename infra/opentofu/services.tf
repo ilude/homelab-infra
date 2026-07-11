@@ -27,8 +27,8 @@ resource "terraform_data" "enabled_services_validation" {
 }
 
 moved {
-  from = proxmox_download_file.debian_12_lxc_template
-  to   = proxmox_download_file.debian_12_lxc_template[0]
+  from = proxmox_download_file.debian_12_lxc_template[0]
+  to   = proxmox_download_file.debian_13_lxc_template[0]
 }
 
 moved {

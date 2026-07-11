@@ -38,7 +38,7 @@ argument_specs:
       searxng_onramp_container_image:
         type: str
         required: false
-        description: "Container image for the SearXNG service (default: docker.io/searxng/searxng:latest)."
+        description: "Digest-pinned SearXNG OCI image for linux/amd64."
       searxng_onramp_instance_name:
         type: str
         required: false

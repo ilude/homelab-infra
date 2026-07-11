@@ -1,0 +1,29 @@
+---
+argument_specs:
+  main:
+    short_description: Build a pinned Caddy binary with the Cloudflare DNS module.
+    options:
+      caddy_build_version:
+        type: str
+        required: true
+        description: Pinned Caddy release version.
+      caddy_build_xcaddy_version:
+        type: str
+        required: true
+        description: Pinned xcaddy release version.
+      caddy_build_cloudflare_version:
+        type: str
+        required: true
+        description: Pinned caddy-dns/cloudflare module version.
+      caddy_build_go_version:
+        type: str
+        required: true
+        description: Pinned Go toolchain version used for Caddy builds.
+      caddy_build_go_sha256_amd64:
+        type: str
+        required: true
+        description: SHA-256 of the linux-amd64 Go archive.
+      caddy_build_go_sha256_arm64:
+        type: str
+        required: true
+        description: SHA-256 of the linux-arm64 Go archive.

@@ -7,6 +7,8 @@ import types
 import unittest
 from pathlib import Path
 
+import yaml
+
 REPO = Path(__file__).resolve().parents[1]
 
 SETTINGS = REPO / "scripts" / "settings.py"
@@ -40,12 +42,36 @@ class ServiceRegistryParityTests(unittest.TestCase):
             name: {
                 "playbooks": tuple(config["playbooks"]),
                 "dependencies": tuple(config["dependencies"]),
+                "conflicts": tuple(config.get("conflicts", [])),
+                "execution_resource": str(config.get("execution_resource", name)),
             }
             for name, config in service_registry["services"].items()
         }
         self.assertEqual(tuple(service_registry["default_services"]), settings_script.DEFAULT_SERVICES)
         self.assertEqual(expected_services, settings_script.SERVICES)
         self.assertEqual(set(service_registry["services"]), settings_script.SERVICE_NAMES)
+
+    def test_state_capability_metadata_matches_service_state_catalog(self) -> None:
+        self.assertTrue(
+            all(isinstance(config.get("state_capable"), bool) for config in service_registry["services"].values())
+        )
+        state_capable = [
+            (name, config)
+            for name, config in service_registry["services"].items()
+            if config["state_capable"]
+        ]
+        orders = [config["state_order"] for _, config in state_capable]
+        self.assertTrue(all(isinstance(order, int) and order > 0 for order in orders))
+        self.assertEqual(len(orders), len(set(orders)))
+        catalog = yaml.safe_load(
+            (REPO / "infra" / "ansible" / "vars" / "service-state.yml").read_text(encoding="utf-8")
+        )["managed_service_state_catalog"]
+        state_capable_services = {
+            name
+            for name, config in service_registry["services"].items()
+            if config["state_capable"]
+        }
+        self.assertEqual(state_capable_services, set(catalog))
 
     def test_inventory_service_hosts_are_derived_from_registry(self) -> None:
         expected_hosts = {

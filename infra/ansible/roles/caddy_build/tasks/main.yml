@@ -1,0 +1,84 @@
+---
+- name: Validate custom Caddy build variables
+  ansible.builtin.assert:
+    that:
+      - caddy_build_version is defined
+      - caddy_build_xcaddy_version is defined
+      - caddy_build_cloudflare_version is defined
+      - caddy_build_go_version is defined
+      - caddy_build_go_sha256_amd64 is defined
+      - caddy_build_go_sha256_arm64 is defined
+    fail_msg: >-
+      Custom Caddy build version, xcaddy, Cloudflare module, Go version, and
+      architecture checksums are required.
+
+- name: Install custom Caddy build dependencies
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - ca-certificates
+      - caddy
+      - curl
+      - git
+      - golang-go
+    state: present
+    update_cache: true
+
+- name: Check installed Caddy build marker
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        caddy version 2>/dev/null | grep -F "v{{ caddy_build_version }}" &&
+        caddy list-modules 2>/dev/null | grep -Fx dns.providers.cloudflare &&
+        GOTOOLCHAIN=local go version -m "$(command -v caddy)" 2>/dev/null | grep -F "go{{ caddy_build_go_version }}" &&
+        GOTOOLCHAIN=local go version -m "$(command -v caddy)" 2>/dev/null |
+        awk '$1 == "dep" && $2 == "github.com/caddy-dns/cloudflare" &&
+        $3 == "v{{ caddy_build_cloudflare_version }}" { found=1 } END { exit !found }'
+  register: caddy_build_marker
+  changed_when: false
+  failed_when: false
+
+- name: Build pinned Caddy with Cloudflare DNS module
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        set -euo pipefail; arch="$(uname -m)"; case "${arch}" in
+        x86_64) go_arch=amd64; go_sha256="{{ caddy_build_go_sha256_amd64 }}" ;;
+        aarch64) go_arch=arm64; go_sha256="{{ caddy_build_go_sha256_arm64 }}" ;;
+        *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;;
+        esac; tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT;
+        go_archive="go{{ caddy_build_go_version }}.linux-${go_arch}.tar.gz";
+        curl -fsSL -o "${tmp}/${go_archive}"
+        "https://go.dev/dl/${go_archive}";
+        printf '%s  %s\n' "${go_sha256}" "${tmp}/${go_archive}" | sha256sum -c -;
+        tar -C "${tmp}" -xzf "${tmp}/${go_archive}";
+        PATH="${tmp}/go/bin:${PATH}" GOBIN="${tmp}/bin" GOTOOLCHAIN=local GOPROXY=proxy.golang.org,direct GOSUMDB=sum.golang.org
+        "${tmp}/go/bin/go" install
+        github.com/caddyserver/xcaddy/cmd/xcaddy@v{{ caddy_build_xcaddy_version }};
+        PATH="${tmp}/go/bin:${PATH}" GOTOOLCHAIN=local GOPROXY=proxy.golang.org,direct GOSUMDB=sum.golang.org
+        "${tmp}/bin/xcaddy" build v{{ caddy_build_version }}
+        --with github.com/caddy-dns/cloudflare@v{{ caddy_build_cloudflare_version }}
+        --output "${tmp}/caddy";
+        install -m 0755 "${tmp}/caddy" /usr/bin/.caddy-homelab-new;
+        mv -f /usr/bin/.caddy-homelab-new /usr/bin/caddy
+  when: caddy_build_marker.rc != 0
+  changed_when: true
+  notify: Restart caddy
+
+- name: Verify installed Caddy build marker
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        caddy version | grep -F "v{{ caddy_build_version }}" &&
+        caddy list-modules | grep -Fx dns.providers.cloudflare &&
+        GOTOOLCHAIN=local go version -m "$(command -v caddy)" | grep -F "go{{ caddy_build_go_version }}" &&
+        GOTOOLCHAIN=local go version -m "$(command -v caddy)" |
+        awk '$1 == "dep" && $2 == "github.com/caddy-dns/cloudflare" &&
+        $3 == "v{{ caddy_build_cloudflare_version }}" { found=1 } END { exit !found }'
+  changed_when: false

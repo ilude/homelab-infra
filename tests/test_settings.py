@@ -42,6 +42,63 @@ class SettingsTests(unittest.TestCase):
         finally:
             path.unlink()
 
+    def write_registry(self, services: dict[str, object]) -> Path:
+        return self.write_settings({"default_services": ["first"], "services": services})
+
+    def test_registry_rejects_unknown_self_and_cyclic_dependencies(self) -> None:
+        cases = {
+            "unknown": {
+                "first": {"playbooks": ["first.yml"], "dependencies": ["missing"]},
+            },
+            "self": {
+                "first": {"playbooks": ["first.yml"], "dependencies": ["first"]},
+            },
+            "cycle": {
+                "first": {"playbooks": ["first.yml"], "dependencies": ["second"]},
+                "second": {"playbooks": ["second.yml"], "dependencies": ["first"]},
+            },
+        }
+        for name, services in cases.items():
+            with self.subTest(name=name):
+                path = self.write_registry(services)
+                try:
+                    with self.assertRaisesRegex(ValueError, name if name != "cycle" else "cyclic"):
+                        settings_script.load_service_registry(path)
+                finally:
+                    path.unlink()
+
+    def test_registry_rejects_duplicate_playbooks_and_invalid_execution_resources(self) -> None:
+        cases = {
+            "duplicate playbook": {
+                "first": {"playbooks": ["shared.yml"], "dependencies": []},
+                "second": {"playbooks": ["shared.yml"], "dependencies": []},
+            },
+            "execution_resource": {
+                "first": {"playbooks": ["first.yml"], "dependencies": [], "execution_resource": ""},
+            },
+        }
+        for message, services in cases.items():
+            with self.subTest(message=message):
+                path = self.write_registry(services)
+                try:
+                    with self.assertRaisesRegex(ValueError, message):
+                        settings_script.load_service_registry(path)
+                finally:
+                    path.unlink()
+
+    def test_registry_requires_reciprocal_conflicts(self) -> None:
+        path = self.write_registry(
+            {
+                "first": {"playbooks": ["first.yml"], "dependencies": [], "conflicts": ["second"]},
+                "second": {"playbooks": ["second.yml"], "dependencies": []},
+            }
+        )
+        try:
+            with self.assertRaisesRegex(ValueError, "reciprocal"):
+                settings_script.load_service_registry(path)
+        finally:
+            path.unlink()
+
     def test_technitium_adds_dns_playbook(self) -> None:
         path = self.write_settings({"services": ["technitium"]})
         try:
@@ -89,6 +146,14 @@ class SettingsTests(unittest.TestCase):
                 "infra/ansible/playbooks/forgejo-runner.yml",
             ],
         )
+
+    def test_infisical_deployment_modes_are_mutually_exclusive(self) -> None:
+        path = self.write_settings({"services": ["onramp_host", "infisical", "infisical_onramp"]})
+        try:
+            with self.assertRaisesRegex(settings_script.SettingsError, "conflicts with"):
+                settings_script.load_settings(path)
+        finally:
+            path.unlink()
 
     def test_infisical_and_hermes_add_playbooks(self) -> None:
         path = self.write_settings({"services": ["infisical", "hermes"]})

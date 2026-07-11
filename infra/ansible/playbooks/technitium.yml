@@ -9,6 +9,8 @@
         lxc_ready_name: technitium
 - name: Run direct access handoff for Technitium DNS
   ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: technitium
 - name: Configure Technitium DNS service directly
   hosts: technitium
   gather_facts: false

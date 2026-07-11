@@ -1,12 +1,113 @@
 ---
-- name: Document reusable direct service access handoff
-  hosts: localhost
+# This playbook is imported by each LXC service playbook.  The importing
+# playbook supplies only its existing inventory group; VMID and address remain
+# derived by inventory/tfvars.py from OpenTofu inputs.
+- name: Refresh authoritative SSH host keys for direct LXC access
+  # The localhost fallback keeps standalone syntax/lint checks valid and then
+  # fails its input assertion; importing service playbooks always set the group.
+  hosts: "{{ direct_access_target_group | default('localhost', true) }}"
   gather_facts: false
-  tasks:
-    - name: Describe direct access handoff boundary
-      ansible.builtin.debug:
-        msg:
-          - lxc_ready runs on the Proxmox host before this handoff.
-          - Controller-managed known_hosts is refreshed before direct service SSH.
-          - Direct SSH, Python, and root/become probes run before steady-state roles.
-          - Steady-state service configuration must not use Proxmox pct.
+  vars:
+    # This is container-local and intentionally shared by the service apply
+    # subprocesses. The scheduler serializes this execution resource.
+    direct_access_known_hosts_file: /tmp/homelab-infra/ansible/known_hosts
+    direct_access_allowed_key_types:
+      - ssh-ed25519
+      - ssh-rsa
+      - ecdsa-sha2-nistp256
+      - ecdsa-sha2-nistp384
+      - ecdsa-sha2-nistp521
+  pre_tasks:
+    - name: Validate direct LXC host-key refresh inputs
+      ansible.builtin.assert:
+        that:
+          - direct_access_vmid is defined
+          - direct_access_vmid | string is match('^[1-9][0-9]*$')
+          - ansible_host is defined
+          - ansible_host | string is match('^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+          - inventory_hostname is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
+          - direct_access_known_hosts_file == '/tmp/homelab-infra/ansible/known_hosts'
+          - groups['pve'] | default([]) | length == 1
+          - hostvars[groups['pve'][0]].ansible_user | default('') == 'root'
+        fail_msg: >-
+          Direct LXC host-key refresh requires a numeric inventory-derived VMID,
+          a direct inventory address, the managed known_hosts path, and exactly
+          one root-authenticated Proxmox inventory target.
+
+    - name: Read LXC SSH host public keys through authenticated Proxmox access
+      ansible.builtin.command:
+        argv:
+          - pct
+          - exec
+          - "{{ direct_access_vmid | string }}"
+          - --
+          - sh
+          - -ec
+          - >-
+            for key in /etc/ssh/ssh_host_*_key.pub; do
+              test -r "$key" || continue
+              ssh-keygen -l -f "$key" >/dev/null
+              awk 'NF >= 2 { print $1 " " $2 }' "$key"
+            done
+      delegate_to: "{{ groups['pve'][0] }}"
+      register: direct_access_host_keys
+      changed_when: false
+      no_log: true
+
+    - name: Fail closed when Proxmox did not provide valid LXC host public keys
+      ansible.builtin.assert:
+        that:
+          - direct_access_host_keys.rc == 0
+          - direct_access_host_keys.stdout_lines | length > 0
+          - >-
+            direct_access_host_keys.stdout_lines |
+            select('match', '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,2}$') |
+            list | length == direct_access_host_keys.stdout_lines | length
+          - >-
+            direct_access_host_keys.stdout_lines |
+            map('split', ' ') | map('first') |
+            difference(direct_access_allowed_key_types) | length == 0
+        fail_msg: >-
+          Proxmox returned no valid allowed SSH host public keys for this LXC;
+          refusing to alter direct SSH trust.
+      no_log: true
+
+    - name: Ensure the managed controller known_hosts directory exists
+      ansible.builtin.file:
+        path: "{{ direct_access_known_hosts_file | dirname }}"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+
+    - name: Ensure the managed controller known_hosts file has restrictive permissions
+      ansible.builtin.file:
+        path: "{{ direct_access_known_hosts_file }}"
+        state: touch
+        access_time: preserve
+        modification_time: preserve
+        mode: '0600'
+      delegate_to: localhost
+
+    - name: Remove stale controller SSH trust for the direct inventory aliases
+      ansible.builtin.known_hosts:
+        path: "{{ direct_access_known_hosts_file }}"
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ inventory_hostname }}"
+        - "{{ ansible_host }}"
+      delegate_to: localhost
+      no_log: true
+
+    - name: Install exact Proxmox-authoritative SSH keys for direct inventory aliases
+      ansible.builtin.known_hosts:
+        path: "{{ direct_access_known_hosts_file }}"
+        name: "{{ item.0 }}"
+        key: "{{ item.0 }} {{ item.1 }}"
+        state: present
+        hash_host: false
+      loop: >-
+        {{ [inventory_hostname, ansible_host] |
+           product(direct_access_host_keys.stdout_lines | unique) | list }}
+      delegate_to: localhost
+      no_log: true

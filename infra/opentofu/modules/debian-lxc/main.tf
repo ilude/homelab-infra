@@ -35,15 +35,6 @@ resource "proxmox_virtual_environment_container" "this" {
     size         = var.disk.size_gb
   }
 
-  dynamic "mount_point" {
-    for_each = var.mount_points
-
-    content {
-      volume = mount_point.value.volume
-      path   = mount_point.value.path
-    }
-  }
-
   initialization {
     hostname = var.hostname
 
@@ -91,10 +82,13 @@ resource "proxmox_virtual_environment_container" "this" {
     }
   }
 
+  # Bind mounts are a Proxmox-host lifecycle concern. This module has no bind-mount
+  # input; ignoring this field prevents the API provider from deleting
+  # SSH/pct-managed recovery mounts during refresh or apply.
   lifecycle {
     ignore_changes = [
       initialization[0].user_account,
-      operating_system[0].template_file_id,
+      mount_point,
     ]
   }
 }

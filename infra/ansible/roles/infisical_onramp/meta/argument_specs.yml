@@ -43,10 +43,18 @@ argument_specs:
         type: str
         required: false
         description: "Compose CLI used by user service (default: podman-compose)."
-      infisical_onramp_version:
+      infisical_container_image:
         type: str
-        required: false
-        description: "Infisical container image tag (default: latest)."
+        required: true
+        description: "Digest-pinned Infisical OCI image for linux/amd64."
+      infisical_postgres_image:
+        type: str
+        required: true
+        description: "Digest-pinned PostgreSQL OCI image for linux/amd64."
+      infisical_redis_image:
+        type: str
+        required: true
+        description: "Digest-pinned Redis OCI image for linux/amd64."
       infisical_onramp_postgres_user:
         type: str
         required: false

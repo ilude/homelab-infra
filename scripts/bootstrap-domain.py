@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from envfile import get_env_value, set_env_value
+import settings
 
 DEFAULT_VALUES_DIR = Path("values")
 PLACEHOLDER_DOMAINS = ("example.internal", "example.net", "example.com")
@@ -213,6 +214,18 @@ def update_inventory(path: Path, domain: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def infisical_dns_target(services: set[str], legacy_ip: str, onramp_ip: str) -> str:
+    legacy_enabled = "infisical" in services
+    onramp_enabled = "infisical_onramp" in services
+    if legacy_enabled and onramp_enabled:
+        raise ValueError("infisical and infisical_onramp are mutually exclusive deployment modes")
+    if onramp_enabled:
+        return onramp_ip
+    if legacy_enabled:
+        return legacy_ip
+    return ""
+
+
 def update_dns_records(
     path: Path,
     domain: str,
@@ -240,7 +253,11 @@ def update_dns_records(
     records[f"dns.{domain}"] = technitium_ip
     records[f"technitium.{domain}"] = technitium_ip
     records[f"git.{domain}"] = forgejo_ip
-    records[f"infisical.{domain}"] = infisical_ip
+    infisical_record = f"infisical.{domain}"
+    if infisical_ip:
+        records[infisical_record] = infisical_ip
+    else:
+        records.pop(infisical_record, None)
     records[f"hermes.{domain}"] = hermes_ip
     records[f"searxng.apps.{domain}"] = searxng_ip
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -258,6 +275,17 @@ def run(args: argparse.Namespace) -> int:
         print("Missing values files. Run just setup first.", file=sys.stderr)
         for path in missing:
             print(f"  {path}", file=sys.stderr)
+        return 1
+
+    try:
+        services = set(settings.load_settings()["services"])
+    except settings.SettingsError as error:
+        print(error, file=sys.stderr)
+        return 1
+    try:
+        infisical_dns_target(services, "", "")
+    except ValueError as error:
+        print(error, file=sys.stderr)
         return 1
 
     existing_domain = configured_domain(env_path, tfvars_path)
@@ -298,7 +326,7 @@ def run(args: argparse.Namespace) -> int:
     try:
         validate_ip(technitium_ip, "Technitium DNS/UI IP")
         validate_ip(gateway, "LXC IPv4 gateway")
-        forgejo_ip, forgejo_runner_ip, tailscale_ip, infisical_ip, hermes_ip, searxng_ip = service_ip_sequence(service_start_ip, 6)
+        forgejo_ip, forgejo_runner_ip, tailscale_ip, legacy_infisical_ip, hermes_ip, searxng_ip = service_ip_sequence(service_start_ip, 6)
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
@@ -319,8 +347,8 @@ def run(args: argparse.Namespace) -> int:
     set_tfvar_string(tfvars_path, "forgejo_runner_ipv4_gateway", gateway)
     set_tfvar_string(tfvars_path, "forgejo_runner_search_domain", domain)
     set_tfvar_string(tfvars_path, "infisical_server_name", f"infisical.{domain}")
-    set_tfvar_string(tfvars_path, "infisical_lan_ip", infisical_ip)
-    set_tfvar_string(tfvars_path, "infisical_container_ipv4_address", f"{infisical_ip}/{default_prefix}")
+    set_tfvar_string(tfvars_path, "infisical_lan_ip", legacy_infisical_ip)
+    set_tfvar_string(tfvars_path, "infisical_container_ipv4_address", f"{legacy_infisical_ip}/{default_prefix}")
     set_tfvar_string(tfvars_path, "infisical_container_ipv4_gateway", gateway)
     set_tfvar_string(tfvars_path, "infisical_container_search_domain", domain)
     set_tfvar_string(tfvars_path, "hermes_server_name", f"hermes.{domain}")
@@ -343,6 +371,11 @@ def run(args: argparse.Namespace) -> int:
     inventory_text = inventory_text.replace("hermes.example.internal", f"hermes.{domain}")
     inventory_text = inventory_text.replace("searxng.apps.example.net", f"searxng.apps.{domain}")
     inventory_path.write_text(inventory_text, encoding="utf-8")
+    infisical_ip = infisical_dns_target(
+        services,
+        legacy_infisical_ip,
+        ip_without_cidr(tfvar_value(tfvars_path, "onramp_host_ipv4_address")),
+    )
     update_dns_records(dns_records_path, domain, technitium_ip, forgejo_ip, infisical_ip, hermes_ip, searxng_ip)
 
     print("Updated domain-derived values:")

@@ -4,7 +4,8 @@
     that:
       - forgejo_domain is defined
       - forgejo_version is defined
-    fail_msg: forgejo_domain and forgejo_version are required.
+      - forgejo_sha256_amd64 is defined
+    fail_msg: forgejo_domain, forgejo_version, and forgejo_sha256_amd64 are required.
 - name: Install Forgejo OS dependencies in LXC
   ansible.builtin.command:
     argv:
@@ -43,12 +44,20 @@
   register: forgejo_installed_version
   changed_when: false
   failed_when: false
-- name: Install requested Forgejo binary
+- name: Install verified requested Forgejo binary
   ansible.builtin.command:
     argv:
       - bash
       - -lc
-      - base={{ forgejo_download_base | default('https://code.forgejo.org/forgejo/forgejo/releases/download') }} && curl -fsSL -o /usr/local/bin/forgejo "$base/v{{ forgejo_version }}/forgejo-{{ forgejo_version }}-linux-amd64" && chmod 0755 /usr/local/bin/forgejo  # yamllint disable-line rule:line-length
+      - >-
+        set -euo pipefail; base={{ forgejo_download_base | default('https://code.forgejo.org/forgejo/forgejo/releases/download') }};
+        tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT;
+        artifact="${tmp}/forgejo";
+        curl -fsSL -o "${artifact}"
+        "$base/v{{ forgejo_version }}/forgejo-{{ forgejo_version }}-linux-amd64";
+        printf '%s  %s\n' "{{ forgejo_sha256_amd64 }}" "${artifact}" | sha256sum -c -;
+        install -m 0755 "${artifact}" /usr/local/bin/.forgejo-new;
+        mv -f /usr/local/bin/.forgejo-new /usr/local/bin/forgejo
   when: forgejo_installed_version.stdout | trim != forgejo_version
   notify: Restart forgejo
 - name: Install Forgejo systemd service

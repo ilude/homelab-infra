@@ -1,14 +1,8 @@
 ---
-- name: Prepare Technitium Caddy proxy lifecycle boundary
-  hosts: pve
-  gather_facts: false
-  roles:
-    - role: lxc_ready
-      vars:
-        lxc_ready_vmid: '{{ technitium_vmid }}'
-        lxc_ready_name: technitium
 - name: Run direct access handoff for Technitium Caddy proxy
   ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: technitium
 - name: Configure Technitium Caddy HTTPS proxy directly
   hosts: technitium
   gather_facts: false

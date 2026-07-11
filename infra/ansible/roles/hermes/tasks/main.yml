@@ -53,19 +53,43 @@
       - -lc
       - "set -euo pipefail; packages=\"build-essential ca-certificates caddy curl docker.io git gnupg jq openssh-client python3 python3-pip python3-venv rsync sudo tar unzip xz-utils\"; missing=0; for package in ${packages}; do\n  dpkg-query -W \"${package}\" >/dev/null 2>&1 || missing=1;\ndone; if [[ \"${missing}\" -eq 1 ]]; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};\nfi; systemctl enable --now docker"  # yamllint disable-line rule:line-length
   changed_when: false
-- name: Install Docker Compose CLI plugin in Hermes LXC
+- name: Install verified Docker Compose CLI plugin in Hermes LXC
   ansible.builtin.command:
     argv:
       - bash
       - -lc
-      - "set -euo pipefail; version=\"{{ hermes_compose_version | default('5.3.0') }}\"; current=\"$(docker compose version --short 2>/dev/null || true)\"; if [[ \"${current}\" != \"${version}\" ]]; then\n  arch=\"$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')\";\n  install -d -m 0755 /usr/local/lib/docker/cli-plugins;\n  compose_url=\"https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}\";\n  curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \"${compose_url}\";\n  chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose;\nfi"  # yamllint disable-line rule:line-length
+      - >-
+        set -euo pipefail; version="{{ hermes_compose_version | default('5.3.0') }}";
+        current="$(docker compose version --short 2>/dev/null || true)";
+        if [[ "${current}" != "${version}" ]]; then arch="$(uname -m)";
+        case "${arch}" in x86_64) asset_arch=x86_64; sha256="{{ hermes_compose_sha256_amd64 }}" ;;
+        aarch64) asset_arch=aarch64; sha256="{{ hermes_compose_sha256_arm64 }}" ;;
+        *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; esac;
+        tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT; artifact="${tmp}/docker-compose";
+        curl -fsSL -o "${artifact}" "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${asset_arch}";
+        printf '%s  %s\n' "${sha256}" "${artifact}" | sha256sum -c -;
+        install -d -m 0755 /usr/local/lib/docker/cli-plugins;
+        install -m 0755 "${artifact}" /usr/local/lib/docker/cli-plugins/.docker-compose-new;
+        mv -f /usr/local/lib/docker/cli-plugins/.docker-compose-new /usr/local/lib/docker/cli-plugins/docker-compose; fi
   changed_when: false
-- name: Install just command runner in Hermes LXC
+- name: Install verified just command runner in Hermes LXC
   ansible.builtin.command:
     argv:
       - bash
       - -lc
-      - "set -euo pipefail; version=\"{{ hermes_just_version | default('1.55.1') }}\"; current=\"$(just --version 2>/dev/null | awk '{print $2}' || true)\"; if [[ \"${current}\" != \"${version}\" ]]; then\n  arch=\"$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')\";\n  target=\"${arch}-unknown-linux-musl\";\n  tmp=\"$(mktemp -d)\";\n  trap 'rm -rf \"${tmp}\"' EXIT;\n  curl -fsSL -o \"${tmp}/just.tar.gz\" \"https://github.com/casey/just/releases/download/${version}/just-${version}-${target}.tar.gz\";\n  tar -xzf \"${tmp}/just.tar.gz\" -C \"${tmp}\" just;\n  install -m 0755 \"${tmp}/just\" /usr/local/bin/just;\nfi"  # yamllint disable-line rule:line-length
+      - >-
+        set -euo pipefail; version="{{ hermes_just_version | default('1.55.1') }}";
+        current="$(just --version 2>/dev/null | awk '{print $2}' || true)";
+        if [[ "${current}" != "${version}" ]]; then arch="$(uname -m)";
+        case "${arch}" in x86_64) target=x86_64-unknown-linux-musl; sha256="{{ hermes_just_sha256_amd64 }}" ;;
+        aarch64) target=aarch64-unknown-linux-musl; sha256="{{ hermes_just_sha256_arm64 }}" ;;
+        *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; esac;
+        tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT; archive="${tmp}/just.tar.gz";
+        curl -fsSL -o "${archive}" "https://github.com/casey/just/releases/download/${version}/just-${version}-${target}.tar.gz";
+        printf '%s  %s\n' "${sha256}" "${archive}" | sha256sum -c -;
+        tar -xzf "${archive}" -C "${tmp}" just;
+        install -m 0755 "${tmp}/just" /usr/local/bin/.just-new;
+        mv -f /usr/local/bin/.just-new /usr/local/bin/just; fi
   changed_when: false
 - name: Ensure Hermes directories exist
   ansible.builtin.command:
@@ -81,24 +105,9 @@
     mode: '0644'
     owner: root
     group: root
-- name: Check whether Hermes Caddy has Cloudflare DNS module
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - caddy list-modules 2>/dev/null | grep -Fx dns.providers.cloudflare
-  register: hermes_caddy_cloudflare_module
-  changed_when: false
-  failed_when: false
-- name: Build Hermes Caddy with Cloudflare DNS module
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - curl -fsSL https://go.dev/dl/go1.24.4.linux-amd64.tar.gz -o /tmp/go.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz && PATH=/usr/local/go/bin:${PATH} GOBIN=/usr/local/bin /usr/local/go/bin/go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest && PATH=/usr/local/go/bin:${PATH} /usr/local/bin/xcaddy build --with github.com/caddy-dns/cloudflare --output /tmp/caddy-cloudflare && install -m 0755 /tmp/caddy-cloudflare /usr/bin/caddy  # yamllint disable-line rule:line-length
-  when: hermes_caddy_cloudflare_module.rc != 0
-  changed_when: true
-  notify: Restart caddy
+- name: Build pinned Caddy for Hermes LXC
+  ansible.builtin.include_role:
+    name: caddy_build
 - name: Install Hermes Caddy env
   ansible.builtin.template:
     src: caddy.env.j2
@@ -107,14 +116,28 @@
     owner: root
     group: caddy
   no_log: true
-- name: Install Hermes Agent CLI and dashboard dependencies in LXC
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - "set -euo pipefail; if ! command -v hermes >/dev/null 2>&1; then\n  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-browser;\nfi; cd /usr/local/lib/hermes-agent; python3 -m venv --upgrade-deps venv; venv/bin/python -m pip install -e \".[web,pty]\""  # yamllint disable-line rule:line-length
+- name: Install Hermes dashboard env
+  ansible.builtin.template:
+    src: hermes-dashboard.env.j2
+    dest: /etc/hermes-dashboard.env
+    mode: '0600'
+    owner: root
+    group: root
   when: hermes_dashboard_enabled | default(true) | bool
-  changed_when: false
+  no_log: true
+  notify: Restart hermes dashboard
+- name: Install Hermes dashboard systemd unit
+  ansible.builtin.template:
+    src: hermes-dashboard.service.j2
+    dest: /etc/systemd/system/hermes-dashboard.service
+    mode: '0644'
+    owner: root
+    group: root
+  when: hermes_dashboard_enabled | default(true) | bool
+  notify: Restart hermes dashboard
+- name: Install managed Hermes Agent runtime
+  ansible.builtin.include_tasks: managed-runtime.yml
+  when: hermes_dashboard_enabled | default(true) | bool
 - name: Configure Hermes context compression and delegation limits
   ansible.builtin.command:
     argv:
@@ -141,25 +164,6 @@
   changed_when: false
   when: hermes_dashboard_enabled | default(true) | bool
 
-- name: Install Hermes dashboard env
-  ansible.builtin.template:
-    src: hermes-dashboard.env.j2
-    dest: /etc/hermes-dashboard.env
-    mode: '0600'
-    owner: root
-    group: root
-  when: hermes_dashboard_enabled | default(true) | bool
-  no_log: true
-  notify: Restart hermes dashboard
-- name: Install Hermes dashboard systemd unit
-  ansible.builtin.template:
-    src: hermes-dashboard.service.j2
-    dest: /etc/systemd/system/hermes-dashboard.service
-    mode: '0644'
-    owner: root
-    group: root
-  when: hermes_dashboard_enabled | default(true) | bool
-  notify: Restart hermes dashboard
 - name: Enable Hermes dashboard service
   ansible.builtin.command:
     argv:
@@ -175,6 +179,15 @@
     mode: '0644'
     owner: root
     group: root
+  notify: Restart caddy
+- name: Ensure Hermes Caddy systemd override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/caddy.service.d
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  notify: Restart caddy
 - name: Install Hermes Caddy systemd override
   ansible.builtin.template:
     src: caddy-override.conf.j2
@@ -182,15 +195,7 @@
     mode: '0644'
     owner: root
     group: root
-- name: Ensure Hermes Caddy systemd override directory exists
-  ansible.builtin.command:
-    argv:
-      - install
-      - -d
-      - -m
-      - '0755'
-      - /etc/systemd/system/caddy.service.d
-  changed_when: false
+  notify: Restart caddy
 - name: Validate Hermes Caddy config
   ansible.builtin.command:
     argv:

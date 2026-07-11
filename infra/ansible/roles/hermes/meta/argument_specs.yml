@@ -27,10 +27,42 @@ argument_specs:
         type: str
         required: false
         description: "Docker Compose plugin version to ensure in the host stack (default: 5.3.0)."
+      hermes_compose_sha256_amd64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Docker Compose linux-amd64 binary."
+      hermes_compose_sha256_arm64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Docker Compose linux-arm64 binary."
       hermes_just_version:
         type: str
         required: false
         description: "Just utility version to ensure in the host stack (default: 1.55.1)."
+      hermes_just_sha256_amd64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned just linux-amd64 archive."
+      hermes_just_sha256_arm64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned just linux-arm64 archive."
+      hermes_discovery_version:
+        type: str
+        required: true
+        description: "Hermes package version tied to the tracked transitive wheel lock."
+      hermes_discovery_tag:
+        type: str
+        required: true
+        description: "Hermes upstream release tag associated with the package."
+      hermes_discovery_commit:
+        type: str
+        required: true
+        description: "Hermes upstream release commit associated with the package."
+      hermes_discovery_wheel_sha256:
+        type: str
+        required: true
+        description: "Official PyPI Hermes wheel SHA-256 verified before release activation."
       hermes_repo_path:
         type: str
         required: false

@@ -1,0 +1,359 @@
+---
+- name: Validate Hermes managed release pins
+  ansible.builtin.assert:
+    that:
+      - hermes_discovery_version is defined
+      - hermes_discovery_version is match('^[0-9]+[.][0-9]+[.][0-9]+$')
+      - hermes_discovery_tag is defined
+      - hermes_discovery_tag is match('^v[0-9]{4}[.][0-9]+[.][0-9]+(?:[.][0-9]+)?$')
+      - hermes_discovery_commit is defined
+      - hermes_discovery_commit is match('^[0-9a-f]{40}$')
+      - hermes_discovery_wheel_sha256 is defined
+      - hermes_discovery_wheel_sha256 is match('^[0-9a-f]{64}$')
+    fail_msg: Hermes version, release tag, commit, and wheel SHA-256 must be complete lowercase managed pins.
+
+- name: Verify Hermes managed runtime platform
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Debian'
+      - ansible_distribution_major_version == '13'
+      - ansible_architecture == 'x86_64'
+      - ansible_python.version.major == 3
+      - ansible_python.version.minor == 13
+    fail_msg: The tracked Hermes wheel lock supports only Debian 13 amd64 with Python 3.13.
+
+- name: Compute Hermes managed release paths
+  ansible.builtin.set_fact:
+    hermes_install_root: /usr/local/lib/hermes-agent
+    hermes_release_id: "{{ hermes_discovery_version }}-{{ hermes_discovery_commit[0:12] }}"
+    hermes_release_directory: "/usr/local/lib/hermes-agent/releases/{{ hermes_discovery_version }}-{{ hermes_discovery_commit[0:12] }}"
+    hermes_release_marker: >-
+      {{ hermes_discovery_version }} {{ hermes_discovery_tag }}
+      {{ hermes_discovery_commit }} {{ hermes_discovery_wheel_sha256 }}
+
+- name: Ensure Hermes managed release directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ hermes_install_root }}"
+    - "{{ hermes_install_root }}/releases"
+
+- name: Install tracked Hermes transitive requirements lock
+  ansible.builtin.copy:
+    src: "requirements-{{ hermes_discovery_version }}.lock"
+    dest: "{{ hermes_install_root }}/requirements-{{ hermes_discovery_version }}.lock"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read healthy Hermes release marker
+  ansible.builtin.command:
+    argv:
+      - cat
+      - "{{ hermes_install_root }}/installed-release"
+  register: hermes_installed_release
+  changed_when: false
+  failed_when: false
+
+- name: Read active Hermes release marker
+  ansible.builtin.command:
+    argv:
+      - cat
+      - "{{ hermes_install_root }}/venv/../release-marker"
+  register: hermes_active_release_marker
+  changed_when: false
+  failed_when: false
+
+- name: Decide whether Hermes release activation is required
+  ansible.builtin.set_fact:
+    hermes_update_required: >-
+      {{ hermes_installed_release.rc != 0 or
+         hermes_installed_release.stdout | trim != hermes_release_marker | trim or
+         hermes_active_release_marker.rc != 0 or
+         hermes_active_release_marker.stdout | trim != hermes_release_marker | trim }}
+
+- name: Resolve active Hermes virtual environment before staging
+  ansible.builtin.command:
+    argv:
+      - readlink
+      - -f
+      - "{{ hermes_install_root }}/venv"
+  register: hermes_active_target_before_staging
+  changed_when: false
+  failed_when: false
+  when: hermes_update_required | bool
+
+- name: Refuse to replace an active Hermes release during staging
+  ansible.builtin.assert:
+    that:
+      - hermes_active_target_before_staging.stdout | trim != hermes_release_directory ~ '/venv'
+    fail_msg: The active Hermes release marker is inconsistent; refusing to remove the active release during staging.
+  when: hermes_update_required | bool
+
+- name: Stage Hermes versioned virtual environment from the hashed wheel lock
+  when: hermes_update_required | bool
+  block:
+    - name: Replace incomplete Hermes release staging
+      ansible.builtin.file:
+        path: "{{ hermes_release_directory }}"
+        state: absent
+    - name: Create Hermes release staging directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - "{{ hermes_release_directory }}"
+        - "{{ hermes_release_directory }}/wheelhouse"
+    - name: Create Hermes release virtual environment
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - venv
+          - "{{ hermes_release_directory }}/venv"
+      changed_when: true
+    - name: Download only locked official PyPI wheels for Hermes
+      ansible.builtin.command:
+        argv:
+          - "{{ hermes_release_directory }}/venv/bin/python"
+          - -m
+          - pip
+          - download
+          - --require-hashes
+          - --only-binary=:all:
+          - --index-url
+          - https://pypi.org/simple
+          - --dest
+          - "{{ hermes_release_directory }}/wheelhouse"
+          - --requirement
+          - "{{ hermes_install_root }}/requirements-{{ hermes_discovery_version }}.lock"
+      changed_when: true
+    - name: Verify staged official Hermes wheel checksum
+      ansible.builtin.stat:
+        path: "{{ hermes_release_directory }}/wheelhouse/hermes_agent-{{ hermes_discovery_version }}-py3-none-any.whl"
+        checksum_algorithm: sha256
+      register: hermes_staged_wheel
+      failed_when: >-
+        not hermes_staged_wheel.stat.exists or
+        hermes_staged_wheel.stat.checksum != hermes_discovery_wheel_sha256
+    - name: Install Hermes entirely from the verified local wheelhouse
+      ansible.builtin.command:
+        argv:
+          - "{{ hermes_release_directory }}/venv/bin/python"
+          - -m
+          - pip
+          - install
+          - --no-index
+          - --find-links
+          - "{{ hermes_release_directory }}/wheelhouse"
+          - --require-hashes
+          - --only-binary=:all:
+          - --no-deps
+          - --requirement
+          - "{{ hermes_install_root }}/requirements-{{ hermes_discovery_version }}.lock"
+      changed_when: true
+    - name: Verify Hermes release dependency consistency
+      ansible.builtin.command:
+        argv:
+          - "{{ hermes_release_directory }}/venv/bin/python"
+          - -m
+          - pip
+          - check
+      changed_when: false
+    - name: Verify installed Hermes package version
+      ansible.builtin.command:
+        argv:
+          - "{{ hermes_release_directory }}/venv/bin/python"
+          - -c
+          - >-
+            import importlib.metadata as m, sys;
+            sys.exit(0 if m.version('hermes-agent') == {{ hermes_discovery_version | to_json }} else 1)
+      changed_when: false
+    - name: Record verified Hermes staged release
+      ansible.builtin.copy:
+        content: "{{ hermes_release_marker | trim }}\n"
+        dest: "{{ hermes_release_directory }}/release-marker"
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: Install compatible system-wide Hermes launcher
+  ansible.builtin.copy:
+    dest: /usr/local/bin/hermes
+    owner: root
+    group: root
+    mode: '0755'
+    content: |
+      #!/bin/sh
+      exec /usr/local/lib/hermes-agent/venv/bin/hermes "$@"
+
+- name: Inspect active Hermes virtual environment
+  ansible.builtin.stat:
+    path: "{{ hermes_install_root }}/venv"
+    follow: false
+  register: hermes_active_venv
+  when: hermes_update_required | bool
+
+- name: Resolve previous managed Hermes release
+  ansible.builtin.command:
+    argv:
+      - readlink
+      - -f
+      - "{{ hermes_install_root }}/venv"
+  register: hermes_previous_venv
+  changed_when: false
+  when:
+    - hermes_update_required | bool
+    - hermes_active_venv.stat.islnk | default(false)
+
+- name: Check retained pre-managed Hermes virtual environment
+  ansible.builtin.stat:
+    path: "{{ hermes_install_root }}/releases/pre-managed"
+  register: hermes_pre_managed_venv
+  when:
+    - hermes_update_required | bool
+    - hermes_active_venv.stat.isdir | default(false)
+
+- name: Refuse ambiguous first Hermes managed conversion
+  ansible.builtin.assert:
+    that:
+      - not hermes_pre_managed_venv.stat.exists
+    fail_msg: A pre-managed Hermes rollback target already exists while the active venv is unmanaged.
+  when:
+    - hermes_update_required | bool
+    - hermes_active_venv.stat.isdir | default(false)
+
+- name: Initialize Hermes activation rollback milestones
+  ansible.builtin.set_fact:
+    hermes_pre_managed_moved: false
+    hermes_application_switched: false
+  when: hermes_update_required | bool
+
+- name: Atomically activate verified Hermes release with rollback
+  when: hermes_update_required | bool
+  block:
+    - name: Stop Hermes dashboard before activation
+      ansible.builtin.systemd:
+        name: hermes-dashboard
+        state: stopped
+        daemon_reload: true
+    - name: Retain unmanaged Hermes virtual environment as first rollback release
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ hermes_install_root }}/venv"
+          - "{{ hermes_install_root }}/releases/pre-managed"
+      changed_when: true
+      when: hermes_active_venv.stat.isdir | default(false)
+    - name: Record retained pre-managed Hermes virtual environment
+      ansible.builtin.set_fact:
+        hermes_pre_managed_moved: true
+      when: hermes_active_venv.stat.isdir | default(false)
+    - name: Prepare Hermes virtual environment activation link
+      ansible.builtin.file:
+        src: "{{ hermes_release_directory }}/venv"
+        dest: "{{ hermes_install_root }}/.venv-new"
+        state: link
+        force: true
+    - name: Atomically activate Hermes virtual environment
+      ansible.builtin.command:
+        argv:
+          - mv
+          - -Tf
+          - "{{ hermes_install_root }}/.venv-new"
+          - "{{ hermes_install_root }}/venv"
+      changed_when: true
+    - name: Record completed Hermes virtual environment switch
+      ansible.builtin.set_fact:
+        hermes_application_switched: true
+    - name: Start activated Hermes dashboard
+      ansible.builtin.systemd:
+        name: hermes-dashboard
+        enabled: true
+        state: started
+        daemon_reload: true
+    - name: Verify activated Hermes dashboard login page
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ hermes_dashboard_port | default(9119) }}/login"
+        status_code: 200
+        return_content: false
+      register: hermes_activation_health
+      retries: 12
+      delay: 5
+      until: hermes_activation_health.status == 200
+    - name: Retain previous Hermes release link
+      ansible.builtin.file:
+        src: >-
+          {{ hermes_previous_venv.stdout
+             if hermes_active_venv.stat.islnk | default(false)
+             else hermes_install_root ~ '/releases/pre-managed' }}
+        dest: "{{ hermes_install_root }}/previous"
+        state: link
+        force: true
+      when: hermes_active_venv.stat.exists | default(false)
+    - name: Record healthy managed Hermes release
+      ansible.builtin.copy:
+        content: "{{ hermes_release_marker | trim }}\n"
+        dest: "{{ hermes_install_root }}/installed-release"
+        owner: root
+        group: root
+        mode: '0644'
+  rescue:
+    - name: Stop failed Hermes dashboard release
+      ansible.builtin.systemd:
+        name: hermes-dashboard
+        state: stopped
+      failed_when: false
+    - name: Remove incomplete Hermes activation link
+      ansible.builtin.file:
+        path: "{{ hermes_install_root }}/.venv-new"
+        state: absent
+    - name: Remove failed active Hermes virtual environment link
+      ansible.builtin.file:
+        path: "{{ hermes_install_root }}/venv"
+        state: absent
+      when: hermes_application_switched | bool
+    - name: Restore pre-managed Hermes virtual environment
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ hermes_install_root }}/releases/pre-managed"
+          - "{{ hermes_install_root }}/venv"
+      changed_when: true
+      when: hermes_pre_managed_moved | bool
+    - name: Restore previous managed Hermes virtual environment link
+      ansible.builtin.file:
+        src: "{{ hermes_previous_venv.stdout }}"
+        dest: "{{ hermes_install_root }}/venv"
+        state: link
+      when:
+        - hermes_application_switched | bool
+        - hermes_active_venv.stat.islnk | default(false)
+    - name: Restart rolled-back Hermes dashboard
+      ansible.builtin.systemd:
+        name: hermes-dashboard
+        enabled: true
+        state: started
+      when: hermes_active_venv.stat.exists | default(false)
+    - name: Verify rolled-back Hermes dashboard
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ hermes_dashboard_port | default(9119) }}/login"
+        status_code: 200
+        return_content: false
+      register: hermes_rollback_health
+      retries: 12
+      delay: 5
+      until: hermes_rollback_health.status == 200
+      when: hermes_active_venv.stat.exists | default(false)
+    - name: Report failed Hermes activation after rollback
+      ansible.builtin.fail:
+        msg: >-
+          Hermes {{ hermes_discovery_version }} failed dashboard health checks;
+          the prior virtual environment was restored and runtime state was left untouched.

@@ -1,0 +1,38 @@
+---
+- name: Verify Technitium service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - dns
+  changed_when: false
+  register: technitium_active
+  retries: 6
+  delay: 5
+  until: technitium_active.rc == 0
+- name: Verify Technitium UI responds on loopback
+  ansible.builtin.uri:
+    url: http://127.0.0.1:5380/
+    status_code:
+      - 200
+      - 302
+    return_content: false
+  register: technitium_ui_check
+  retries: 12
+  delay: 5
+  until: technitium_ui_check.status in [200, 302]
+- name: Verify Technitium DNS answers loopback queries
+  ansible.builtin.command:
+    argv:
+      - dig
+      - +time=2
+      - +tries=1
+      - +short
+      - '@127.0.0.1'
+      - localhost
+      - A
+  changed_when: false
+  register: technitium_dns_check
+  retries: 6
+  delay: 5
+  until: technitium_dns_check.rc == 0 and technitium_dns_check.stdout | trim | length > 0

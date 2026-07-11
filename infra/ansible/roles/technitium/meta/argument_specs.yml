@@ -1,5 +1,44 @@
 ---
 argument_specs:
   main:
-    short_description: "Install and enable the Technitium DNS service in its LXC."
-    options: {}
+    short_description: Install or update Technitium from a verified portable release.
+    options:
+      technitium_discovery_version:
+        type: str
+        required: true
+        description: Pinned Technitium portable release version.
+      technitium_portable_sha256:
+        type: str
+        required: true
+        description: Reviewed SHA-256 for the pinned portable archive.
+      technitium_artifact_path:
+        type: path
+        default: ""
+        description: >-
+          Optional controller-side cache root. The role checks
+          VERSION/DnsServerPortable.tar.gz below this path, then falls back to the
+          official versioned URL when the file is absent.
+      technitium_download_base_url:
+        type: str
+        default: https://download.technitium.com/dns/archive
+        description: Official base URL for versioned portable archives.
+      technitium_install_root:
+        type: path
+        default: /opt/technitium
+        description: Root containing managed application releases and rollback data.
+      technitium_state_directory:
+        type: path
+        default: /etc/dns
+        description: Persistent Technitium configuration and runtime state directory.
+      technitium_log_directory:
+        type: path
+        default: /var/log/technitium/dns
+        description: Persistent Technitium log directory.
+      technitium_dotnet_repository_package_url:
+        type: str
+        default: https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb
+        description: Official Microsoft Debian 13 repository bootstrap package.
+      technitium_dotnet_repository_package_sha256:
+        type: str
+        default: d0c2f69250c6ce0d4c6220b142f999d039a3c560af7f980b943687d106ca8e38
+        description: Pinned SHA-256 for the Microsoft repository bootstrap package.

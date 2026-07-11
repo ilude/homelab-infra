@@ -1,7 +1,7 @@
 ---
 services:
   db:
-    image: docker.io/library/postgres:16-alpine
+    image: {{ infisical_onramp_postgres_image }}
     container_name: infisical-onramp-db
     restart: unless-stopped
     env_file:
@@ -18,7 +18,7 @@ services:
       retries: 5
 
   redis:
-    image: docker.io/library/redis:7-alpine
+    image: {{ infisical_onramp_redis_image }}
     container_name: infisical-onramp-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
@@ -26,7 +26,7 @@ services:
       - ./data/redis:/data
 
   infisical:
-    image: docker.io/infisical/infisical:{{ infisical_onramp_version }}
+    image: {{ infisical_onramp_container_image }}
     container_name: infisical-onramp
     restart: unless-stopped
     depends_on:

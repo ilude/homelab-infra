@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,21 @@ except ImportError as error:  # pragma: no cover - exercised in tooling containe
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_TFVARS = REPO / "values" / "terraform.tfvars"
 DEFAULT_ANSIBLE_USER = "root"
+# This ephemeral trust store is shared by Ansible subprocesses during one
+# apply-container lifetime, but is never persisted in the private values repo.
+DIRECT_LXC_KNOWN_HOSTS_FILE = "/tmp/homelab-infra/ansible/known_hosts"
+DIRECT_LXC_SSH_ARGS = (
+    f"-o UserKnownHostsFile={DIRECT_LXC_KNOWN_HOSTS_FILE} "
+    "-o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o ForwardAgent=no"
+)
+DIRECT_LXC_SERVICES = frozenset(
+    name
+    for name, config in settings.SERVICE_REGISTRY_DATA["services"].items()
+    if config.get("execution_resource") == "direct_lxc_known_hosts"
+)
+PVE_HOST_RE = re.compile(
+    r"^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9A-Fa-f:]+\])$"
+)
 
 SERVICE_HOSTS = {
     name: dict(config["inventory"])
@@ -80,6 +97,36 @@ def enabled_services(settings_path: Path | None) -> list[str]:
     return loaded["services"]
 
 
+def pve_target(raw_value: str | None) -> str:
+    value = (raw_value or "").strip()
+    if value.startswith("root@"):
+        value = value.removeprefix("root@")
+    if not value or "@" in value:
+        raise InventoryError("PVE_HOST must be a host or legacy root@host value")
+    if value.startswith("[") and value.endswith("]"):
+        try:
+            if ipaddress.ip_address(value[1:-1]).version != 6:
+                raise ValueError
+        except ValueError as error:
+            raise InventoryError("PVE_HOST must be a host or legacy root@host value") from error
+    elif re.fullmatch(r"[0-9.]+", value):
+        try:
+            if ipaddress.ip_address(value).version != 4:
+                raise ValueError
+        except ValueError as error:
+            raise InventoryError("PVE_HOST must be a host or legacy root@host value") from error
+    elif not PVE_HOST_RE.fullmatch(value):
+        raise InventoryError("PVE_HOST must be a host or legacy root@host value")
+    return value
+
+
+def proxmox_node_name(tfvars: dict[str, Any]) -> str:
+    value = str(tfvars.get("proxmox_node_name", "")).strip()
+    if not value or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", value):
+        raise InventoryError("proxmox_node_name must be a valid short hostname in terraform.tfvars")
+    return value
+
+
 def service_play_vars(service: str, tfvars: dict[str, Any]) -> dict[str, Any]:
     config = SERVICE_HOSTS.get(service)
     if config is None:
@@ -122,17 +169,34 @@ def service_hostvars(service: str, tfvars: dict[str, Any]) -> tuple[str, str, di
         hostvars["ansible_host"] = address
 
     hostvars.update(service_play_vars(service, tfvars))
+    if service in DIRECT_LXC_SERVICES:
+        # The direct-access handoff consumes these inventory-derived values;
+        # no VMID, address, or trust-store path is duplicated in private inventory.
+        hostvars["direct_access_vmid"] = tfvars.get(config["tf_vmid"])
+        hostvars["ansible_ssh_common_args"] = DIRECT_LXC_SSH_ARGS
 
     return host, group, hostvars
 
 
-def build_inventory(tfvars: dict[str, Any], services: list[str]) -> dict[str, Any]:
+def build_inventory(
+    tfvars: dict[str, Any], services: list[str], pve_host: str | None = None
+) -> dict[str, Any]:
     inventory: dict[str, Any] = {
         "_meta": {"hostvars": {}},
         "all": {"vars": {}},
         "services": {"children": []},
     }
     hostvars = inventory["_meta"]["hostvars"]
+    if DIRECT_LXC_SERVICES.intersection(services):
+        node_name = proxmox_node_name(tfvars)
+        target = pve_target(pve_host if pve_host is not None else os.environ.get("PVE_HOST"))
+        inventory["pve"] = {"hosts": ["pve_target"]}
+        inventory["all"]["vars"]["proxmox_node_name"] = node_name
+        hostvars["pve_target"] = {
+            "ansible_host": target,
+            "ansible_user": DEFAULT_ANSIBLE_USER,
+            "proxmox_node_name": node_name,
+        }
     for service in services:
         inventory["all"]["vars"].update(service_play_vars(service, tfvars))
         rendered = service_hostvars(service, tfvars)

@@ -68,25 +68,9 @@
     group: "{{ onramp_host_deploy_user }}"
     mode: "0750"
 
-- name: Check whether onramp-host Caddy has Cloudflare DNS module
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - caddy list-modules 2>/dev/null | grep -Fx dns.providers.cloudflare
-  register: onramp_host_caddy_cloudflare_module
-  changed_when: false
-  failed_when: false
-
-- name: Build onramp-host Caddy with Cloudflare DNS module
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - curl -fsSL https://go.dev/dl/go1.24.4.linux-amd64.tar.gz -o /tmp/go.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz && PATH=/usr/local/go/bin:${PATH} GOBIN=/usr/local/bin /usr/local/go/bin/go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest && PATH=/usr/local/go/bin:${PATH} /usr/local/bin/xcaddy build --with github.com/caddy-dns/cloudflare --output /tmp/caddy-cloudflare && install -m 0755 /tmp/caddy-cloudflare /usr/bin/caddy  # yamllint disable-line rule:line-length
-  when: onramp_host_caddy_cloudflare_module.rc != 0
-  changed_when: true
-  notify: Restart caddy
+- name: Build pinned Caddy for onramp host
+  ansible.builtin.include_role:
+    name: caddy_build
 
 - name: Ensure onramp-host Caddy directories exist
   ansible.builtin.file:

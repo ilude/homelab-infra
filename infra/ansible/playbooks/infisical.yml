@@ -9,6 +9,8 @@
         lxc_ready_name: infisical
 - name: Run direct access handoff for Infisical
   ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: infisical
 - name: Configure Infisical service directly
   hosts: infisical
   gather_facts: false

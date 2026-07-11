@@ -27,6 +27,74 @@ def load_service_registry(path: Path = SERVICE_REGISTRY) -> dict[str, Any]:
         raise ValueError(f"{path}: services must be an object")
     if not isinstance(defaults, list) or not all(isinstance(item, str) for item in defaults):
         raise ValueError(f"{path}: default_services must be a list of strings")
+    if len(defaults) != len(set(defaults)):
+        raise ValueError(f"{path}: default_services contains duplicates")
+
+    service_names = set(services)
+    unknown_defaults = sorted(set(defaults) - service_names)
+    if unknown_defaults:
+        raise ValueError(f"{path}: default_services contains unknown services: {', '.join(unknown_defaults)}")
+
+    playbook_owners: dict[str, str] = {}
+    dependencies: dict[str, tuple[str, ...]] = {}
+    for name, config in services.items():
+        if not isinstance(config, dict):
+            raise ValueError(f"{path}: service {name} must be an object")
+        playbooks = config.get("playbooks")
+        if not isinstance(playbooks, list) or not all(isinstance(playbook, str) and playbook for playbook in playbooks):
+            raise ValueError(f"{path}: service {name} playbooks must be a list of non-empty strings")
+        for playbook in playbooks:
+            owner = playbook_owners.get(playbook)
+            if owner is not None:
+                raise ValueError(f"{path}: duplicate playbook {playbook} for {owner} and {name}")
+            playbook_owners[playbook] = name
+
+        service_dependencies = config.get("dependencies")
+        if not isinstance(service_dependencies, list) or not all(isinstance(dependency, str) for dependency in service_dependencies):
+            raise ValueError(f"{path}: service {name} dependencies must be a list of strings")
+        unknown_dependencies = sorted(set(service_dependencies) - service_names)
+        if unknown_dependencies:
+            raise ValueError(f"{path}: service {name} has unknown dependencies: {', '.join(unknown_dependencies)}")
+        if name in service_dependencies:
+            raise ValueError(f"{path}: service {name} cannot depend on itself")
+        dependencies[name] = tuple(service_dependencies)
+
+        if "execution_resource" in config and (
+            not isinstance(config["execution_resource"], str) or not config["execution_resource"].strip()
+        ):
+            raise ValueError(f"{path}: service {name} execution_resource must be a non-empty string")
+
+        if "conflicts" in config:
+            conflicts = config["conflicts"]
+            if not isinstance(conflicts, list) or not all(isinstance(conflict, str) for conflict in conflicts):
+                raise ValueError(f"{path}: service {name} conflicts must be a list of strings")
+            unknown_conflicts = sorted(set(conflicts) - service_names)
+            if unknown_conflicts:
+                raise ValueError(f"{path}: service {name} has unknown conflicts: {', '.join(unknown_conflicts)}")
+            if name in conflicts:
+                raise ValueError(f"{path}: service {name} cannot conflict with itself")
+
+    for name, config in services.items():
+        for conflict in config.get("conflicts", []):
+            if name not in services[conflict].get("conflicts", []):
+                raise ValueError(f"{path}: conflict between {name} and {conflict} must be reciprocal")
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visiting:
+            raise ValueError(f"{path}: cyclic service dependencies include {name}")
+        if name in visited:
+            return
+        visiting.add(name)
+        for dependency in dependencies[name]:
+            visit(dependency)
+        visiting.remove(name)
+        visited.add(name)
+
+    for name in services:
+        visit(name)
     return registry
 
 
@@ -36,6 +104,8 @@ SERVICES = {
     name: {
         "playbooks": tuple(config["playbooks"]),
         "dependencies": tuple(config["dependencies"]),
+        "conflicts": tuple(config.get("conflicts", [])),
+        "execution_resource": str(config.get("execution_resource", name)),
     }
     for name, config in SERVICE_REGISTRY_DATA["services"].items()
 }
@@ -75,6 +145,18 @@ def normalize_services(value: Any, path: Path) -> list[str]:
         raise SettingsError(f"{path}: unknown services: {', '.join(unknown)}")
     if len(services) != len(set(services)):
         raise SettingsError(f"{path}: services contains duplicates")
+    selected_services = set(services)
+    conflicts = {
+        service: sorted(selected_services & set(SERVICES[service]["conflicts"]))
+        for service in services
+        if selected_services & set(SERVICES[service]["conflicts"])
+    }
+    if conflicts:
+        details = ", ".join(
+            f"{service} conflicts with {', '.join(conflicting_services)}"
+            for service, conflicting_services in sorted(conflicts.items())
+        )
+        raise SettingsError(f"{path}: {details}")
     missing_dependencies = {
         service: sorted(set(SERVICES[service]["dependencies"]) - set(services))
         for service in services

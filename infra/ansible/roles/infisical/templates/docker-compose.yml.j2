@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: {{ infisical_postgres_image }}
     restart: unless-stopped
     environment:
       POSTGRES_USER: {{ infisical_postgres_user | default('infisical') }}
@@ -15,14 +15,14 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: {{ infisical_redis_image }}
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - {{ infisical_data_dir | default('/var/lib/infisical') }}/redis:/data
 
   infisical:
-    image: infisical/infisical:{{ infisical_version | default('latest') }}
+    image: {{ infisical_container_image }}
     restart: unless-stopped
     depends_on:
       db:

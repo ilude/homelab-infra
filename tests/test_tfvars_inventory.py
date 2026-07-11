@@ -23,24 +23,60 @@ class TfvarsInventoryTests(unittest.TestCase):
                 "forgejo_container_vmid": 107,
                 "forgejo_lan_ip": "192.0.2.62",
                 "forgejo_server_name": "git.example.internal",
+                "forgejo_data_host_path": "/srv/forgejo",
+                "forgejo_data_mount_path": "/var/lib/forgejo",
+                "proxmox_node_name": "pve-a",
             },
             ["technitium", "forgejo"],
+            pve_host="root@proxmox.example.internal",
         )
 
         hostvars = inventory["_meta"]["hostvars"]
         self.assertEqual(hostvars["technitium_dns"]["ansible_host"], "192.0.2.53")
         self.assertEqual(hostvars["technitium_dns"]["technitium_vmid"], 106)
+        self.assertEqual(hostvars["technitium_dns"]["direct_access_vmid"], 106)
+        self.assertEqual(
+            hostvars["technitium_dns"]["ansible_ssh_common_args"],
+            "-o UserKnownHostsFile=/tmp/homelab-infra/ansible/known_hosts "
+            "-o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o ForwardAgent=no",
+        )
         self.assertEqual(hostvars["forgejo_lxc"]["ansible_host"], "192.0.2.62")
         self.assertEqual(hostvars["forgejo_lxc"]["forgejo_domain"], "git.example.internal")
         self.assertEqual(inventory["all"]["vars"]["technitium_vmid"], 106)
         self.assertEqual(inventory["all"]["vars"]["forgejo_vmid"], 107)
         self.assertEqual(inventory["all"]["vars"]["forgejo_domain"], "git.example.internal")
+        self.assertEqual(inventory["all"]["vars"]["forgejo_data_host_path"], "/srv/forgejo")
+        self.assertEqual(inventory["all"]["vars"]["forgejo_data_mount_path"], "/var/lib/forgejo")
         self.assertEqual(inventory["services"]["children"], ["technitium", "forgejo"])
+        self.assertEqual(inventory["pve"]["hosts"], ["pve_target"])
+        self.assertEqual(hostvars["pve_target"]["ansible_host"], "proxmox.example.internal")
+        self.assertEqual(hostvars["pve_target"]["ansible_user"], "root")
+        self.assertEqual(inventory["all"]["vars"]["proxmox_node_name"], "pve-a")
+
+    def test_forgejo_runner_promotes_configured_pve_node_identity(self) -> None:
+        inventory = tfvars_inventory.build_inventory(
+            {
+                "forgejo_runner_vmid": 109,
+                "forgejo_runner_ipv4_address": "192.0.2.64/24",
+                "proxmox_node_name": "pve",
+            },
+            ["forgejo_runner"],
+            pve_host="proxmox.example.internal",
+        )
+
+        self.assertEqual(inventory["pve"]["hosts"], ["pve_target"])
+        self.assertEqual(inventory["_meta"]["hostvars"]["pve_target"]["proxmox_node_name"], "pve")
+        self.assertEqual(inventory["all"]["vars"]["proxmox_node_name"], "pve")
 
     def test_dhcp_address_is_not_used_as_ansible_host(self) -> None:
         inventory = tfvars_inventory.build_inventory(
-            {"forgejo_container_vmid": 107, "forgejo_lan_ip": "dhcp"},
+            {
+                "forgejo_container_vmid": 107,
+                "forgejo_lan_ip": "dhcp",
+                "proxmox_node_name": "pve",
+            },
             ["forgejo"],
+            pve_host="proxmox.example.internal",
         )
 
         self.assertNotIn("ansible_host", inventory["_meta"]["hostvars"]["forgejo_lxc"])
@@ -94,12 +130,34 @@ class TfvarsInventoryTests(unittest.TestCase):
                 "tailscale_client_vmid": 108,
                 "tailscale_client_ipv4_address": "192.0.2.63",
                 "tailscale_client_enabled": False,
+                "proxmox_node_name": "pve",
             },
             ["tailscale_client"],
+            pve_host="proxmox.example.internal",
         )
 
         self.assertFalse(inventory["all"]["vars"]["tailscale_client_enabled"])
         self.assertEqual(inventory["all"]["vars"]["tailscale_client_vmid"], 108)
+
+    def test_pve_workflow_rejects_missing_or_malformed_authority(self) -> None:
+        tfvars = {"proxmox_node_name": "pve"}
+        with mock.patch.dict("os.environ", {}, clear=True), self.assertRaises(tfvars_inventory.InventoryError):
+            tfvars_inventory.build_inventory(tfvars, ["technitium"])
+        for value in (
+            "",
+            "admin@proxmox.example.internal",
+            "root@host/path",
+            "https://host",
+            "999.999.999.999",
+            "[2001:db8::not-an-address]",
+        ):
+            with self.subTest(value=value), self.assertRaises(tfvars_inventory.InventoryError):
+                tfvars_inventory.build_inventory(tfvars, ["technitium"], pve_host=value)
+
+    def test_non_pve_workflow_does_not_require_pve_authority(self) -> None:
+        inventory = tfvars_inventory.build_inventory({}, ["onramp_host"])
+
+        self.assertNotIn("pve", inventory)
 
     def test_load_tfvars_uses_python_hcl2(self) -> None:
         fake_file = mock.mock_open(read_data='technitium_container_vmid = 106\n')

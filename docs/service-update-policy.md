@@ -9,7 +9,7 @@ just plan
 just apply
 ```
 
-`just update` applies the release-age safety hold before changing supported pins. After any update, review the diff and plan before applying.
+`just update` applies the release-age safety hold before changing supported pins. For private inventory, it advances a version/checksum set only when every field still matches the runbook's managed defaults; a differing version or checksum is treated as an operator pin and is left unchanged. OCI updates use a 168-hour hold, Registry V2 multi-arch indexes, matching header/body digests, and a linux/amd64 manifest; the tag is resolved again immediately before writing. After any update, review the diff and plan before applying.
 
 ## Managed pins
 
@@ -17,17 +17,37 @@ A service belongs in `just update` when the repo can identify a specific upstrea
 
 For downloadable tools or archives, prefer a version plus checksum. If upstream artifacts are mutable or unversioned, cache the reviewed artifact in ignored private storage and install from that cache during `just apply`.
 
-## Technitium target model
+## OCI image pins
 
-Technitium DNS is critical infrastructure and should not be upgraded by rerunning the upstream installer as an ad hoc command. The desired model is:
+Infisical, PostgreSQL, Redis, SearXNG, and the tooling Debian base use full `registry/repository:tag@sha256:...` references. The managed defaults are:
 
-- Read latest release metadata from `TechnitiumSoftware/DnsServer`.
-- Apply the same `just update` release-age hold used for other managed pins.
-- Pin the desired Technitium DNS Server version and portable tarball SHA256 in private values.
-- Optionally cache the reviewed tarball under `values/artifacts/technitium/`.
-- Let Ansible compare the installed marker with the desired pin, unpack the verified artifact, restart `dns.service`, and verify DNS/UI health.
+- `docker.io/infisical/infisical:v0.161.11@sha256:efe2d4fe5f37fb250ce5956ecc4734cc9ab1b50629d97cf7793d54200a18642b`
+- `docker.io/library/postgres:16.14-alpine3.22@sha256:786dab398303b8ce7cb76b407bb21ef2e4dfbbbd4c6abcf3d29b3130467ffdbc`
+- `docker.io/library/redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99`
+- `docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb`
+- `docker.io/library/debian:bookworm-20260623-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df`
 
-The upstream portable tarball URL is currently unversioned, so checksum pinning and/or private artifact caching is required for reproducible updates.
+The updater considers only the bounded version series documented in its resolver and preserves custom pin groups. A tag without a digest, including `latest`, is not a managed default.
+
+## Managed Technitium portable releases
+
+Technitium uses the private pin group `technitium_discovery_version`, `technitium_portable_sha256`, and `technitium_artifact_path`. The historical `discovery` variable name is retained for values-repo compatibility, but the pin now controls the runtime installation. The managed default is version `15.2.0` with its reviewed SHA-256.
+
+`just update` lists stable GitHub releases, requires `published_at`, and chooses the newest release satisfying an exact 168-hour hold even when a newer release is still held. It reads the checksum from the official versioned `.sha256` URL, resolves the release tag commit, re-resolves all metadata before writing, and leaves any custom or partial operator pin group unchanged.
+
+During apply, the role checks for `values/artifacts/technitium/<version>/DnsServerPortable.tar.gz` when the optional cache root is configured. If the file is absent, it downloads the official versioned archive. In either case it verifies the private SHA-256, rejects unsafe archive paths or an unexpected layout, stages a versioned release, and only stops `dns.service` for activation. `/etc/dns` remains outside application releases. The previous application and a pre-activation state snapshot are retained; a failed service, UI, or DNS health check restores both before reporting failure. The installed-version marker is written only after health checks pass, so the first managed conversion stages the pinned archive even when an upstream-installed service already exists.
+
+The versioned archive is preferable to the mutable unversioned URL, but upstream does not state that it is immutable. Its published checksum is unsigned and served from the same origin. The reviewed private SHA-256—and an optional privately retained archive—is therefore the durable integrity boundary. Do not rerun the upstream installer as an update mechanism.
+
+## Managed Hermes Agent wheels
+
+Hermes uses package version `0.18.0`, release tag `v2026.7.1`, commit `7c1a029553d87c43ecff8a3821336bc95872213b`, and official PyPI wheel SHA-256 `bf75c02d59f7c464cd0d85026fb7ee2e6bb15f003beccab3442b572f1ae1fd37`. `infra/ansible/roles/hermes/files/requirements-0.18.0.lock` contains the complete 60-package `[web,pty]` transitive lock generated for Debian 13 amd64, CPython 3.13. Installation requires hashes and binary wheels, uses only `https://pypi.org/simple`, and has no source-build or unlocked fallback.
+
+`just update` applies a strict 168-hour hold to stable GitHub releases. It derives the package version from the release's wheel Sigstore asset name, verifies the official universal wheel and SHA-256 in PyPI JSON, checks PyPI trusted-publishing provenance for `NousResearch/hermes-agent` and `upload_to_pypi.yml`, resolves the tag commit, and re-resolves before writing. Version, tag, commit, and wheel hash advance together only when a matching tracked lock already exists. Any partial or differing private pin group is operator-owned and remains unchanged.
+
+Apply stages a versioned venv under `/usr/local/lib/hermes-agent/releases`, verifies the Hermes wheel independently after downloading the complete wheelhouse, installs offline from that wheelhouse, and runs `pip check`. Activation stops the dashboard, switches `/usr/local/lib/hermes-agent/venv` with an atomic link rename, and writes the healthy marker only after `/login` succeeds. `/usr/local/bin/hermes` continues to launch the active venv, and systemd continues to run it as the configured non-root runtime user. The prior venv is retained through `/usr/local/lib/hermes-agent/previous`; failed health checks restore and verify it.
+
+Hermes state is not part of an application release. `HERMES_HOME` remains `/home/<runtime-user>/.hermes`, so installation and rollback do not move or replace memory, configuration, credentials, or other runtime state. Do not use `hermes update`, rerun the upstream installer, use a GitHub source archive, or execute downloaded scripts as an update path.
 
 ## Unmanaged software
 

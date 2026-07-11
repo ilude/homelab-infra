@@ -37,10 +37,11 @@ __pycache__/
 
 # Local scratch/log output
 .tmp/
+.ansible/
+.pi/
 
 # OS/editor
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-.pi/todo.json

@@ -17,19 +17,18 @@ USAGE
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 backup_root="${SERVICE_STATE_BACKUP_ROOT:-/workspace/values/service-backups}"
 
-supported_services=(
-  hermes
-  forgejo
-  technitium
-  onramp_host
-  infisical_onramp
-  searxng_onramp
+if ! jq -e '.services | all(.[]; (.state_capable | type) == "boolean")' infra/services.json >/dev/null; then
+  printf 'Every service must declare Boolean state_capable metadata.\n' >&2
+  exit 2
+fi
+mapfile -t state_capable_services < <(
+  jq -r '.services | to_entries | map(select(.value.state_capable)) | sort_by(.value.state_order // 999999)[] | .key' infra/services.json
 )
 
 is_supported_service() {
   local service="$1"
   local item
-  for item in "${supported_services[@]}"; do
+  for item in "${state_capable_services[@]}"; do
     [[ "${item}" == "${service}" ]] && return 0
   done
   return 1
@@ -64,6 +63,7 @@ latest_local_archive() {
     return 1
   fi
   find "${backup_dir}" -maxdepth 1 -type f -name "${service}-state-*.tar.gz" \
+    ! -name "${service}-state-pre-restore-*.tar.gz" \
     -printf '%T@ %p\n' | sort -nr | awk 'NR == 1 { $1=""; sub(/^ /, ""); print }'
 }
 
@@ -139,7 +139,7 @@ case "${command_name}" in
       exit 2
     fi
     printf 'Supported service-state targets:\n'
-    printf '  %s\n' "${supported_services[@]}"
+    printf '  %s\n' "${state_capable_services[@]}"
     ;;
   backup)
     if [[ $# -ne 1 ]]; then

@@ -1,4 +1,3 @@
----
 managed_service_state_catalog:
   hermes:
     group: hermes
@@ -6,7 +5,10 @@ managed_service_state_catalog:
     services:
       - hermes-dashboard
     paths:
-      - "/home/{{ hermes_runtime_user | default('anvil') }}/.hermes"
+      - path: "/home/{{ hermes_runtime_user | default('anvil') }}/.hermes"
+        owner: "{{ hermes_runtime_user | default('anvil') }}"
+        group: "{{ hermes_runtime_user | default('anvil') }}"
+        recurse: true
   forgejo:
     group: forgejo
     description: Forgejo application configuration, repositories, database, attachments, and logs.
@@ -14,8 +16,14 @@ managed_service_state_catalog:
       - forgejo
       - caddy
     paths:
-      - /etc/forgejo
-      - /var/lib/forgejo
+      - path: /etc/forgejo
+        owner: root
+        group: git
+        recurse: true
+      - path: /var/lib/forgejo
+        owner: git
+        group: git
+        recurse: true
   technitium:
     group: technitium
     description: Technitium DNS server configuration, zones, block lists, logs, and app data.
@@ -23,36 +31,55 @@ managed_service_state_catalog:
       - dns
       - caddy
     paths:
-      - /etc/dns
+      - path: /etc/dns
+        owner: dns-server
+        group: dns-server
+        recurse: true
   onramp_host:
     group: onramp_host
     description: Shared onramp host Caddy configuration and repo-managed app deployment directories.
     services:
       - caddy
     paths:
-      - /etc/caddy
-      - "{{ onramp_host_deploy_dir }}"
+      - path: /etc/caddy
+        owner: root
+        group: root
+        recurse: false
+      - path: "{{ onramp_host_deploy_dir }}"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: true
   infisical_onramp:
     group: onramp_host
     description: Infisical onramp compose/env files and container data under the onramp deploy directory.
     services:
-      - infisical-onramp.service
       - caddy
     user_services:
       - infisical-onramp.service
     user_service_owner: "{{ onramp_host_deploy_user }}"
     paths:
-      - "{{ onramp_host_deploy_dir }}/infisical"
-      - /etc/caddy/sites.d/infisical.caddy
+      - path: "{{ onramp_host_deploy_dir }}/infisical"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: true
+      - path: /etc/caddy/sites.d/infisical.caddy
+        owner: root
+        group: root
+        recurse: false
   searxng_onramp:
     group: onramp_host
     description: SearXNG onramp compose/env/settings files and container data under the onramp deploy directory.
     services:
-      - searxng-onramp.service
       - caddy
     user_services:
       - searxng-onramp.service
     user_service_owner: "{{ onramp_host_deploy_user }}"
     paths:
-      - "{{ onramp_host_deploy_dir }}/searxng"
-      - /etc/caddy/sites.d/searxng.caddy
+      - path: "{{ onramp_host_deploy_dir }}/searxng"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: true
+      - path: /etc/caddy/sites.d/searxng.caddy
+        owner: root
+        group: root
+        recurse: false

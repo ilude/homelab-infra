@@ -1,69 +1,438 @@
 ---
-- name: Install Technitium prerequisites in LXC
+- name: Validate Technitium managed release pins
+  ansible.builtin.assert:
+    that:
+      - technitium_discovery_version is defined
+      - technitium_discovery_version is match('^[0-9]+[.][0-9]+[.][0-9]+$')
+      - technitium_portable_sha256 is defined
+      - technitium_portable_sha256 is match('^[0-9a-f]{64}$')
+      - technitium_artifact_path | length == 0 or not technitium_artifact_path.startswith(technitium_install_root)
+    fail_msg: >-
+      technitium_discovery_version must be a semantic version, technitium_portable_sha256
+      must be a lowercase SHA-256, and the optional cache must be controller-side.
+
+- name: Install Technitium base dependencies
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - dnsutils
+      - python3
+    state: present
+    update_cache: true
+
+- name: Check for required .NET 10 runtimes
   ansible.builtin.command:
     argv:
-      - bash
-      - -lc
-      - "set -euo pipefail; missing=0; for package in curl ca-certificates dnsutils; do\n  dpkg-query -W \"${package}\" >/dev/null 2>&1 || missing=1;\ndone; if ! dpkg-query -W libicu72 >/dev/null 2>&1 && ! dpkg-query -W libicu-dev >/dev/null 2>&1; then\n  missing=1;\nfi; if [[ \"${missing}\" -eq 1 ]]; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  (DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates dnsutils libicu72 ||\n  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates dnsutils libicu-dev);\nfi"  # yamllint disable-line rule:line-length
-  changed_when: false
-- name: Check Technitium service presence
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - systemctl list-unit-files dns.service >/dev/null 2>&1
-  register: technitium_service_check
+      - /usr/bin/dotnet
+      - --list-runtimes
+  register: technitium_dotnet_runtimes
   changed_when: false
   failed_when: false
-- name: Install Technitium DNS Server
+
+- name: Provision .NET 10 from the signed Microsoft Debian 13 repository
+  when: >-
+    technitium_dotnet_runtimes.rc != 0 or
+    'Microsoft.NETCore.App 10.' not in technitium_dotnet_runtimes.stdout or
+    'Microsoft.AspNetCore.App 10.' not in technitium_dotnet_runtimes.stdout
+  block:
+    - name: Read OS release before configuring the Microsoft repository
+      ansible.builtin.slurp:
+        src: /etc/os-release
+      register: technitium_os_release
+    - name: Verify Debian 13 before configuring the Microsoft repository
+      ansible.builtin.assert:
+        that:
+          - "'ID=debian' in technitium_os_release.content | b64decode"
+          - "'VERSION_ID=\"13\"' in technitium_os_release.content | b64decode"
+        fail_msg: The managed .NET repository path requires Debian 13.
+    - name: Download pinned Microsoft Debian 13 repository package
+      ansible.builtin.get_url:
+        url: "{{ technitium_dotnet_repository_package_url }}"
+        dest: /var/tmp/packages-microsoft-prod.deb
+        checksum: "sha256:{{ technitium_dotnet_repository_package_sha256 }}"
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Install Microsoft signed repository configuration
+      ansible.builtin.apt:
+        deb: /var/tmp/packages-microsoft-prod.deb
+        state: present
+    - name: Install ASP.NET Core 10 runtime
+      ansible.builtin.apt:
+        name: aspnetcore-runtime-10.0
+        state: present
+        update_cache: true
+    - name: Remove Microsoft repository bootstrap package
+      ansible.builtin.file:
+        path: /var/tmp/packages-microsoft-prod.deb
+        state: absent
+
+- name: Ensure Technitium service account exists
+  ansible.builtin.user:
+    name: dns-server
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/dns-server
+    create_home: false
+
+- name: Ensure Technitium persistent and release directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ technitium_install_root }}"
+      owner: root
+      group: root
+      mode: '0755'
+    - path: "{{ technitium_install_root }}/releases"
+      owner: root
+      group: root
+      mode: '0755'
+    - path: "{{ technitium_install_root }}/rollback-state"
+      owner: root
+      group: root
+      mode: '0700'
+    - path: "{{ technitium_state_directory }}"
+      owner: dns-server
+      group: dns-server
+      mode: '0700'
+    - path: "{{ technitium_log_directory }}"
+      owner: dns-server
+      group: dns-server
+      mode: '0750'
+
+- name: Install Technitium archive validator
+  ansible.builtin.copy:
+    src: validate-technitium-archive.py
+    dest: /usr/local/libexec/validate-technitium-archive.py
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install managed Technitium systemd unit
+  ansible.builtin.template:
+    src: dns.service.j2
+    dest: /etc/systemd/system/dns.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload Technitium systemd
+
+- name: Flush Technitium systemd reload before service operations
+  ansible.builtin.meta: flush_handlers
+
+- name: Read managed Technitium installed-version marker
   ansible.builtin.command:
     argv:
-      - bash
-      - -lc
-      - curl -sSL https://download.technitium.com/dns/install.sh | bash
-  when: technitium_service_check.rc != 0
-- name: Ensure Technitium service is running
-  ansible.builtin.command:
-    argv:
-      - systemctl
-      - enable
-      - --now
-      - dns
+      - cat
+      - "{{ technitium_install_root }}/installed-version"
+  register: technitium_installed_version
   changed_when: false
-- name: Verify Technitium service is active
+  failed_when: false
+
+- name: Compute Technitium artifact locations
+  ansible.builtin.set_fact:
+    technitium_release_directory: "{{ technitium_install_root }}/releases/{{ technitium_discovery_version }}"
+    technitium_remote_archive: "/var/tmp/technitium-{{ technitium_discovery_version }}.tar.gz"
+    technitium_cache_archive: >-
+      {{ ((lookup('env', 'PWD') ~ '/') if not technitium_artifact_path.startswith('/') else '')
+         ~ (technitium_artifact_path | regex_replace('/+$', ''))
+         ~ '/' ~ technitium_discovery_version ~ '/DnsServerPortable.tar.gz' }}
+    technitium_update_required: >-
+      {{ technitium_installed_version.rc != 0 or
+         technitium_installed_version.stdout | trim != technitium_discovery_version }}
+
+- name: Check optional controller-side Technitium cache
+  ansible.builtin.stat:
+    path: "{{ technitium_cache_archive }}"
+    get_checksum: false
+  delegate_to: localhost
+  become: false
+  register: technitium_cached_archive
+  when:
+    - technitium_update_required | bool
+    - technitium_artifact_path | length > 0
+
+- name: Stage cached Technitium portable archive
+  ansible.builtin.copy:
+    src: "{{ technitium_cache_archive }}"
+    dest: "{{ technitium_remote_archive }}"
+    owner: root
+    group: root
+    mode: '0600'
+  when:
+    - technitium_update_required | bool
+    - technitium_cached_archive.stat.exists | default(false)
+
+- name: Download versioned Technitium portable archive when cache is absent
+  ansible.builtin.get_url:
+    url: "{{ technitium_download_base_url }}/{{ technitium_discovery_version }}/DnsServerPortable.tar.gz"
+    dest: "{{ technitium_remote_archive }}"
+    checksum: "sha256:{{ technitium_portable_sha256 }}"
+    owner: root
+    group: root
+    mode: '0600'
+  when:
+    - technitium_update_required | bool
+    - not technitium_cached_archive.stat.exists | default(false)
+
+- name: Verify staged Technitium portable archive checksum
+  ansible.builtin.stat:
+    path: "{{ technitium_remote_archive }}"
+    checksum_algorithm: sha256
+  register: technitium_staged_archive
+  failed_when: >-
+    not technitium_staged_archive.stat.exists or
+    technitium_staged_archive.stat.checksum != technitium_portable_sha256
+  when: technitium_update_required | bool
+
+- name: Validate staged Technitium archive paths and layout
   ansible.builtin.command:
     argv:
-      - systemctl
-      - is-active
-      - dns
+      - /usr/local/libexec/validate-technitium-archive.py
+      - "{{ technitium_remote_archive }}"
   changed_when: false
-  register: technitium_active
-  retries: 6
-  delay: 5
-  until: technitium_active.rc == 0
-- name: Verify Technitium UI responds on loopback
-  ansible.builtin.uri:
-    url: http://127.0.0.1:5380/
-    status_code:
-      - 200
-      - 302
-    return_content: false
-  register: technitium_ui_check
-  retries: 12
-  delay: 5
-  until: technitium_ui_check.status in [200, 302]
-- name: Verify Technitium DNS answers loopback queries
+  when: technitium_update_required | bool
+
+- name: Replace any incomplete staged Technitium release
+  ansible.builtin.file:
+    path: "{{ technitium_release_directory }}"
+    state: absent
+  when: technitium_update_required | bool
+
+- name: Create Technitium staged release directory
+  ansible.builtin.file:
+    path: "{{ technitium_release_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: technitium_update_required | bool
+
+- name: Extract verified Technitium release
+  ansible.builtin.unarchive:
+    src: "{{ technitium_remote_archive }}"
+    dest: "{{ technitium_release_directory }}"
+    remote_src: true
+    owner: root
+    group: root
+  when: technitium_update_required | bool
+
+- name: Inspect current Technitium application path
+  ansible.builtin.stat:
+    path: "{{ technitium_install_root }}/dns"
+    follow: false
+  register: technitium_current_application
+  when: technitium_update_required | bool
+
+- name: Resolve current managed Technitium release
   ansible.builtin.command:
     argv:
-      - dig
-      - +time=2
-      - +tries=1
-      - +short
-      - '@127.0.0.1'
-      - localhost
-      - A
+      - readlink
+      - -f
+      - "{{ technitium_install_root }}/dns"
+  register: technitium_previous_link
   changed_when: false
-  register: technitium_dns_check
-  retries: 6
-  delay: 5
-  until: technitium_dns_check.rc == 0 and technitium_dns_check.stdout | trim | length > 0
+  when:
+    - technitium_update_required | bool
+    - technitium_current_application.stat.islnk | default(false)
+
+- name: Check pre-managed rollback directory
+  ansible.builtin.stat:
+    path: "{{ technitium_install_root }}/releases/pre-managed"
+  register: technitium_pre_managed_release_stat
+  when:
+    - technitium_update_required | bool
+    - technitium_current_application.stat.isdir | default(false)
+
+- name: Validate first managed conversion rollback target
+  ansible.builtin.assert:
+    that:
+      - not technitium_pre_managed_release_stat.stat.exists
+    fail_msg: >-
+      The pre-managed rollback directory already exists while the live application
+      is unmanaged; resolve the interrupted conversion before retrying.
+  when:
+    - technitium_update_required | bool
+    - technitium_current_application.stat.isdir | default(false)
+
+- name: Initialize Technitium activation rollback milestones
+  ansible.builtin.set_fact:
+    technitium_rollback_snapshot_ready: false
+    technitium_pre_managed_moved: false
+    technitium_application_switched: false
+  when: technitium_update_required | bool
+
+- name: Activate verified Technitium release with rollback
+  when: technitium_update_required | bool
+  block:
+    - name: Stop Technitium before activation
+      ansible.builtin.systemd:
+        name: dns
+        state: stopped
+      register: technitium_stop
+    - name: Verify Technitium service is inactive before activation
+      ansible.builtin.assert:
+        that:
+          - technitium_stop.status.ActiveState == 'inactive'
+        fail_msg: Technitium service must be inactive before changing the application link.
+    - name: Replace previous Technitium state snapshot staging directory
+      ansible.builtin.file:
+        path: "{{ technitium_install_root }}/rollback-state/{{ technitium_discovery_version }}.new"
+        state: absent
+    - name: Create previous Technitium state snapshot staging directory
+      ansible.builtin.file:
+        path: "{{ technitium_install_root }}/rollback-state/{{ technitium_discovery_version }}.new"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+    - name: Snapshot Technitium state for failed-activation rollback
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ technitium_state_directory }}"
+          - "{{ technitium_install_root }}/rollback-state/{{ technitium_discovery_version }}.new/dns"
+      changed_when: true
+    - name: Replace previous snapshot for requested Technitium release
+      ansible.builtin.file:
+        path: "{{ technitium_install_root }}/rollback-state/{{ technitium_discovery_version }}"
+        state: absent
+    - name: Publish Technitium rollback state snapshot
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ technitium_install_root }}/rollback-state/{{ technitium_discovery_version }}.new"
+          - "{{ technitium_install_root }}/rollback-state/{{ technitium_discovery_version }}"
+      changed_when: true
+    - name: Record published Technitium rollback snapshot
+      ansible.builtin.set_fact:
+        technitium_rollback_snapshot_ready: true
+    - name: Retain upstream-installed application as initial rollback release
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ technitium_install_root }}/dns"
+          - "{{ technitium_install_root }}/releases/pre-managed"
+      changed_when: true
+      when: technitium_current_application.stat.isdir | default(false)
+    - name: Record retained pre-managed Technitium application
+      ansible.builtin.set_fact:
+        technitium_pre_managed_moved: true
+      when: technitium_current_application.stat.isdir | default(false)
+    - name: Prepare Technitium application link for atomic activation
+      ansible.builtin.file:
+        src: "{{ technitium_release_directory }}"
+        dest: "{{ technitium_install_root }}/.dns-new"
+        state: link
+        force: true
+    - name: Atomically activate requested Technitium application link
+      ansible.builtin.command:
+        argv:
+          - mv
+          - -Tf
+          - "{{ technitium_install_root }}/.dns-new"
+          - "{{ technitium_install_root }}/dns"
+      changed_when: true
+    - name: Record completed Technitium application switch
+      ansible.builtin.set_fact:
+        technitium_application_switched: true
+    - name: Start activated Technitium release
+      ansible.builtin.systemd:
+        name: dns
+        enabled: true
+        state: started
+    - name: Verify activated Technitium release
+      ansible.builtin.include_tasks: health.yml
+    - name: Record healthy managed Technitium version
+      ansible.builtin.copy:
+        content: "{{ technitium_discovery_version }}\n"
+        dest: "{{ technitium_install_root }}/installed-version"
+        owner: root
+        group: root
+        mode: '0644'
+  rescue:
+    - name: Stop failed Technitium release
+      ansible.builtin.systemd:
+        name: dns
+        state: stopped
+      failed_when: false
+    - name: Remove incomplete Technitium activation link
+      ansible.builtin.file:
+        path: "{{ technitium_install_root }}/.dns-new"
+        state: absent
+    - name: Remove failed Technitium application link
+      ansible.builtin.file:
+        path: "{{ technitium_install_root }}/dns"
+        state: absent
+      when: technitium_application_switched | bool
+    - name: Restore pre-managed Technitium application directory
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ technitium_install_root }}/releases/pre-managed"
+          - "{{ technitium_install_root }}/dns"
+      when: technitium_pre_managed_moved | bool
+    - name: Restore previous managed Technitium application link
+      ansible.builtin.file:
+        src: "{{ technitium_previous_link.stdout }}"
+        dest: "{{ technitium_install_root }}/dns"
+        state: link
+      when:
+        - technitium_application_switched | bool
+        - technitium_current_application.stat.islnk | default(false)
+    - name: Remove state changed by failed Technitium release
+      ansible.builtin.file:
+        path: "{{ technitium_state_directory }}"
+        state: absent
+      when:
+        - technitium_application_switched | bool
+        - technitium_rollback_snapshot_ready | bool
+    - name: Restore Technitium state snapshot
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ technitium_install_root }}/rollback-state/{{ technitium_discovery_version }}/dns"
+          - "{{ technitium_state_directory }}"
+      changed_when: true
+      when:
+        - technitium_application_switched | bool
+        - technitium_rollback_snapshot_ready | bool
+    - name: Restart rolled-back Technitium release
+      ansible.builtin.systemd:
+        name: dns
+        enabled: true
+        state: started
+      when: >-
+        technitium_current_application.stat.isdir | default(false) or
+        technitium_current_application.stat.islnk | default(false)
+    - name: Verify rolled-back Technitium release
+      ansible.builtin.include_tasks: health.yml
+      when: >-
+        technitium_current_application.stat.isdir | default(false) or
+        technitium_current_application.stat.islnk | default(false)
+    - name: Report failed Technitium activation after rollback
+      ansible.builtin.fail:
+        msg: >-
+          Technitium {{ technitium_discovery_version }} failed activation health checks;
+          the previous application and /etc/dns state were restored when available.
+
+- name: Remove staged Technitium archive
+  ansible.builtin.file:
+    path: "{{ technitium_remote_archive }}"
+    state: absent
+  when: technitium_update_required | bool
+
+- name: Ensure managed Technitium service is enabled and running
+  ansible.builtin.systemd:
+    name: dns
+    enabled: true
+    state: started
+
+- name: Verify steady-state Technitium health
+  ansible.builtin.include_tasks: health.yml

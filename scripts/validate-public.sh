@@ -19,6 +19,7 @@ shellcheck scripts/*.sh tools/docker-entrypoint.sh
 
 mapfile -t python_files < <(find infra/ansible scripts tests -type f -name "*.py" | sort)
 python -m py_compile "${python_files[@]}"
+python infra/ansible/scripts/validate-service-state-archive.py --help >/dev/null
 
 python infra/ansible/scripts/apply-technitium-dns.py --check scaffold/dns-records.local.json
 python scripts/parse-env.py --env-file scaffold/.env.example >/dev/null
@@ -27,11 +28,16 @@ python -m unittest discover -s tests -p "test_*.py"
 
 export ANSIBLE_TFVARS_FILE=scaffold/terraform.tfvars
 export INFRA_SETTINGS_FILE=settings.example.json
+export PVE_HOST=proxmox.example.internal
 ansible-inventory -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --list >/dev/null
 mapfile -t playbooks < <(python scripts/settings.py --settings settings.example.json ansible-playbooks --all)
 ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check \
   infra/ansible/playbooks/site.yml \
   infra/ansible/playbooks/storage-prep.yml \
+  infra/ansible/playbooks/service-state-backup.yml \
+  infra/ansible/playbooks/service-state-restore.yml \
+  infra/ansible/playbooks/hermes-state-backup.yml \
+  infra/ansible/playbooks/hermes-state-restore.yml \
   "${playbooks[@]}"
 ansible-lint infra/ansible
 '

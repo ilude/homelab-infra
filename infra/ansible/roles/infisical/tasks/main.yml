@@ -20,12 +20,24 @@
       - -lc
       - "set -euo pipefail; packages=\"ca-certificates caddy curl docker.io git gnupg openssh-client\"; missing=0; for package in ${packages}; do\n  dpkg-query -W \"${package}\" >/dev/null 2>&1 || missing=1;\ndone; if [[ \"${missing}\" -eq 1 ]]; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};\nfi; systemctl enable --now docker"  # yamllint disable-line rule:line-length
   changed_when: false
-- name: Install Docker Compose CLI plugin in Infisical LXC
+- name: Install verified Docker Compose CLI plugin in Infisical LXC
   ansible.builtin.command:
     argv:
       - bash
       - -lc
-      - "set -euo pipefail; version=\"{{ infisical_compose_version | default('5.3.0') }}\"; current=\"$(docker compose version --short 2>/dev/null || true)\"; if [[ \"${current}\" != \"${version}\" ]]; then\n  arch=\"$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')\";\n  install -d -m 0755 /usr/local/lib/docker/cli-plugins;\n  compose_url=\"https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${arch}\";\n  curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \"${compose_url}\";\n  chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose;\nfi"  # yamllint disable-line rule:line-length
+      - >-
+        set -euo pipefail; version="{{ infisical_compose_version | default('5.3.0') }}";
+        current="$(docker compose version --short 2>/dev/null || true)";
+        if [[ "${current}" != "${version}" ]]; then arch="$(uname -m)";
+        case "${arch}" in x86_64) asset_arch=x86_64; sha256="{{ infisical_compose_sha256_amd64 }}" ;;
+        aarch64) asset_arch=aarch64; sha256="{{ infisical_compose_sha256_arm64 }}" ;;
+        *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;; esac;
+        tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT; artifact="${tmp}/docker-compose";
+        curl -fsSL -o "${artifact}" "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-${asset_arch}";
+        printf '%s  %s\n' "${sha256}" "${artifact}" | sha256sum -c -;
+        install -d -m 0755 /usr/local/lib/docker/cli-plugins;
+        install -m 0755 "${artifact}" /usr/local/lib/docker/cli-plugins/.docker-compose-new;
+        mv -f /usr/local/lib/docker/cli-plugins/.docker-compose-new /usr/local/lib/docker/cli-plugins/docker-compose; fi
   changed_when: false
 - name: Ensure Infisical directories exist
   ansible.builtin.command:
@@ -59,24 +71,9 @@
       - cd /opt/infisical && set -a && . /etc/infisical/infisical.env && set +a && docker compose -f docker-compose.yml up -d
   changed_when: false
   no_log: true
-- name: Check whether Infisical Caddy has Cloudflare DNS module
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - caddy list-modules 2>/dev/null | grep -Fx dns.providers.cloudflare
-  register: infisical_caddy_cloudflare_module
-  changed_when: false
-  failed_when: false
-- name: Build Infisical Caddy with Cloudflare DNS module
-  ansible.builtin.command:
-    argv:
-      - bash
-      - -lc
-      - curl -fsSL https://go.dev/dl/go1.24.4.linux-amd64.tar.gz -o /tmp/go.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz && PATH=/usr/local/go/bin:${PATH} GOBIN=/usr/local/bin /usr/local/go/bin/go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest && PATH=/usr/local/go/bin:${PATH} /usr/local/bin/xcaddy build --with github.com/caddy-dns/cloudflare --output /tmp/caddy-cloudflare && install -m 0755 /tmp/caddy-cloudflare /usr/bin/caddy  # yamllint disable-line rule:line-length
-  when: infisical_caddy_cloudflare_module.rc != 0
-  changed_when: true
-  notify: Restart caddy
+- name: Build pinned Caddy for Infisical LXC
+  ansible.builtin.include_role:
+    name: caddy_build
 - name: Install Infisical Caddy env
   ansible.builtin.template:
     src: caddy.env.j2
@@ -85,11 +82,20 @@
     owner: root
     group: caddy
   no_log: true
+  notify: Restart caddy
 - name: Install Infisical Caddyfile
   ansible.builtin.template:
     src: Caddyfile.j2
     dest: /etc/caddy/Caddyfile
     mode: '0644'
+    owner: root
+    group: root
+  notify: Restart caddy
+- name: Ensure Infisical Caddy systemd override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/caddy.service.d
+    state: directory
+    mode: '0755'
     owner: root
     group: root
 - name: Install Infisical Caddy systemd override
@@ -99,15 +105,7 @@
     mode: '0644'
     owner: root
     group: root
-- name: Ensure Infisical Caddy systemd override directory exists
-  ansible.builtin.command:
-    argv:
-      - install
-      - -d
-      - -m
-      - '0755'
-      - /etc/systemd/system/caddy.service.d
-  changed_when: false
+  notify: Restart caddy
 - name: Validate Infisical Caddy config
   ansible.builtin.command:
     argv:

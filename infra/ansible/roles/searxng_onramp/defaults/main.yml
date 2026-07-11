@@ -1,5 +1,5 @@
 ---
-searxng_onramp_container_image: "{{ searxng_container_image | default('docker.io/searxng/searxng:latest') }}"
+searxng_onramp_container_image: "{{ searxng_container_image }}"
 searxng_onramp_container_port: "{{ searxng_container_port | default(8080) }}"
 searxng_onramp_bind_address: "{{ searxng_bind_address | default('127.0.0.1') }}"
 searxng_onramp_instance_name: "{{ searxng_instance_name | default('Homelab SearXNG') }}"

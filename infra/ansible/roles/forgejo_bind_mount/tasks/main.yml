@@ -1,0 +1,84 @@
+---
+- name: Validate Forgejo bind mount lifecycle inputs
+  ansible.builtin.assert:
+    that:
+      - forgejo_vmid is integer
+      - forgejo_vmid >= 100
+      - forgejo_vmid <= 999999999
+      - forgejo_data_host_path is match('^/(?:[A-Za-z0-9_.:-]+/)*[A-Za-z0-9_.:-]+$')
+      - forgejo_data_mount_path is match('^/(?:[A-Za-z0-9_.:-]+/)*[A-Za-z0-9_.:-]+$')
+      - "'..' not in forgejo_data_host_path.split('/')"
+      - "'..' not in forgejo_data_mount_path.split('/')"
+      - proxmox_node_name is match('^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$')
+    fail_msg: Forgejo bind mount inputs must be a numeric VMID and strict absolute paths.
+
+- name: Verify PVE bind mount target identity
+  ansible.builtin.command:
+    argv:
+      - hostname
+      - --short
+  register: forgejo_bind_mount_hostname
+  changed_when: false
+
+- name: Fail when PVE bind mount target is not authoritative
+  ansible.builtin.assert:
+    that:
+      - forgejo_bind_mount_hostname.stdout | trim == proxmox_node_name
+    fail_msg: The PVE inventory target does not match the configured Proxmox node.
+
+- name: Inspect Forgejo host data path
+  ansible.builtin.stat:
+    path: "{{ forgejo_data_host_path }}"
+    follow: false
+  register: forgejo_bind_mount_host_path
+
+- name: Require an existing real Forgejo host data directory
+  ansible.builtin.assert:
+    that:
+      - forgejo_bind_mount_host_path.stat.exists
+      - forgejo_bind_mount_host_path.stat.isdir
+      - not forgejo_bind_mount_host_path.stat.islnk
+    fail_msg: The configured Forgejo host data path must already exist as a non-symlink directory.
+
+- name: Inspect Forgejo LXC configuration
+  ansible.builtin.command:
+    argv:
+      - pct
+      - config
+      - "{{ forgejo_vmid | string }}"
+  register: forgejo_bind_mount_config
+  changed_when: false
+
+- name: Classify Forgejo bind mount configuration
+  ansible.builtin.set_fact:
+    forgejo_bind_mount_exact: >-
+      {{ forgejo_bind_mount_config.stdout_lines |
+         select('match', '^mp0: ' ~ (forgejo_data_host_path | regex_escape) ~ ',mp=' ~ (forgejo_data_mount_path | regex_escape) ~ '(?:,.*)?$') |
+         list | length == 1 }}
+    forgejo_bind_mount_conflicts: >-
+      {{ forgejo_bind_mount_config.stdout_lines |
+         select('match', '^mp[0-9]+: ') |
+         reject('match', '^mp0: ' ~ (forgejo_data_host_path | regex_escape) ~ ',mp=' ~ (forgejo_data_mount_path | regex_escape) ~ '(?:,.*)?$') |
+         select('search', '(^mp0: )|(: ' ~ (forgejo_data_host_path | regex_escape) ~ '(?:,|$))|(,mp=' ~ (forgejo_data_mount_path | regex_escape) ~ '(?:,|$))') |
+         list }}
+
+- name: Fail closed on Forgejo bind mount slot or path conflict
+  ansible.builtin.assert:
+    that:
+      - forgejo_bind_mount_conflicts | length == 0
+    fail_msg: Forgejo mp0, host path, or guest path is already owned by a conflicting mount; refusing overwrite.
+
+- name: Attach missing Forgejo bind mount
+  ansible.builtin.command:
+    argv:
+      - pct
+      - set
+      - "{{ forgejo_vmid | string }}"
+      - --mp0
+      - "{{ forgejo_data_host_path }},mp={{ forgejo_data_mount_path }}"
+  when: not forgejo_bind_mount_exact
+  changed_when: true
+  notify: Reboot Forgejo LXC after bind mount attachment
+
+- name: Complete Forgejo bind mount lifecycle changes before readiness check
+  ansible.builtin.meta: flush_handlers

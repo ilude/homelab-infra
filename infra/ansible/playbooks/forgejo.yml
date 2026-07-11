@@ -7,8 +7,15 @@
       vars:
         lxc_ready_vmid: '{{ forgejo_vmid }}'
         lxc_ready_name: forgejo
+    - role: forgejo_bind_mount
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: '{{ forgejo_vmid }}'
+        lxc_ready_name: forgejo-after-bind-mount
 - name: Run direct access handoff for Forgejo
   ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: forgejo
 - name: Configure Forgejo service directly
   hosts: forgejo
   gather_facts: false

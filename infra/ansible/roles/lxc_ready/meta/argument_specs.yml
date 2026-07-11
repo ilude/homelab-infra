@@ -7,6 +7,10 @@ argument_specs:
         type: int
         required: true
         description: "LXC VMID to poll with pct status and pct exec for readiness."
+      proxmox_node_name:
+        type: str
+        required: true
+        description: "Authoritative Proxmox node short hostname derived from terraform.tfvars."
       lxc_ready_name:
         type: str
         required: false

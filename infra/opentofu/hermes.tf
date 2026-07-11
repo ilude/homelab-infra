@@ -33,7 +33,7 @@ module "hermes" {
     vlan_id     = var.hermes_container_vlan_id
   }
 
-  template_file_id = proxmox_download_file.debian_12_lxc_template[0].id
+  template_file_id = proxmox_download_file.debian_13_lxc_template[0].id
 
   startup = {
     order      = var.hermes_startup_order

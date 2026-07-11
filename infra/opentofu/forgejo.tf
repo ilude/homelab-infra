@@ -37,13 +37,6 @@ module "forgejo" {
     size_gb      = var.forgejo_container_disk_gb
   }
 
-  mount_points = [
-    {
-      volume = var.forgejo_data_host_path
-      path   = var.forgejo_data_mount_path
-    },
-  ]
-
   hostname      = var.forgejo_container_hostname
   search_domain = var.forgejo_container_search_domain
   dns_servers   = var.forgejo_container_dns_servers
@@ -59,7 +52,7 @@ module "forgejo" {
     vlan_id     = var.forgejo_container_vlan_id
   }
 
-  template_file_id = proxmox_download_file.debian_12_lxc_template[0].id
+  template_file_id = proxmox_download_file.debian_13_lxc_template[0].id
 
   startup = {
     order      = var.forgejo_startup_order

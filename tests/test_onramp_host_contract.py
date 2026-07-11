@@ -28,6 +28,8 @@ class OnrampHostContractTests(unittest.TestCase):
             "onramp_host_vmid",
             "onramp_host_image_url",
             "onramp_host_image_file_name",
+            "onramp_host_image_checksum_algorithm",
+            "onramp_host_image_checksum",
             "onramp_host_ipv4_address",
             "onramp_host_ipv4_gateway",
             "onramp_host_dns_servers",

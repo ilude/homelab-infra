@@ -11,6 +11,10 @@ argument_specs:
         type: str
         required: true
         description: "Forgejo release version string to install."
+      forgejo_sha256_amd64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Forgejo linux-amd64 binary."
       forgejo_root_url:
         type: str
         required: false

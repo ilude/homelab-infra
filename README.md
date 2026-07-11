@@ -4,6 +4,10 @@ Reusable OpenTofu and Ansible runbooks for Proxmox LXCs running Technitium DNS, 
 
 This public repo is intentionally generic. Real domains, LAN IPs, DNS records, Proxmox endpoints, credentials, and state belong in `values/`, an ignored nested Git repo. In a typical install, `values/` is pushed to a private Forgejo repository while this runbook repo stays public-safe.
 
+## Artifact integrity
+
+Forgejo, Forgejo runner, Docker Compose, just, Go, custom Caddy builds, Technitium portable releases, and Hermes Agent use pinned versions and SHA-256 verification before activation. Hermes 0.18.0 uses a complete hashed wheel lock for Debian 13 amd64/Python 3.13 and verifies its official PyPI provenance. Infisical, PostgreSQL, Redis, SearXNG, and the tooling Debian base use full OCI tag-and-digest references. After its release-age hold, `just update` advances only private pin sets that still exactly match this runbook's managed defaults; any differing pin is operator-owned and remains unchanged. OCI resolution verifies Registry V2 header/body digests and linux/amd64 multi-arch index semantics.
+
 ## Layout
 
 Tracked public source:
@@ -29,14 +33,14 @@ Keep non-public material in `values/` or outside this checkout; do not add anoth
 ## Documentation
 
 - [Docs index](docs/README.md) lists public-safe operator and architecture notes.
-- [Debian baseline split](docs/debian-baseline.md) explains why LXCs use Debian 12 templates while `onramp_host` uses Debian 13 genericcloud.
+- [Debian baseline](docs/debian-baseline.md) documents the verified Debian 13 LXC template and separately pinned Debian 13 `onramp_host` image.
 - [Hermes operator pilot PRD](docs/hermes-operator-pilot-prd.md) defines the Hermes cockpit requirements and safety boundaries.
 - [Managed service-state backup and restore](docs/service-state-backup.md) covers private `values/` backups for Hermes memory/soul state and other managed service state.
 - [Hermes tuning](docs/hermes-tuning.md) documents managed compression and delegation settings.
 - [Onramp app-platform contract](docs/onramp-app-platform-contract.md) defines how `homelab-infra`, `onramp-vNext`, and Hermes split onramp-host ownership.
 - [Onramp SearXNG handoff](docs/onramp-searxng-handoff.md) documents the default future Onramp-owned SearXNG contract and the current temporary `homelab-infra` exception.
 - [App-host runbook](docs/onramp-host-runbook.md) covers `onramp_host` rollback and future deployment validation.
-- [Service update policy](docs/service-update-policy.md) defines managed version updates and the target Technitium update model.
+- [Service update policy](docs/service-update-policy.md) defines managed version updates and the Technitium portable-release path.
 
 ## Fresh setup
 
@@ -101,9 +105,11 @@ Check for eligible pinned version updates without applying infrastructure change
 just update
 ```
 
-`just update` checks known upstream releases and only updates pins for releases at least 48 hours old. It currently manages tool pins such as OpenTofu/TFLint and service pins such as Forgejo and Forgejo runner where the repo has a deterministic update target. Review the resulting diff before continuing with validation and planning.
+`just update` checks known upstream releases and applies each target's hold policy. Most tool and service pins use the default 48-hour hold; Technitium, Hermes, and OCI pins use 168 hours. Hermes release discovery verifies the tag commit, official PyPI wheel digest and trusted-publishing provenance, and requires a matching tracked transitive lock before advancing all four private pins together. Technitium release discovery can select the newest eligible release while a newer release remains held. Both leave partial or custom private pin groups unchanged. Review the resulting diff before continuing with validation and planning.
 
-Technitium is planned to move into this managed update path. The intended model is to read Technitium release metadata from GitHub, pin the desired DNS Server version plus the SHA256 of the portable tarball in private values, optionally cache the tarball under ignored `values/artifacts/technitium/`, then let Ansible update the LXC only when the installed marker differs from the pin. Until that is implemented, do not treat rerunning the upstream `install.sh` as an acceptable routine update mechanism.
+Technitium apply uses the pinned portable archive. It prefers an optional private cache at `values/artifacts/technitium/<version>/DnsServerPortable.tar.gz`, falls back to the official versioned URL, verifies SHA-256 and archive layout, and activates only when the healthy installed-version marker differs. The previous application release and pre-activation `/etc/dns` state are retained for failed-health-check rollback. Do not rerun the upstream `install.sh` as an update mechanism.
+
+Hermes apply downloads only wheels accepted by the tracked hash lock from the official PyPI index, verifies the pinned Hermes wheel again, builds a versioned venv, and atomically switches `/usr/local/lib/hermes-agent/venv`. `/usr/local/bin/hermes` and the systemd command remain stable. The immediately preceding venv is retained through `/usr/local/lib/hermes-agent/previous` and restored if dashboard health fails. Runtime state remains at `/home/<runtime-user>/.hermes` outside application releases; `hermes update` is not the managed update path.
 
 Review infrastructure/DNS changes:
 
@@ -174,12 +180,12 @@ OpenTofu manages:
 - Optional Infisical secrets service, either as the legacy LXC with service-local Caddy or as `infisical_onramp` on the shared onramp host
 - Optional Hermes management LXC with SSH tooling, a non-root `anvil` dashboard runtime user, and a service-local Caddy reverse proxy for the Hermes Agent web dashboard
 - Optional Debian 13 Podman `onramp_host` VM substrate for app services, using `anvil` as the default cloud-init/deploy user and a shared Caddy instance with per-service snippets. The boot source is a clean Debian 13 genericcloud image imported by OpenTofu from the URL declared in private `values/terraform.tfvars`.
-- LXC bind mount attachments for services that use host storage
+- LXC resource shape, while deliberately ignoring externally owned `mount_point` state; OpenTofu does not attach host-directory bind mounts
 
 Ansible manages:
 
 - Proxmox host ZFS dataset/storage preparation before OpenTofu apply
-- LXC lifecycle readiness on the Proxmox host, followed by direct SSH/become service configuration on each service host
+- LXC lifecycle readiness on the Proxmox host, including the narrow [Forgejo bind-mount lifecycle boundary](docs/forgejo-bind-mount.md), followed by direct SSH/become service configuration on each service host
 - Technitium installation
 - Caddy installation/configuration directly on the Technitium LXC. The scaffold exposes the Technitium UI at both `dns.example.internal` and `technitium.example.internal`; set `caddy_server_names` in private inventory for your real domain aliases.
 - Forgejo installation/configuration, including Actions settings
@@ -223,4 +229,4 @@ enabled, this repo temporarily manages that endpoint on `onramp_host` as
 
 `values/.env` is parsed as dotenv-style data by `scripts/parse-env.py`; it is not sourced as shell. Keep required variables from `scaffold/.env.example` in sync with your private `values/.env`.
 
-The tooling container runs as the unprivileged `anvil` user and mounts `${HOST_SSH_DIR:-${HOME}/.ssh}` read-only. It copies public SSH support files into `/home/anvil/.ssh` by default; set `INFRA_COPY_SSH_KEYS=true` only when private keys must be copied into the container for a run. Direct service runs should use strict host-key checking with a gitignored managed known-hosts file such as `values/ansible/known_hosts`; changed trusted keys should be treated as a safety event, not refreshed silently.
+The tooling container runs as the unprivileged `anvil` user and mounts `${HOST_SSH_DIR:-${HOME}/.ssh}` read-only. It copies public SSH support files into `/home/anvil/.ssh` by default; set `INFRA_COPY_SSH_KEYS=true` only when private keys must be copied into the container for a run. Direct LXC service runs use strict host-key checking with an ephemeral controller trust store at `/tmp/homelab-infra/ansible/known_hosts`; it is isolated from ambient user/global known-hosts files and is never written to `values/`. The store is shared only by Ansible subprocesses in the same apply container, with a `0700` directory and `0600` file. Before each direct LXC service play, Ansible authenticates to the configured Proxmox host as root, reads the LXC's `/etc/ssh/ssh_host_*_key.pub` files through `pct exec`, validates allowed public-key types/formats, removes stale entries for the direct inventory name and address, and installs only those authoritative keys. It never uses `ssh-keyscan`; failure to obtain or validate keys stops the service play before direct SSH. The apply service scheduler serializes this shared controller trust-store update, so its parallel service runs do not race the file replacement. VMIDs and addresses come from the OpenTofu-derived dynamic inventory, not private inventory duplicates.

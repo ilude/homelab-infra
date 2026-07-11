@@ -1,0 +1,8 @@
+---
+technitium_artifact_path: ""
+technitium_download_base_url: https://download.technitium.com/dns/archive
+technitium_install_root: /opt/technitium
+technitium_state_directory: /etc/dns
+technitium_log_directory: /var/log/technitium/dns
+technitium_dotnet_repository_package_url: https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb
+technitium_dotnet_repository_package_sha256: d0c2f69250c6ce0d4c6220b142f999d039a3c560af7f980b943687d106ca8e38

@@ -4,7 +4,25 @@
     that:
       - lxc_ready_vmid is defined
       - (lxc_ready_vmid | string | length) > 0
-    fail_msg: lxc_ready_vmid is required
+      - proxmox_node_name is defined
+      - (proxmox_node_name | string | length) > 0
+    fail_msg: lxc_ready_vmid and proxmox_node_name are required
+
+- name: Verify PVE inventory target matches configured node
+  ansible.builtin.command:
+    argv:
+      - hostname
+      - --short
+  register: lxc_ready_pve_hostname
+  changed_when: false
+
+- name: Fail when PVE inventory target does not match configured node
+  ansible.builtin.assert:
+    that:
+      - lxc_ready_pve_hostname.stdout | trim == proxmox_node_name
+    fail_msg: >-
+      PVE inventory target {{ lxc_ready_pve_hostname.stdout | trim }} does not match
+      configured Proxmox node {{ proxmox_node_name }}.
 
 - name: Wait for LXC to report running {{ lxc_ready_name | default(lxc_ready_vmid) }}
   ansible.builtin.command:

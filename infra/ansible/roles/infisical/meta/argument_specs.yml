@@ -35,6 +35,14 @@ argument_specs:
         type: str
         required: false
         description: "Docker Compose plugin version used when updating the LXC runtime tools (default: 5.3.0)."
+      infisical_compose_sha256_amd64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Docker Compose linux-amd64 binary."
+      infisical_compose_sha256_arm64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Docker Compose linux-arm64 binary."
       infisical_data_dir:
         type: str
         required: false
@@ -47,7 +55,15 @@ argument_specs:
         type: str
         required: false
         description: "PostgreSQL database name for the containerized service (default: infisical)."
-      infisical_version:
+      infisical_container_image:
         type: str
-        required: false
-        description: "Infisical container image tag to deploy (default: latest)."
+        required: true
+        description: "Digest-pinned Infisical OCI image for linux/amd64."
+      infisical_postgres_image:
+        type: str
+        required: true
+        description: "Digest-pinned PostgreSQL OCI image for linux/amd64."
+      infisical_redis_image:
+        type: str
+        required: true
+        description: "Digest-pinned Redis OCI image for linux/amd64."

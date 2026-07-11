@@ -5,6 +5,9 @@
   ],
   "services": {
     "technitium": {
+      "execution_resource": "direct_lxc_known_hosts",
+      "state_capable": true,
+      "state_order": 3,
       "playbooks": [
         "infra/ansible/playbooks/technitium.yml",
         "infra/ansible/playbooks/caddy-proxy.yml",
@@ -20,6 +23,9 @@
       }
     },
     "forgejo": {
+      "execution_resource": "direct_lxc_known_hosts",
+      "state_capable": true,
+      "state_order": 2,
       "playbooks": [
         "infra/ansible/playbooks/forgejo.yml"
       ],
@@ -31,10 +37,16 @@
         "tf_vmid": "forgejo_container_vmid",
         "tf_host": "forgejo_lan_ip",
         "domain_var": "forgejo_domain",
-        "tf_domain": "forgejo_server_name"
+        "tf_domain": "forgejo_server_name",
+        "extra_play_vars": {
+          "forgejo_data_host_path": "forgejo_data_host_path",
+          "forgejo_data_mount_path": "forgejo_data_mount_path"
+        }
       }
     },
     "tailscale_client": {
+      "execution_resource": "direct_lxc_known_hosts",
+      "state_capable": false,
       "playbooks": [
         "infra/ansible/playbooks/tailscale-client.yml"
       ],
@@ -51,6 +63,8 @@
       }
     },
     "forgejo_runner": {
+      "state_capable": false,
+      "execution_resource": "direct_lxc_known_hosts",
       "playbooks": [
         "infra/ansible/playbooks/forgejo-runner.yml"
       ],
@@ -62,10 +76,18 @@
         "group": "forgejo_runner",
         "vmid_var": "forgejo_runner_vmid",
         "tf_vmid": "forgejo_runner_vmid",
-        "tf_host": "forgejo_runner_ipv4_address"
+        "tf_host": "forgejo_runner_ipv4_address",
+        "extra_play_vars": {
+          "forgejo_runner_pve_node_name": "proxmox_node_name"
+        }
       }
     },
     "infisical": {
+      "state_capable": false,
+      "execution_resource": "direct_lxc_known_hosts",
+      "conflicts": [
+        "infisical_onramp"
+      ],
       "playbooks": [
         "infra/ansible/playbooks/infisical.yml"
       ],
@@ -81,6 +103,12 @@
       }
     },
     "infisical_onramp": {
+      "state_capable": true,
+      "state_order": 5,
+      "execution_resource": "onramp_host",
+      "conflicts": [
+        "infisical"
+      ],
       "playbooks": [
         "infra/ansible/playbooks/infisical-onramp.yml"
       ],
@@ -105,6 +133,9 @@
       }
     },
     "hermes": {
+      "execution_resource": "direct_lxc_known_hosts",
+      "state_capable": true,
+      "state_order": 1,
       "playbooks": [
         "infra/ansible/playbooks/hermes.yml"
       ],
@@ -125,6 +156,9 @@
       }
     },
     "onramp_host": {
+      "state_capable": true,
+      "state_order": 4,
+      "execution_resource": "onramp_host",
       "playbooks": [
         "infra/ansible/playbooks/onramp-host.yml"
       ],
@@ -151,6 +185,9 @@
       }
     },
     "searxng_onramp": {
+      "state_capable": true,
+      "state_order": 6,
+      "execution_resource": "onramp_host",
       "playbooks": [
         "infra/ansible/playbooks/searxng-onramp.yml"
       ],

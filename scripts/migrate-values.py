@@ -57,6 +57,13 @@ TF_VAR_RENAMES = {
     "TF_VAR_container_ssh_public_keys": "TF_VAR_lxc_ssh_public_keys",
 }
 
+DEBIAN_LXC_TFVARS_RENAMES = {
+    "debian_template_url": "debian_13_lxc_template_url",
+    "debian_template_file_name": "debian_13_lxc_template_file_name",
+    "debian_template_checksum_algorithm": "debian_13_lxc_template_checksum_algorithm",
+    "debian_template_checksum": "debian_13_lxc_template_checksum",
+}
+
 TECHNITIUM_TFVARS_RENAMES = {
     "container_root_password": "lxc_root_password",
     "container_ssh_public_keys": "lxc_ssh_public_keys",
@@ -91,11 +98,71 @@ MIGRATION_ENV_KEYS = {
 }
 
 TFVARS_LINE_RE = re.compile(r"^\s*(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*?)(?:\s*#.*)?$")
+DEBIAN_13_LXC_TEMPLATE_HTTPS_URL = "https://download.proxmox.com/images/system/debian-13-standard_13.1-2_amd64.tar.zst"
+DEBIAN_13_LXC_TEMPLATE_HTTP_URL = "http://download.proxmox.com/images/system/debian-13-standard_13.1-2_amd64.tar.zst"
+ONRAMP_HOST_MUTABLE_IMAGE_URL = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"
+ONRAMP_HOST_MUTABLE_IMAGE_FILE_NAME = "debian-13-genericcloud-amd64.qcow2"
+ONRAMP_HOST_IMAGE_URL = "https://cloud.debian.org/images/cloud/trixie/20260623-2518/debian-13-genericcloud-amd64-20260623-2518.qcow2"
+ONRAMP_HOST_IMAGE_FILE_NAME = "debian-13-genericcloud-amd64-20260623-2518.qcow2"
+ONRAMP_HOST_IMAGE_CHECKSUM_ALGORITHM = "sha512"
+ONRAMP_HOST_IMAGE_CHECKSUM = "df2bd468b08566c0409a7982d6489d73499ad22f9a28646b538c2f21d08f15040a5e4737952ca209e9ad4488cd00793191791be9f135dee93082c86fcca3300c"
 HERMES_SCRYPT_N = 2**14
 HERMES_SCRYPT_R = 8
 HERMES_SCRYPT_P = 1
 HERMES_SCRYPT_DKLEN = 32
 HERMES_SCRYPT_SALT_BYTES = 16
+
+OCI_PIN_DEFAULTS = {
+    "infisical_container_image": "    infisical_container_image: docker.io/infisical/infisical:v0.161.11@sha256:efe2d4fe5f37fb250ce5956ecc4734cc9ab1b50629d97cf7793d54200a18642b",
+    "infisical_postgres_image": "    infisical_postgres_image: docker.io/library/postgres:16.14-alpine3.22@sha256:786dab398303b8ce7cb76b407bb21ef2e4dfbbbd4c6abcf3d29b3130467ffdbc",
+    "infisical_redis_image": "    infisical_redis_image: docker.io/library/redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+}
+
+HERMES_DISCOVERY_PIN_DEFAULTS = {
+    "hermes_discovery_version": '    hermes_discovery_version: "0.18.0"',
+    "hermes_discovery_tag": '    hermes_discovery_tag: "v2026.7.1"',
+    "hermes_discovery_commit": "    hermes_discovery_commit: 7c1a029553d87c43ecff8a3821336bc95872213b",
+    "hermes_discovery_wheel_sha256": "    hermes_discovery_wheel_sha256: bf75c02d59f7c464cd0d85026fb7ee2e6bb15f003beccab3442b572f1ae1fd37",
+}
+
+TECHNITIUM_DISCOVERY_PIN_DEFAULTS = {
+    "technitium_discovery_version": '    technitium_discovery_version: "15.2.0"',
+    "technitium_portable_sha256": "    technitium_portable_sha256: 2e39fb8d0718475790cc025e083a1bcfd837a5e79e4a1d0ed775881bd90287ef",
+    "technitium_artifact_path": "    technitium_artifact_path: values/artifacts/technitium/",
+}
+
+CADDY_GO_LEGACY_MANAGED_DEFAULTS = {
+    "caddy_build_go_version": "1.24.4",
+    "caddy_build_go_sha256_amd64": "77e5da33bb72aeaef1ba4418b6fe511bc4d041873cbf82e5aa6318740df98717",
+    "caddy_build_go_sha256_arm64": "d5501ee5aca0f258d5fe9bfaed401958445014495dc115f202d43d5210b45241",
+}
+
+INTEGRITY_INVENTORY_DEFAULTS = {
+    "forgejo_sha256_amd64": "    forgejo_sha256_amd64: 59fb6129e0396dc3502be60950438a03d227bb5691ee08b02dd38794f3d25a2a",
+    "caddy_build_version": '    caddy_build_version: "2.11.4"',
+    "caddy_build_xcaddy_version": '    caddy_build_xcaddy_version: "0.4.6"',
+    "caddy_build_cloudflare_version": '    caddy_build_cloudflare_version: "0.2.4"',
+    "caddy_build_go_version": '    caddy_build_go_version: "1.25.1"',
+    "caddy_build_go_sha256_amd64": "    caddy_build_go_sha256_amd64: 7716a0d940a0f6ae8e1f3b3f4f36299dc53e31b16840dbd171254312c41ca12e",
+    "caddy_build_go_sha256_arm64": "    caddy_build_go_sha256_arm64: 65a3e34fb2126f55b34e1edfc709121660e1be2dee6bdf405fc399a63a95a87d",
+    "forgejo_runner_sha256_amd64": "    forgejo_runner_sha256_amd64: 706f718bdf63baa345a1794924eec089be80df9bc38f02cefdc9a492f7c86b83",
+    "forgejo_runner_sha256_arm64": "    forgejo_runner_sha256_arm64: be77c54925aed80b0967dcdfe89aa8c9310fddefacbe16ca05ed22fe2bfd659c",
+    "forgejo_runner_compose_version": '    forgejo_runner_compose_version: "5.3.0"',
+    "forgejo_runner_compose_sha256_amd64": "    forgejo_runner_compose_sha256_amd64: fffb010206c952ee5e45d0cd05dc88d3ca063c4634d40eaad6b72677c4c7bbf0",
+    "forgejo_runner_compose_sha256_arm64": "    forgejo_runner_compose_sha256_arm64: ba0d9f5ce70086b3830448ce2f8a6405513c996065fe45d2f7c144a1f0d99398",
+    "forgejo_runner_just_version": '    forgejo_runner_just_version: "1.55.1"',
+    "forgejo_runner_just_sha256_amd64": "    forgejo_runner_just_sha256_amd64: b0ef600f0df20d5ae91ae931627c499fc52b477ffe5f5ea7b7b3ec616b16c778",
+    "forgejo_runner_just_sha256_arm64": "    forgejo_runner_just_sha256_arm64: b0ee814c9656427408e339893541e30d9027828686839499b2a2a34dd61ad173",
+    "infisical_compose_version": '    infisical_compose_version: "5.3.0"',
+    "infisical_compose_sha256_amd64": "    infisical_compose_sha256_amd64: fffb010206c952ee5e45d0cd05dc88d3ca063c4634d40eaad6b72677c4c7bbf0",
+    "infisical_compose_sha256_arm64": "    infisical_compose_sha256_arm64: ba0d9f5ce70086b3830448ce2f8a6405513c996065fe45d2f7c144a1f0d99398",
+    "hermes_compose_version": '    hermes_compose_version: "5.3.0"',
+    "hermes_compose_sha256_amd64": "    hermes_compose_sha256_amd64: fffb010206c952ee5e45d0cd05dc88d3ca063c4634d40eaad6b72677c4c7bbf0",
+    "hermes_compose_sha256_arm64": "    hermes_compose_sha256_arm64: ba0d9f5ce70086b3830448ce2f8a6405513c996065fe45d2f7c144a1f0d99398",
+    "hermes_just_version": '    hermes_just_version: "1.55.1"',
+    "hermes_just_sha256_amd64": "    hermes_just_sha256_amd64: b0ef600f0df20d5ae91ae931627c499fc52b477ffe5f5ea7b7b3ec616b16c778",
+    "hermes_just_sha256_arm64": "    hermes_just_sha256_arm64: b0ee814c9656427408e339893541e30d9027828686839499b2a2a34dd61ad173",
+}
 
 
 class MigrationError(ValueError):
@@ -279,6 +346,42 @@ def inventory_has_key(text: str, key: str) -> bool:
     return re.search(rf"(?m)^\s*{re.escape(key)}\s*:", text) is not None
 
 
+def remove_legacy_pve_inventory_block(text: str) -> tuple[str, list[str]]:
+    """Remove the scaffold's root PVE host block without reserializing private YAML."""
+    lines = text.splitlines(keepends=True)
+    hosts_index = next((index for index, line in enumerate(lines) if line.rstrip() == "  hosts:"), None)
+    if hosts_index is None:
+        return text, []
+    hosts_end = next(
+        (index for index in range(hosts_index + 1, len(lines)) if lines[index].strip() and not lines[index].startswith("    ")),
+        len(lines),
+    )
+    pve_index = next(
+        (index for index in range(hosts_index + 1, hosts_end) if lines[index].rstrip() == "    pve:"),
+        None,
+    )
+    if pve_index is None:
+        return text, []
+    pve_end = next(
+        (index for index in range(pve_index + 1, hosts_end) if lines[index].strip() and not lines[index].startswith("      ")),
+        hosts_end,
+    )
+    entries: dict[str, str] = {}
+    for line in lines[pve_index + 1 : pve_end]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.fullmatch(r"      (ansible_host|ansible_user):\s*([^#\s]+)\s*(?:#.*)?\r?\n?", line)
+        if match is None or match.group(1) in entries:
+            return text, []
+        entries[match.group(1)] = match.group(2).strip("\"'")
+    if set(entries) != {"ansible_host", "ansible_user"} or entries["ansible_user"] != "root":
+        return text, []
+    del lines[pve_index:pve_end]
+    if not any(line.strip() for line in lines[hosts_index + 1 : hosts_end - (pve_end - pve_index)]):
+        del lines[hosts_index]
+    return "".join(lines), ["removed legacy static pve inventory host"]
+
+
 def service_domain(tfvars_lines: list[str]) -> str:
     domain = tfvars_scalar_value(tfvars_lines, "technitium_container_search_domain")
     if domain:
@@ -360,6 +463,52 @@ def ensure_static_service_addresses(tfvars_lines: list[str]) -> list[str]:
     return changes
 
 
+def migrate_debian_13_lxc_template_url(tfvars_lines: list[str]) -> list[str]:
+    """Switch only the managed Debian 13 template URL to HTTP."""
+    if tfvars_scalar_value(tfvars_lines, "debian_13_lxc_template_url") != DEBIAN_13_LXC_TEMPLATE_HTTPS_URL:
+        return []
+    if not replace_tfvars_raw(
+        tfvars_lines, "debian_13_lxc_template_url", hcl_quote(DEBIAN_13_LXC_TEMPLATE_HTTP_URL)
+    ):
+        return []
+    return ["migrated managed Debian 13 LXC template URL to HTTP"]
+
+
+def migrate_onramp_host_image_pin(tfvars_lines: list[str]) -> list[str]:
+    """Replace only the exact historical mutable image and managed integrity group."""
+    if (
+        tfvars_scalar_value(tfvars_lines, "onramp_host_image_url")
+        != ONRAMP_HOST_MUTABLE_IMAGE_URL
+        or tfvars_scalar_value(tfvars_lines, "onramp_host_image_file_name")
+        != ONRAMP_HOST_MUTABLE_IMAGE_FILE_NAME
+    ):
+        return []
+    algorithm_exists = tfvars_key_exists(tfvars_lines, "onramp_host_image_checksum_algorithm")
+    checksum_exists = tfvars_key_exists(tfvars_lines, "onramp_host_image_checksum")
+    integrity_absent = not algorithm_exists and not checksum_exists
+    integrity_managed = (
+        algorithm_exists
+        and checksum_exists
+        and tfvars_scalar_value(tfvars_lines, "onramp_host_image_checksum_algorithm")
+        == ONRAMP_HOST_IMAGE_CHECKSUM_ALGORITHM
+        and tfvars_scalar_value(tfvars_lines, "onramp_host_image_checksum")
+        == ONRAMP_HOST_IMAGE_CHECKSUM
+    )
+    if not integrity_absent and not integrity_managed:
+        return []
+
+    pins = {
+        "onramp_host_image_url": ONRAMP_HOST_IMAGE_URL,
+        "onramp_host_image_file_name": ONRAMP_HOST_IMAGE_FILE_NAME,
+        "onramp_host_image_checksum_algorithm": ONRAMP_HOST_IMAGE_CHECKSUM_ALGORITHM,
+        "onramp_host_image_checksum": ONRAMP_HOST_IMAGE_CHECKSUM,
+    }
+    for key, value in pins.items():
+        if not replace_tfvars_raw(tfvars_lines, key, hcl_quote(value)):
+            set_tfvars_raw(tfvars_lines, key, hcl_quote(value))
+    return ["migrated mutable onramp-host cloud image to reviewed pin"]
+
+
 def ensure_vlan_tfvars(tfvars_lines: list[str]) -> list[str]:
     changes: list[str] = []
     service_prefixes = (
@@ -378,6 +527,13 @@ def ensure_vlan_tfvars(tfvars_lines: list[str]) -> list[str]:
         if set_tfvars_raw(tfvars_lines, key, "null"):
             changes.append(f"added {key}")
     return changes
+
+
+def migrate_mutable_oci_tfvars(tfvars_lines: list[str]) -> list[str]:
+    if tfvars_scalar_value(tfvars_lines, "searxng_container_image") != "docker.io/searxng/searxng:latest":
+        return []
+    replace_tfvars_raw(tfvars_lines, "searxng_container_image", hcl_quote("docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb"))
+    return ["replaced mutable searxng_container_image default with OCI pin"]
 
 
 def ensure_optional_service_tfvars(tfvars_lines: list[str], optional_services: set[str]) -> list[str]:
@@ -432,8 +588,10 @@ def ensure_optional_service_tfvars(tfvars_lines: list[str], optional_services: s
             "onramp_host_hostname": hcl_quote("onramp-host"),
             "onramp_host_description": hcl_quote("Debian 13 Podman onramp host for Onramp-managed services."),
             "onramp_host_image_datastore_id": hcl_quote("local"),
-            "onramp_host_image_url": hcl_quote("https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"),
-            "onramp_host_image_file_name": hcl_quote("debian-13-genericcloud-amd64.qcow2"),
+            "onramp_host_image_url": hcl_quote(ONRAMP_HOST_IMAGE_URL),
+            "onramp_host_image_file_name": hcl_quote(ONRAMP_HOST_IMAGE_FILE_NAME),
+            "onramp_host_image_checksum_algorithm": hcl_quote(ONRAMP_HOST_IMAGE_CHECKSUM_ALGORITHM),
+            "onramp_host_image_checksum": hcl_quote(ONRAMP_HOST_IMAGE_CHECKSUM),
             "onramp_host_datastore_id": hcl_quote("local-lvm"),
             "onramp_host_ipv4_address": hcl_quote(f"{subnet_ip(tfvars_lines, 72)}/{cidr_prefix(tfvars_scalar_value(tfvars_lines, 'technitium_container_ipv4_address'))}"),
             "onramp_host_ipv4_gateway": hcl_quote(tfvars_scalar_value(tfvars_lines, "technitium_container_ipv4_gateway") or "192.0.2.1"),
@@ -459,7 +617,7 @@ def ensure_optional_service_tfvars(tfvars_lines: list[str], optional_services: s
         defaults.update({
             "searxng_server_name": hcl_quote(f"searxng.apps.{domain}"),
             "searxng_public_url": hcl_quote(f"https://searxng.apps.{domain}"),
-            "searxng_container_image": hcl_quote("docker.io/searxng/searxng:latest"),
+            "searxng_container_image": hcl_quote("docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb"),
             "searxng_container_port": "8080",
             "searxng_bind_address": hcl_quote("127.0.0.1"),
             "searxng_instance_name": hcl_quote("Homelab SearXNG"),
@@ -485,6 +643,75 @@ def ensure_optional_service_tfvars(tfvars_lines: list[str], optional_services: s
     return changes
 
 
+def ensure_pin_inventory_vars(text: str, defaults: dict[str, str], group: str) -> tuple[str, list[str]]:
+    """Add a managed pin group only when none of its operator-owned keys exist."""
+    existing = [key for key in defaults if inventory_has_key(text, key)]
+    if existing:
+        return text, []
+    lines = text.rstrip().splitlines() if text.strip() else ["---", "all:", "  vars:"]
+    lines.extend(defaults.values())
+    return "\n".join(lines) + "\n", [f"added {group} pin {key}" for key in defaults]
+
+
+def migrate_searxng_inventory_image(text: str, tfvars_lines: list[str]) -> tuple[str, list[str]]:
+    pattern = re.compile(r"(?m)^\s*searxng_container_image:\s*([^\s#]+)\s*\n?")
+    match = pattern.search(text)
+    if match is None:
+        return text, []
+    inventory_value = match.group(1).strip("\"'")
+    tfvars_value = tfvars_scalar_value(tfvars_lines, "searxng_container_image")
+    managed_values = {
+        "docker.io/searxng/searxng:latest",
+        "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb",
+    }
+    if inventory_value not in managed_values:
+        if tfvars_value not in managed_values and tfvars_value != inventory_value:
+            raise MigrationError(
+                "searxng_container_image differs between inventory and terraform.tfvars"
+            )
+        if tfvars_value != inventory_value:
+            if not replace_tfvars_raw(tfvars_lines, "searxng_container_image", hcl_quote(inventory_value)):
+                set_tfvars_raw(tfvars_lines, "searxng_container_image", hcl_quote(inventory_value))
+    return pattern.sub("", text, count=1), ["moved searxng_container_image ownership to terraform.tfvars"]
+
+
+def remove_mutable_legacy_image_vars(text: str) -> tuple[str, list[str]]:
+    changes: list[str] = []
+    for key in ("infisical_version",):
+        pattern = re.compile(rf"(?m)^\s*{re.escape(key)}:\s*(?:[\"']?)latest(?:[\"']?)\s*\n?")
+        text, count = pattern.subn("", text)
+        if count:
+            changes.append(f"removed mutable {key} default")
+    return text, changes
+
+
+def migrate_caddy_go_managed_defaults(text: str) -> tuple[str, list[str]]:
+    """Upgrade the Go pin trio only when all fields retain the prior managed defaults."""
+    current: dict[str, str] = {}
+    for key in CADDY_GO_LEGACY_MANAGED_DEFAULTS:
+        match = re.search(rf"(?m)^\s*{re.escape(key)}:\s*[\"']?([^\s\"']+)[\"']?\s*$", text)
+        if match is None:
+            return text, []
+        current[key] = match.group(1)
+    if current != CADDY_GO_LEGACY_MANAGED_DEFAULTS:
+        return text, []
+    for key, old_value in CADDY_GO_LEGACY_MANAGED_DEFAULTS.items():
+        new_value = INTEGRITY_INVENTORY_DEFAULTS[key].split(":", 1)[1].strip().strip('"')
+        text = re.sub(
+            rf"(?m)^(\s*{re.escape(key)}:\s*)[\"']?{re.escape(old_value)}[\"']?(\s*)$",
+            rf'\g<1>"{new_value}"\g<2>' if key == "caddy_build_go_version" else rf"\g<1>{new_value}\g<2>",
+            text,
+            count=1,
+        )
+    return text, ["updated managed Caddy Go pin group"]
+
+
+def ensure_integrity_inventory_vars(text: str) -> tuple[str, list[str]]:
+    text, changes = migrate_caddy_go_managed_defaults(text)
+    text, additions = ensure_pin_inventory_vars(text, INTEGRITY_INVENTORY_DEFAULTS, "integrity")
+    return text, changes + additions
+
+
 def ensure_inventory_vars(path: Path, text: str, domain: str) -> tuple[str, list[str]]:
     changes: list[str] = []
     replacements = {
@@ -501,7 +728,6 @@ def ensure_inventory_vars(path: Path, text: str, domain: str) -> tuple[str, list
     additions = {
         "infisical_vmid": "    infisical_vmid: 110",
         "infisical_domain": f"    infisical_domain: infisical.{domain}",
-        "infisical_version": "    infisical_version: latest",
         "infisical_data_dir": "    infisical_data_dir: /var/lib/infisical",
         "infisical_encryption_key": "    infisical_encryption_key: \"{{ lookup('env', 'INFISICAL_ENCRYPTION_KEY') }}\"",
         "infisical_auth_secret": "    infisical_auth_secret: \"{{ lookup('env', 'INFISICAL_AUTH_SECRET') }}\"",
@@ -521,7 +747,6 @@ def ensure_inventory_vars(path: Path, text: str, domain: str) -> tuple[str, list
         "searxng_server_name": f"    searxng_server_name: searxng.apps.{domain}",
         "searxng_public_url": f"    searxng_public_url: https://searxng.apps.{domain}",
         "searxng_secret_key": "    searxng_secret_key: \"{{ lookup('env', 'SEARXNG_SECRET_KEY') }}\"",
-        "searxng_container_image": "    searxng_container_image: docker.io/searxng/searxng:latest",
         "searxng_container_port": "    searxng_container_port: 8080",
         "searxng_bind_address": "    searxng_bind_address: 127.0.0.1",
         "searxng_instance_name": "    searxng_instance_name: Homelab SearXNG",
@@ -541,6 +766,8 @@ def ensure_dns_records(
     infisical_ip: str,
     hermes_ip: str,
     searxng_ip: str = "",
+    *,
+    remove_infisical_when_absent: bool = False,
 ) -> list[str]:
     if not path.exists():
         return []
@@ -549,7 +776,15 @@ def ensure_dns_records(
     if not isinstance(records, dict):
         raise MigrationError(f"{path}: a_records must be an object")
     changes: list[str] = []
-    desired = {f"infisical.{domain}": infisical_ip, f"hermes.{domain}": hermes_ip}
+    infisical_record = f"infisical.{domain}"
+    if infisical_ip:
+        if records.get(infisical_record) != infisical_ip:
+            records[infisical_record] = infisical_ip
+            changes.append("added optional service DNS record")
+    elif remove_infisical_when_absent and infisical_record in records:
+        del records[infisical_record]
+        changes.append("removed optional service DNS record")
+    desired = {f"hermes.{domain}": hermes_ip}
     if searxng_ip:
         desired[f"searxng.apps.{domain}"] = searxng_ip
     for name, address in desired.items():
@@ -562,21 +797,40 @@ def ensure_dns_records(
     return changes
 
 
+def infisical_dns_target(optional_services: set[str], legacy_ip: str, onramp_ip: str) -> str:
+    legacy_enabled = "infisical" in optional_services
+    onramp_enabled = "infisical_onramp" in optional_services
+    if legacy_enabled and onramp_enabled:
+        raise MigrationError("infisical and infisical_onramp are mutually exclusive deployment modes")
+    if onramp_enabled:
+        return onramp_ip
+    if legacy_enabled:
+        return legacy_ip
+    return ""
+
+
 def enabled_optional_services(values_dir: Path) -> set[str]:
-    if values_dir != Path("values"):
-        return set()
-    settings_path = Path("settings.local.json")
+    settings_path = values_dir.parent / "settings.local.json"
     if not settings_path.exists():
         return set()
     try:
         data = json.loads(settings_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return set()
+    if not isinstance(data, dict):
+        return set()
     services = data.get("services", [])
-    return {service for service in ("infisical", "hermes", "onramp_host", "searxng_onramp") if service in services}
+    if not isinstance(services, list):
+        return set()
+    return {
+        service
+        for service in ("infisical", "infisical_onramp", "hermes", "onramp_host", "searxng_onramp")
+        if service in services
+    }
 
 
 def migrate(values_dir: Path) -> list[str]:
+    values_dir = values_dir.resolve()
     env_path = values_dir / ".env"
     tfvars_path = values_dir / "terraform.tfvars"
     inventory_path = values_dir / "ansible" / "inventory" / "local.yml"
@@ -592,12 +846,17 @@ def migrate(values_dir: Path) -> list[str]:
         if rename_env_key(env_lines, env_entries, old_key, new_key):
             changes.append(f"renamed {old_key} to {new_key}")
 
-    for old_key, new_key in TECHNITIUM_TFVARS_RENAMES.items():
-        if rename_tfvars_key(tfvars_lines, old_key, new_key):
-            changes.append(f"renamed {old_key} to {new_key}")
+    for renames in (DEBIAN_LXC_TFVARS_RENAMES, TECHNITIUM_TFVARS_RENAMES):
+        for old_key, new_key in renames.items():
+            if rename_tfvars_key(tfvars_lines, old_key, new_key):
+                changes.append(f"renamed {old_key} to {new_key}")
+    changes.extend(migrate_debian_13_lxc_template_url(tfvars_lines))
+    changes.extend(migrate_onramp_host_image_pin(tfvars_lines))
+    changes.extend(migrate_mutable_oci_tfvars(tfvars_lines))
     optional_services = enabled_optional_services(values_dir)
     changes.extend(migrate_infisical_secret_formats(env_lines, env_entries))
     changes.extend(migrate_hermes_dashboard_password_hash(env_lines, env_entries))
+    infisical_dns_target(optional_services, "", "")
     if optional_services:
         changes.extend(ensure_optional_service_tfvars(tfvars_lines, optional_services))
     changes.extend(ensure_vlan_tfvars(tfvars_lines))
@@ -605,7 +864,31 @@ def migrate(values_dir: Path) -> list[str]:
     changes.extend(ensure_direct_technitium_api_url(env_lines, env_entries, tfvars_lines))
     tfvars_values = parse_tfvars(tfvars_lines, tfvars_path)
 
-    inventory_changes: list[str] = []
+    inventory_text, pve_inventory_changes = remove_legacy_pve_inventory_block(inventory_text)
+    inventory_text, searxng_image_changes = migrate_searxng_inventory_image(inventory_text, tfvars_lines)
+    inventory_text, mutable_image_changes = remove_mutable_legacy_image_vars(inventory_text)
+    legacy_infisical_pin = inventory_has_key(inventory_text, "infisical_version")
+    oci_pin_changes: list[str] = []
+    if not legacy_infisical_pin:
+        inventory_text, oci_pin_changes = ensure_pin_inventory_vars(inventory_text, OCI_PIN_DEFAULTS, "OCI")
+    inventory_text, hermes_discovery_changes = ensure_pin_inventory_vars(
+        inventory_text, HERMES_DISCOVERY_PIN_DEFAULTS, "Hermes managed release"
+    )
+    inventory_text, technitium_discovery_changes = ensure_pin_inventory_vars(
+        inventory_text, TECHNITIUM_DISCOVERY_PIN_DEFAULTS, "Technitium managed release"
+    )
+    inventory_text, integrity_inventory_changes = ensure_integrity_inventory_vars(inventory_text)
+    pin_changes = (
+        pve_inventory_changes
+        + searxng_image_changes
+        + mutable_image_changes
+        + oci_pin_changes
+        + hermes_discovery_changes
+        + technitium_discovery_changes
+        + integrity_inventory_changes
+    )
+    changes.extend(pin_changes)
+    inventory_changes: list[str] = list(pin_changes)
     if optional_services:
         for key, generator in GENERATED_SECRET_KEYS.items():
             if key not in env_entries:
@@ -622,11 +905,16 @@ def migrate(values_dir: Path) -> list[str]:
             ensure_dns_records(
                 values_dir / "dns-records.local.json",
                 domain,
-                tfvars_scalar_value(tfvars_lines, "infisical_lan_ip"),
+                infisical_dns_target(
+                    optional_services,
+                    tfvars_scalar_value(tfvars_lines, "infisical_lan_ip"),
+                    tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0],
+                ),
                 tfvars_scalar_value(tfvars_lines, "hermes_lan_ip"),
                 tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0]
                 if "searxng_onramp" in optional_services
                 else "",
+                remove_infisical_when_absent=True,
             )
         )
 

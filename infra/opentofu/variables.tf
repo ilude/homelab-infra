@@ -108,14 +108,44 @@ variable "template_datastore_id" {
   type        = string
 }
 
-variable "debian_template_url" {
-  description = "Debian 12 standard LXC template URL. Set in terraform.tfvars."
+variable "debian_13_lxc_template_url" {
+  description = "Verified Debian 13 standard LXC template URL. Set in terraform.tfvars."
   type        = string
+
+  validation {
+    condition     = var.debian_13_lxc_template_url == "http://download.proxmox.com/images/system/debian-13-standard_13.1-2_amd64.tar.zst"
+    error_message = "debian_13_lxc_template_url must use the reviewed Debian 13 LXC template pin."
+  }
 }
 
-variable "debian_template_file_name" {
-  description = "File name for the downloaded Debian 12 LXC template. Set in terraform.tfvars."
+variable "debian_13_lxc_template_file_name" {
+  description = "File name for the verified Debian 13 LXC template. Set in terraform.tfvars."
   type        = string
+
+  validation {
+    condition     = var.debian_13_lxc_template_file_name == "debian-13-standard_13.1-2_amd64.tar.zst"
+    error_message = "debian_13_lxc_template_file_name must use the reviewed Debian 13 LXC template pin."
+  }
+}
+
+variable "debian_13_lxc_template_checksum_algorithm" {
+  description = "Checksum algorithm for the verified Debian 13 LXC template."
+  type        = string
+
+  validation {
+    condition     = var.debian_13_lxc_template_checksum_algorithm == "sha512"
+    error_message = "debian_13_lxc_template_checksum_algorithm must be sha512."
+  }
+}
+
+variable "debian_13_lxc_template_checksum" {
+  description = "SHA-512 checksum from the Debian 13 Proxmox appliance metadata."
+  type        = string
+
+  validation {
+    condition     = var.debian_13_lxc_template_checksum == "5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8"
+    error_message = "debian_13_lxc_template_checksum must match the reviewed Debian 13 LXC template pin."
+  }
 }
 
 variable "lxc_root_password" {
@@ -763,7 +793,7 @@ variable "onramp_host_image_datastore_id" {
 variable "onramp_host_image_url" {
   description = "Debian 13 genericcloud qcow2 image URL used to create a clean cloud-init onramp-host VM."
   type        = string
-  default     = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"
+  default     = "https://cloud.debian.org/images/cloud/trixie/20260623-2518/debian-13-genericcloud-amd64-20260623-2518.qcow2"
 
   validation {
     condition     = can(regex("^https://", var.onramp_host_image_url))
@@ -774,11 +804,38 @@ variable "onramp_host_image_url" {
 variable "onramp_host_image_file_name" {
   description = "File name for the imported Debian 13 genericcloud qcow2 image."
   type        = string
-  default     = "debian-13-genericcloud-amd64.qcow2"
+  default     = "debian-13-genericcloud-amd64-20260623-2518.qcow2"
 
   validation {
     condition     = can(regex("^[A-Za-z0-9._-]+\\.qcow2$", var.onramp_host_image_file_name))
     error_message = "onramp_host_image_file_name must be a qcow2 file name."
+  }
+}
+
+variable "onramp_host_image_checksum_algorithm" {
+  description = "Checksum algorithm for the imported onramp-host cloud image."
+  type        = string
+  default     = "sha512"
+
+  validation {
+    condition     = contains(["md5", "sha1", "sha224", "sha256", "sha384", "sha512"], var.onramp_host_image_checksum_algorithm)
+    error_message = "onramp_host_image_checksum_algorithm must be a provider-supported digest algorithm."
+  }
+}
+
+variable "onramp_host_image_checksum" {
+  description = "Lowercase hexadecimal checksum for the imported onramp-host cloud image."
+  type        = string
+  default     = "df2bd468b08566c0409a7982d6489d73499ad22f9a28646b538c2f21d08f15040a5e4737952ca209e9ad4488cd00793191791be9f135dee93082c86fcca3300c"
+
+  validation {
+    condition = (
+      can(regex("^[0-9a-f]+$", var.onramp_host_image_checksum)) &&
+      length(var.onramp_host_image_checksum) == lookup({
+        md5 = 32, sha1 = 40, sha224 = 56, sha256 = 64, sha384 = 96, sha512 = 128
+      }, var.onramp_host_image_checksum_algorithm, -1)
+    )
+    error_message = "onramp_host_image_checksum must match the selected algorithm as lowercase hexadecimal."
   }
 }
 
@@ -1098,9 +1155,14 @@ variable "searxng_public_url" {
 }
 
 variable "searxng_container_image" {
-  description = "Container image used by the SearXNG onramp workload."
+  description = "Digest-pinned SearXNG OCI image used by the onramp workload."
   type        = string
-  default     = "docker.io/searxng/searxng:latest"
+  default     = "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb"
+
+  validation {
+    condition     = can(regex("^docker\\.io/searxng/searxng:2026\\.7\\.2-[0-9a-f]+@sha256:[0-9a-f]{64}$", var.searxng_container_image))
+    error_message = "searxng_container_image must be a digest-pinned 2026.7.2 SearXNG image."
+  }
 }
 
 variable "searxng_container_port" {

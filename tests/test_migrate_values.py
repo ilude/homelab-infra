@@ -264,6 +264,22 @@ class MigrateValuesTests(unittest.TestCase):
         self.assertEqual(changes, [])
         self.assertNotIn("hermes_discovery_wheel_sha256", updated)
 
+    def test_preserves_partial_custom_hermes_node_pin_group(self) -> None:
+        inventory = (
+            "---\nall:\n  vars:\n"
+            '    hermes_node_version: "22.22.0"\n'
+        )
+
+        updated, changes = migrate_values.ensure_pin_inventory_vars(
+            inventory,
+            migrate_values.HERMES_NODE_PIN_DEFAULTS,
+            "Hermes managed Node.js",
+        )
+
+        self.assertEqual(updated, inventory)
+        self.assertEqual(changes, [])
+        self.assertNotIn("hermes_node_sha256_amd64", updated)
+
     def test_preserves_partial_custom_technitium_pin_group(self) -> None:
         inventory = (
             "---\nall:\n  vars:\n"

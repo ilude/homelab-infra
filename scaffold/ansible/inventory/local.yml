@@ -70,6 +70,9 @@ all:
     hermes_just_version: "1.55.1"
     hermes_just_sha256_amd64: b0ef600f0df20d5ae91ae931627c499fc52b477ffe5f5ea7b7b3ec616b16c778
     hermes_just_sha256_arm64: b0ee814c9656427408e339893541e30d9027828686839499b2a2a34dd61ad173
+    hermes_node_version: "22.23.1"
+    hermes_node_sha256_amd64: 9749e988f437343b7fa832c69ded82a312e41a03116d766797ac14f6f9eee578
+    hermes_node_sha256_arm64: 543fa39e57d4c07855939459a323f4deb9a79dd1bb45e6e99458b0f2de10db8d
     hermes_compression_threshold: 0.75
     hermes_max_concurrent_children: 5
     hermes_max_spawn_depth: 2

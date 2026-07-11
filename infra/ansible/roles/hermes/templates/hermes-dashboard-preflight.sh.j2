@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+fail() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
+[ -x "${HERMES_NODE:-}" ] || fail HERMES_PREFLIGHT_NODE_MISSING
+node_version="$("${HERMES_NODE}" --version 2>/dev/null)" || fail HERMES_PREFLIGHT_NODE_UNUSABLE
+[ "${node_version}" = "v{{ hermes_node_version }}" ] || fail HERMES_PREFLIGHT_NODE_VERSION_MISMATCH
+
+entry="${HERMES_TUI_DIR:-}/dist/entry.js"
+[ -f "${entry}" ] || fail HERMES_PREFLIGHT_TUI_MISSING
+"${HERMES_NODE}" --check "${entry}" >/dev/null 2>&1 || fail HERMES_PREFLIGHT_TUI_INVALID
+
+[ -d "${HERMES_HOME:-}" ] || fail HERMES_PREFLIGHT_HOME_MISSING
+[ -w "${HERMES_HOME}" ] || fail HERMES_PREFLIGHT_HOME_NOT_WRITABLE
+
+/usr/local/lib/hermes-agent/venv/bin/python -c 'import hermes_cli, tui_gateway' >/dev/null 2>&1 \
+  || fail HERMES_PREFLIGHT_PYTHON_IMPORT_FAILED

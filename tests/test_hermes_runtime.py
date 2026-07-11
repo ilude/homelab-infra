@@ -10,6 +10,8 @@ LOCK = ROLE / "files" / "requirements-0.18.0.lock"
 RUNTIME_TASKS = ROLE / "tasks" / "managed-runtime.yml"
 MAIN_TASKS = ROLE / "tasks" / "main.yml"
 UNIT = ROLE / "templates" / "hermes-dashboard.service.j2"
+ENV = ROLE / "templates" / "hermes-dashboard.env.j2"
+PREFLIGHT = ROLE / "templates" / "hermes-dashboard-preflight.sh.j2"
 WHEEL_SHA256 = "bf75c02d59f7c464cd0d85026fb7ee2e6bb15f003beccab3442b572f1ae1fd37"
 
 
@@ -65,10 +67,31 @@ class HermesRuntimeContractTests(unittest.TestCase):
     def test_launcher_systemd_and_runtime_state_contract_are_stable(self) -> None:
         self.assertIn("dest: /usr/local/bin/hermes", self.tasks)
         self.assertIn("exec /usr/local/lib/hermes-agent/venv/bin/hermes", self.tasks)
+        self.assertIn("ExecStartPre=/usr/local/libexec/hermes-dashboard-preflight", self.unit)
         self.assertIn("ExecStart=/usr/local/bin/hermes dashboard", self.unit)
         self.assertIn("User={{ hermes_runtime_user", self.unit)
-        self.assertIn("HERMES_HOME=/home/{{ hermes_runtime_user", (ROLE / "templates" / "hermes-dashboard.env.j2").read_text(encoding="utf-8"))
+        env = ENV.read_text(encoding="utf-8")
+        self.assertIn("HERMES_HOME=/home/{{ hermes_runtime_user", env)
+        self.assertIn("HERMES_NODE=/usr/local/lib/hermes-node/current/bin/node", env)
+        self.assertIn("HERMES_SKIP_NODE_BOOTSTRAP=1", env)
+        self.assertIn("PATH=/usr/local/lib/hermes-node/current/bin:", env)
         self.assertNotIn("/.hermes", self.tasks)
+
+    def test_dashboard_dependencies_are_preflighted_and_logs_are_gated(self) -> None:
+        preflight = PREFLIGHT.read_text(encoding="utf-8")
+        for marker in (
+            "HERMES_PREFLIGHT_NODE_MISSING",
+            "HERMES_PREFLIGHT_NODE_VERSION_MISMATCH",
+            "HERMES_PREFLIGHT_TUI_MISSING",
+            "HERMES_PREFLIGHT_TUI_INVALID",
+            "HERMES_PREFLIGHT_PYTHON_IMPORT_FAILED",
+        ):
+            self.assertIn(marker, preflight)
+        self.assertIn("--check", preflight)
+        self.assertIn("Install verified managed Node.js runtime", self.main)
+        self.assertIn("Link Hermes dashboard TUI bundle to the active release", self.main)
+        self.assertIn("Reject Hermes startup journal errors", self.main)
+        self.assertIn("HERMES_PREFLIGHT_|Chat unavailable|node not found", self.main)
 
 
 if __name__ == "__main__":

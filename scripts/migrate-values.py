@@ -125,6 +125,12 @@ HERMES_DISCOVERY_PIN_DEFAULTS = {
     "hermes_discovery_wheel_sha256": "    hermes_discovery_wheel_sha256: bf75c02d59f7c464cd0d85026fb7ee2e6bb15f003beccab3442b572f1ae1fd37",
 }
 
+HERMES_NODE_PIN_DEFAULTS = {
+    "hermes_node_version": '    hermes_node_version: "22.23.1"',
+    "hermes_node_sha256_amd64": "    hermes_node_sha256_amd64: 9749e988f437343b7fa832c69ded82a312e41a03116d766797ac14f6f9eee578",
+    "hermes_node_sha256_arm64": "    hermes_node_sha256_arm64: 543fa39e57d4c07855939459a323f4deb9a79dd1bb45e6e99458b0f2de10db8d",
+}
+
 TECHNITIUM_DISCOVERY_PIN_DEFAULTS = {
     "technitium_discovery_version": '    technitium_discovery_version: "15.2.0"',
     "technitium_portable_sha256": "    technitium_portable_sha256: 2e39fb8d0718475790cc025e083a1bcfd837a5e79e4a1d0ed775881bd90287ef",
@@ -874,6 +880,9 @@ def migrate(values_dir: Path) -> list[str]:
     inventory_text, hermes_discovery_changes = ensure_pin_inventory_vars(
         inventory_text, HERMES_DISCOVERY_PIN_DEFAULTS, "Hermes managed release"
     )
+    inventory_text, hermes_node_changes = ensure_pin_inventory_vars(
+        inventory_text, HERMES_NODE_PIN_DEFAULTS, "Hermes managed Node.js"
+    )
     inventory_text, technitium_discovery_changes = ensure_pin_inventory_vars(
         inventory_text, TECHNITIUM_DISCOVERY_PIN_DEFAULTS, "Technitium managed release"
     )
@@ -884,6 +893,7 @@ def migrate(values_dir: Path) -> list[str]:
         + mutable_image_changes
         + oci_pin_changes
         + hermes_discovery_changes
+        + hermes_node_changes
         + technitium_discovery_changes
         + integrity_inventory_changes
     )

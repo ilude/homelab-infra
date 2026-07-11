@@ -47,6 +47,18 @@ argument_specs:
         type: str
         required: true
         description: "SHA-256 for the pinned just linux-arm64 archive."
+      hermes_node_version:
+        type: str
+        required: true
+        description: "Node.js version pinned for the Hermes dashboard TUI."
+      hermes_node_sha256_amd64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Node.js linux-x64 archive."
+      hermes_node_sha256_arm64:
+        type: str
+        required: true
+        description: "SHA-256 for the pinned Node.js linux-arm64 archive."
       hermes_discovery_version:
         type: str
         required: true

@@ -9,6 +9,7 @@ User={{ hermes_runtime_user | default('anvil') }}
 Group={{ hermes_runtime_user | default('anvil') }}
 EnvironmentFile=/etc/hermes-dashboard.env
 WorkingDirectory=/home/{{ hermes_runtime_user | default('anvil') }}
+ExecStartPre=/usr/local/libexec/hermes-dashboard-preflight
 ExecStart=/usr/local/bin/hermes dashboard --host {{ hermes_dashboard_host | default('127.0.0.1') }} --port {{ hermes_dashboard_port | default(9119) }} --no-open --insecure
 Restart=on-failure
 RestartSec=5

@@ -344,8 +344,9 @@ class AnsibleSafetyTests(unittest.TestCase):
         tasks = REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml"
         self.assertIn("HERMES_TUI_DIR=/usr/local/lib/hermes-agent/tui", env_template.read_text(encoding="utf-8"))
         text = tasks.read_text(encoding="utf-8")
-        self.assertIn("Resolve bundled Hermes TUI entrypoint", text)
+        self.assertIn("Link Hermes dashboard TUI bundle to the active release", text)
         self.assertIn("/usr/local/lib/hermes-agent/tui/dist/entry.js", text)
+        self.assertIn("/usr/local/lib/hermes-agent/venv/lib/python3.13/site-packages/hermes_cli/tui_dist/entry.js", text)
 
     def test_hermes_enables_linger_for_gateway_user_service(self) -> None:
         task = task_by_name(

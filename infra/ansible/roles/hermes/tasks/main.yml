@@ -77,6 +77,15 @@
       - "set -euo pipefail; packages=\"build-essential ca-certificates caddy curl docker.io git gnupg jq openssh-client python3 python3-pip python3-venv rsync sudo tar unzip xz-utils\"; missing=0; for package in ${packages}; do\n  dpkg-query -W \"${package}\" >/dev/null 2>&1 || missing=1;\ndone; if [[ \"${missing}\" -eq 1 ]]; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};\nfi; systemctl enable --now docker"  # yamllint disable-line rule:line-length
   changed_when: false
 
+- name: Install passwordless sudo policy for Hermes runtime user
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/hermes-runtime
+    owner: root
+    group: root
+    mode: '0440'
+    content: "{{ hermes_runtime_user | default('anvil') }} ALL=(ALL:ALL) NOPASSWD: ALL\n"  # public-safety: allow-secret
+    validate: /usr/sbin/visudo -cf %s
+
 - name: Select Hermes managed Node.js artifact
   ansible.builtin.set_fact:
     hermes_node_arch: "{{ 'x64' if ansible_architecture == 'x86_64' else 'arm64' }}"
@@ -234,6 +243,15 @@
     group: root
   when: hermes_dashboard_enabled | default(true) | bool
   notify: Restart hermes dashboard
+- name: Install Hermes gateway systemd unit
+  ansible.builtin.template:
+    src: hermes-gateway.service.j2
+    dest: /etc/systemd/system/hermes-gateway.service
+    mode: '0644'
+    owner: root
+    group: root
+  when: hermes_dashboard_enabled | default(true) | bool
+  notify: Restart hermes gateway
 - name: Ensure Hermes TUI bundle directory exists
   ansible.builtin.file:
     path: /usr/local/lib/hermes-agent/tui/dist
@@ -255,6 +273,15 @@
 - name: Install managed Hermes Agent runtime
   ansible.builtin.include_tasks: managed-runtime.yml
   when: hermes_dashboard_enabled | default(true) | bool
+- name: Verify active Hermes messaging imports
+  ansible.builtin.command:
+    argv:
+      - /usr/local/lib/hermes-agent/venv/bin/python
+      - -c
+      - import aiohttp, discord, slack_bolt, telegram
+  changed_when: false
+  when: hermes_dashboard_enabled | default(true) | bool
+
 - name: Configure Hermes context compression and delegation limits
   ansible.builtin.command:
     argv:
@@ -297,6 +324,13 @@
       - systemctl daemon-reload && systemctl enable --now hermes-dashboard
   when: hermes_dashboard_enabled | default(true) | bool
   changed_when: false
+- name: Enable Hermes gateway service
+  ansible.builtin.systemd:
+    name: hermes-gateway
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: hermes_dashboard_enabled | default(true) | bool
 - name: Install Hermes Caddyfile
   ansible.builtin.template:
     src: Caddyfile.j2
@@ -349,6 +383,18 @@
   retries: 6
   delay: 5
   until: hermes_caddy_active.rc == 0
+- name: Verify Hermes gateway service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - hermes-gateway
+  when: hermes_dashboard_enabled | default(true) | bool
+  changed_when: false
+  register: hermes_gateway_active
+  retries: 6
+  delay: 5
+  until: hermes_gateway_active.rc == 0
 - name: Verify Hermes dashboard service is active
   ansible.builtin.command:
     argv:
@@ -397,7 +443,7 @@
       - -lc
       - >-
         set -euo pipefail;
-        if journalctl --unit hermes-dashboard
+        if journalctl --unit hermes-dashboard --unit hermes-gateway
         --since "@{{ hermes_deployment_started_epoch.stdout | trim }}"
         --no-pager --output=cat |
         grep -Eqi

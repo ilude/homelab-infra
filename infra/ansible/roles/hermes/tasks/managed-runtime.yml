@@ -22,14 +22,23 @@
       - ansible_python.version.minor == 13
     fail_msg: The tracked Hermes wheel lock supports only Debian 13 amd64 with Python 3.13.
 
+- name: Compute Hermes requirements lock checksum
+  ansible.builtin.set_fact:
+    hermes_requirements_lock_sha256: >-
+      {{ lookup('file', role_path ~ '/files/requirements-' ~ hermes_discovery_version ~ '.lock')
+         | hash('sha256') }}
+
 - name: Compute Hermes managed release paths
   ansible.builtin.set_fact:
     hermes_install_root: /usr/local/lib/hermes-agent
-    hermes_release_id: "{{ hermes_discovery_version }}-{{ hermes_discovery_commit[0:12] }}"
-    hermes_release_directory: "/usr/local/lib/hermes-agent/releases/{{ hermes_discovery_version }}-{{ hermes_discovery_commit[0:12] }}"
+    hermes_release_id: >-
+      {{ hermes_discovery_version }}-{{ hermes_discovery_commit[0:12] }}-{{ hermes_requirements_lock_sha256[0:12] }}
+    hermes_release_directory: >-
+      /usr/local/lib/hermes-agent/releases/{{ hermes_discovery_version }}-{{ hermes_discovery_commit[0:12] }}-{{ hermes_requirements_lock_sha256[0:12] }}
     hermes_release_marker: >-
       {{ hermes_discovery_version }} {{ hermes_discovery_tag }}
       {{ hermes_discovery_commit }} {{ hermes_discovery_wheel_sha256 }}
+      {{ hermes_requirements_lock_sha256 }}
 
 - name: Ensure Hermes managed release directories exist
   ansible.builtin.file:
@@ -167,6 +176,13 @@
           - pip
           - check
       changed_when: false
+    - name: Verify staged Hermes messaging imports
+      ansible.builtin.command:
+        argv:
+          - "{{ hermes_release_directory }}/venv/bin/python"
+          - -c
+          - import aiohttp, discord, slack_bolt, telegram
+      changed_when: false
     - name: Verify installed Hermes package version
       ansible.builtin.command:
         argv:
@@ -239,6 +255,11 @@
 - name: Atomically activate verified Hermes release with rollback
   when: hermes_update_required | bool
   block:
+    - name: Stop Hermes gateway before activation
+      ansible.builtin.systemd:
+        name: hermes-gateway
+        state: stopped
+        daemon_reload: true
     - name: Stop Hermes dashboard before activation
       ansible.builtin.systemd:
         name: hermes-dashboard
@@ -279,6 +300,23 @@
         enabled: true
         state: started
         daemon_reload: true
+    - name: Start activated Hermes gateway
+      ansible.builtin.systemd:
+        name: hermes-gateway
+        enabled: true
+        state: started
+        daemon_reload: true
+    - name: Verify activated Hermes gateway
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - hermes-gateway
+      changed_when: false
+      register: hermes_gateway_activation_health
+      retries: 6
+      delay: 5
+      until: hermes_gateway_activation_health.rc == 0
     - name: Verify activated Hermes dashboard login page
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ hermes_dashboard_port | default(9119) }}/login"
@@ -306,6 +344,11 @@
         group: root
         mode: '0644'
   rescue:
+    - name: Stop failed Hermes gateway release
+      ansible.builtin.systemd:
+        name: hermes-gateway
+        state: stopped
+      failed_when: false
     - name: Stop failed Hermes dashboard release
       ansible.builtin.systemd:
         name: hermes-dashboard
@@ -339,6 +382,12 @@
     - name: Restart rolled-back Hermes dashboard
       ansible.builtin.systemd:
         name: hermes-dashboard
+        enabled: true
+        state: started
+      when: hermes_active_venv.stat.exists | default(false)
+    - name: Restart rolled-back Hermes gateway
+      ansible.builtin.systemd:
+        name: hermes-gateway
         enabled: true
         state: started
       when: hermes_active_venv.stat.exists | default(false)

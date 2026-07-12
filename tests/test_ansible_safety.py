@@ -348,6 +348,18 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("/usr/local/lib/hermes-agent/tui/dist/entry.js", text)
         self.assertIn("/usr/local/lib/hermes-agent/venv/lib/python3.13/site-packages/hermes_cli/tui_dist/entry.js", text)
 
+    def test_hermes_passwordless_sudo_policy_is_validated(self) -> None:
+        task = task_by_name(
+            REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",
+            "Install passwordless sudo policy for Hermes runtime user",
+        )
+        copy = task["ansible.builtin.copy"]
+        self.assertEqual(copy["dest"], "/etc/sudoers.d/hermes-runtime")
+        self.assertEqual(copy["mode"], "0440")
+        self.assertEqual(copy["validate"], "/usr/sbin/visudo -cf %s")
+        self.assertIn("NOPASSWD: ALL", copy["content"])  # public-safety: allow-secret
+        self.assertIn("hermes_runtime_user", copy["content"])
+
     def test_hermes_enables_linger_for_gateway_user_service(self) -> None:
         task = task_by_name(
             REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",

@@ -29,9 +29,10 @@ OCI_INDEX_MEDIA_TYPES = {
 }
 OCI_MANIFEST_ACCEPT = ", ".join((*OCI_INDEX_MEDIA_TYPES, "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"))
 OCI_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-HERMES_LOCK_PACKAGE_COUNT = 60
+HERMES_LOCK_PACKAGE_COUNT = 79
 HERMES_LOCK_REQUIREMENT_RE = re.compile(
-    r"(?m)^[a-z0-9][a-z0-9_.-]*(?:\[[^]]+\])?==[^ \t\\]+ \\$"
+    r"(?m)^[a-z0-9][a-z0-9_.-]*(?:\[[^]]+\])?==[^ \t\\]+"
+    r"(?: \\| --hash=sha256:[0-9a-f]{64}(?:\s+#.*)?)$"
 )
 
 
@@ -1161,7 +1162,7 @@ def validate_hermes_lock(root: Path, version: str, checksum: str) -> None:
     if len(requirements) != HERMES_LOCK_PACKAGE_COUNT:
         raise UpdateError(
             f"Hermes {version}: tracked lock has {len(requirements)} requirements; "
-            f"expected {HERMES_LOCK_PACKAGE_COUNT} for the approved dashboard extras"
+            f"expected {HERMES_LOCK_PACKAGE_COUNT} for the approved dashboard and messaging extras"
         )
     blocks = re.split(r"(?m)(?=^[a-z0-9][a-z0-9_.-]*(?:\[[^]]+\])?==)", text)
     requirement_blocks = [block for block in blocks if HERMES_LOCK_REQUIREMENT_RE.match(block)]

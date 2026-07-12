@@ -4,6 +4,11 @@
     name: hermes-dashboard
     state: restarted
     daemon_reload: true
+- name: Restart hermes gateway
+  ansible.builtin.systemd:
+    name: hermes-gateway
+    state: restarted
+    daemon_reload: true
 - name: Restart caddy
   ansible.builtin.systemd:
     name: caddy

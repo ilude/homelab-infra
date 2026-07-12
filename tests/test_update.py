@@ -471,12 +471,12 @@ class UpdateTests(unittest.TestCase):
             lock = root / "infra" / "ansible" / "roles" / "hermes" / "files" / "requirements-0.18.0.lock"
             lock.parent.mkdir(parents=True)
             lock.write_text(
-                "hermes-agent[pty, web]==0.18.0 \\\n"
+                "hermes-agent[messaging, pty, web]==0.18.0 \\\n"
                 f"    --hash=sha256:{update_script.HERMES_DISCOVERY.managed_wheel_sha256}\n",
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(update_script.UpdateError, "expected 60"):
+            with self.assertRaisesRegex(update_script.UpdateError, "expected 79"):
                 update_script.validate_hermes_lock(
                     root,
                     update_script.HERMES_DISCOVERY.managed_version,

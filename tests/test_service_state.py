@@ -17,7 +17,9 @@ CATALOG_PATH = REPO / "infra/ansible/vars/service-state.yml"
 RESTORE_PATH = REPO / "infra/ansible/playbooks/service-state-restore.yml"
 BACKUP_PATH = REPO / "infra/ansible/playbooks/service-state-backup.yml"
 VALIDATOR_PATH = REPO / "infra/ansible/scripts/validate-service-state-archive.py"
+FETCH_HELPER_PATH = REPO / "infra/ansible/scripts/fetch-service-state.py"
 TECHNITIUM_ROLE_TASKS = REPO / "infra/ansible/roles/technitium/tasks/main.yml"
+FORGEJO_ROLE_TASKS = REPO / "infra/ansible/roles/forgejo/tasks/main.yml"
 TECHNITIUM_ROLE_DEFAULTS = REPO / "infra/ansible/roles/technitium/defaults/main.yml"
 
 spec = importlib.util.spec_from_file_location("service_state_validator", VALIDATOR_PATH)
@@ -121,6 +123,9 @@ class ServiceStateCatalogTests(unittest.TestCase):
             ["hermes-gateway", "hermes-dashboard"],
         )
 
+    def test_forgejo_installs_state_backup_transport(self) -> None:
+        self.assertIn("openssh-server rsync sqlite3", FORGEJO_ROLE_TASKS.read_text(encoding="utf-8"))
+
     def test_technitium_restore_ownership_matches_managed_role(self) -> None:
         path = load_catalog()["technitium"]["paths"][0]
         role_tasks = yaml.safe_load(TECHNITIUM_ROLE_TASKS.read_text(encoding="utf-8"))
@@ -191,6 +196,14 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
         self.assertIn("service_state_restored_path_stats.results", text)
         backup = BACKUP_PATH.read_text(encoding="utf-8")
         self.assertIn("item.path", backup)
+
+    def test_large_archives_stream_without_ansible_fetch_buffering(self) -> None:
+        backup = BACKUP_PATH.read_text(encoding="utf-8")
+        helper = FETCH_HELPER_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("ansible.builtin.fetch", backup)
+        self.assertIn("fetch-service-state.py", backup)
+        self.assertIn("subprocess.run(command, stdout=output, check=True)", helper)
+        self.assertIn("temporary.replace(args.output)", helper)
 
     def test_pre_restore_archive_has_manifest_checksum_and_private_permissions(self) -> None:
         text = RESTORE_PATH.read_text(encoding="utf-8")

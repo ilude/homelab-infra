@@ -11,7 +11,7 @@
     argv:
       - bash
       - -lc
-      - "set -euo pipefail; packages=\"ca-certificates curl git git-lfs openssh-server sqlite3\"; missing=0; for package in ${packages}; do\n  dpkg-query -W \"${package}\" >/dev/null 2>&1 || missing=1;\ndone; if [[ \"${missing}\" -eq 1 ]]; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};\nfi"  # yamllint disable-line rule:line-length
+      - "set -euo pipefail; packages=\"ca-certificates curl git git-lfs openssh-server rsync sqlite3\"; missing=0; for package in ${packages}; do\n  dpkg-query -W \"${package}\" >/dev/null 2>&1 || missing=1;\ndone; if [[ \"${missing}\" -eq 1 ]]; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};\nfi"  # yamllint disable-line rule:line-length
   changed_when: false
 - name: Enable Git LFS system hooks
   ansible.builtin.command:

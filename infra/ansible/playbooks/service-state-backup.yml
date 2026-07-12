@@ -97,11 +97,18 @@
               service_state_remote_archive, 'MANIFEST.json'] + service_state_existing_archive_paths }}
       changed_when: true
 
-    - name: Fetch service-state archive into private values
-      ansible.builtin.fetch:
-        src: "{{ service_state_remote_archive }}"
-        dest: "{{ service_state_local_dir }}/{{ service_state_archive_name }}"
-        flat: true
+    - name: Stream service-state archive into private values
+      ansible.builtin.command:
+        argv: >-
+          {{ ['python', '/workspace/infra/ansible/scripts/fetch-service-state.py',
+              '--host', ansible_host, '--user', ansible_user,
+              '--ssh-common-args', ansible_ssh_common_args | default(''),
+              '--remote', service_state_remote_archive,
+              '--output', service_state_local_dir ~ '/' ~ service_state_archive_name]
+             + (['--become'] if ansible_become | default(false) | bool else []) }}
+      changed_when: true
+      delegate_to: localhost
+      become: false
 
     - name: Restrict local service-state archive permissions
       ansible.builtin.file:

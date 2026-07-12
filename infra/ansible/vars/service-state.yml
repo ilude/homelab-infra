@@ -3,6 +3,7 @@ managed_service_state_catalog:
     group: hermes
     description: Hermes memory, soul, config, history, and dashboard runtime state.
     services:
+      - hermes-gateway
       - hermes-dashboard
     paths:
       - path: "/home/{{ hermes_runtime_user | default('anvil') }}/.hermes"

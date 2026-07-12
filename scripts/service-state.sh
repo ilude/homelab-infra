@@ -22,7 +22,8 @@ if ! jq -e '.services | all(.[]; (.state_capable | type) == "boolean")' infra/se
   exit 2
 fi
 mapfile -t state_capable_services < <(
-  jq -r '.services | to_entries | map(select(.value.state_capable)) | sort_by(.value.state_order // 999999)[] | .key' infra/services.json
+  jq -r '.services | to_entries | map(select(.value.state_capable)) | sort_by(.value.state_order // 999999)[] | .key' infra/services.json |
+    tr -d '\r'
 )
 
 is_supported_service() {
@@ -101,7 +102,7 @@ enabled_supported_services() {
     if is_supported_service "${service}"; then
       printf '%s\n' "${service}"
     fi
-  done < <(scripts/python.sh scripts/settings.py services | tr ' ' '\n')
+  done < <(scripts/python.sh scripts/settings.py services | tr -d '\r' | tr ' ' '\n')
 }
 
 run_playbook() {
@@ -110,17 +111,23 @@ run_playbook() {
   local group
   group="$(service_group "${service}")"
 
+  local inventory_args="-i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py"
+  local refresh_direct_access=""
+  if [[ "$(jq -r --arg service "${service}" '.services[$service].execution_resource // ""' infra/services.json | tr -d '\r')" == "direct_lxc_known_hosts" ]]; then
+    refresh_direct_access="ansible-playbook ${inventory_args} -e direct_access_target_group=${group@Q} infra/ansible/playbooks/direct-access-ready.yml;"
+  fi
+
   if [[ "${mode}" == "backup" ]]; then
     INFRA_COPY_SSH_KEYS="${INFRA_COPY_SSH_KEYS:-true}" \
       SERVICE_STATE_BACKUP_ROOT="${backup_root}" \
       scripts/run-infra.sh bash -lc \
-      "export PATH=/opt/ansible/bin:\$PATH; ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-backup.yml"
+      "export PATH=/opt/ansible/bin:\$PATH; ${refresh_direct_access} ansible-playbook ${inventory_args} -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-backup.yml"
   else
     INFRA_COPY_SSH_KEYS="${INFRA_COPY_SSH_KEYS:-true}" \
       SERVICE_STATE_BACKUP_ROOT="${backup_root}" \
       SERVICE_STATE_RESTORE_FILE="${restore_file}" \
       scripts/run-infra.sh bash -lc \
-      "export PATH=/opt/ansible/bin:\$PATH; ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-restore.yml"
+      "export PATH=/opt/ansible/bin:\$PATH; ${refresh_direct_access} ansible-playbook ${inventory_args} -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-restore.yml"
   fi
 }
 

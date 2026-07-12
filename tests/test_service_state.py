@@ -115,6 +115,12 @@ class ServiceStateCatalogTests(unittest.TestCase):
         self.assertEqual(path["owner"], "anvil")
         self.assertTrue(path["recurse"])
 
+    def test_hermes_backup_stops_dashboard_and_gateway(self) -> None:
+        self.assertEqual(
+            load_catalog()["hermes"]["services"],
+            ["hermes-gateway", "hermes-dashboard"],
+        )
+
     def test_technitium_restore_ownership_matches_managed_role(self) -> None:
         path = load_catalog()["technitium"]["paths"][0]
         role_tasks = yaml.safe_load(TECHNITIUM_ROLE_TASKS.read_text(encoding="utf-8"))

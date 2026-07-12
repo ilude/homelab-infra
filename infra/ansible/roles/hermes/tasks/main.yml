@@ -36,6 +36,9 @@
     groups: users
     append: true
 
+- name: Restore guarded private Hermes state during bootstrap
+  ansible.builtin.include_tasks: bootstrap-state.yml
+
 - name: Ensure Hermes runtime state directory exists
   ansible.builtin.file:
     path: "/home/{{ hermes_runtime_user | default('anvil') }}/.hermes"

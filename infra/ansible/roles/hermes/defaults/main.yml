@@ -1,3 +1,6 @@
 ---
 hermes_runtime_user: anvil
 hermes_ssh_public_keys: []
+hermes_default_soul_sha256:
+  - 2765a846e1bb371d78d3b93b403dfb0f8d1ba1a9895edb5f608367abfe81194d
+  - 29993087d2d7a0fb9f71c589f878b3c5b28c67f61765d51a13f9740fcf82e189

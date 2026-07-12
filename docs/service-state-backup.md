@@ -77,8 +77,12 @@ both files when this repo starts managing a new stateful service.
 - A destructive plan affecting multiple stateful services is blocked by default. Use `INFRA_TARGET_SERVICE=<service> just plan` for the canary rollout, verify its direct endpoint and state, then create the next plan.
 - Review and commit/push the private `values/` repo after a successful backup if
   you want the archive stored in the private remote.
-- Restore is intentionally explicit and service-scoped; it should not run as part
-  of normal `just apply`.
+- Restore is normally explicit and service-scoped. Hermes is the exception during
+  guarded bootstrap: when a normal private backup exists and live state is absent
+  or empty, the role validates and restores the newest complete `.hermes` archive
+  before starting Hermes. A customized live
+  state directory is never overwritten automatically, and a backup containing a
+  known default soul is rejected for automatic restoration.
 - Backup manifests use schema version 1 and identify the target, archive kind,
   timestamp, description, and paths present at backup time. Legacy manifestless
   Hermes archives remain supported after the same path and link safety checks.

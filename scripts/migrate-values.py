@@ -136,6 +136,10 @@ HERMES_NODE_PIN_DEFAULTS = {
     "hermes_node_sha256_arm64": "    hermes_node_sha256_arm64: 543fa39e57d4c07855939459a323f4deb9a79dd1bb45e6e99458b0f2de10db8d",
 }
 
+TAILSCALE_PIN_DEFAULTS = {
+    "tailscale_client_version": '    tailscale_client_version: "1.98.8"',
+}
+
 TECHNITIUM_DISCOVERY_PIN_DEFAULTS = {
     "technitium_discovery_version": '    technitium_discovery_version: "15.2.0"',
     "technitium_portable_sha256": "    technitium_portable_sha256: 2e39fb8d0718475790cc025e083a1bcfd837a5e79e4a1d0ed775881bd90287ef",
@@ -904,6 +908,9 @@ def migrate(values_dir: Path) -> list[str]:
     inventory_text, technitium_discovery_changes = ensure_pin_inventory_vars(
         inventory_text, TECHNITIUM_DISCOVERY_PIN_DEFAULTS, "Technitium managed release"
     )
+    inventory_text, tailscale_pin_changes = ensure_inventory_defaults(
+        inventory_text, TAILSCALE_PIN_DEFAULTS, "Tailscale managed release"
+    )
     inventory_text, integrity_inventory_changes = ensure_integrity_inventory_vars(inventory_text)
     pin_changes = (
         pve_inventory_changes
@@ -914,6 +921,7 @@ def migrate(values_dir: Path) -> list[str]:
         + hermes_discovery_changes
         + hermes_node_changes
         + technitium_discovery_changes
+        + tailscale_pin_changes
         + integrity_inventory_changes
     )
     changes.extend(pin_changes)

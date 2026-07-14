@@ -69,6 +69,7 @@ class Target:
     checksum_asset_template: str | None = None
     checksum_file_template: str | None = None
     extra_checksums: tuple[tuple[str, str, str], ...] = ()
+    extra_checksum_asset_templates: tuple[str, ...] = ()
     managed_default_version: str | None = None
     managed_default_checksums: tuple[str, ...] = ()
 
@@ -130,6 +131,28 @@ class HermesDiscoveryTarget:
     managed_wheel_sha256: str
 
 
+@dataclass(frozen=True)
+class TagPinTarget:
+    name: str
+    path: Path
+    pattern: str
+    replacement: str
+    tags_url: str
+    commit_url_template: str
+    managed_version: str
+
+
+@dataclass(frozen=True)
+class GoToolchainTarget:
+    name: str
+    path: Path
+    releases_url: str
+    commit_url_template: str
+    managed_version: str
+    managed_sha256_amd64: str
+    managed_sha256_arm64: str
+
+
 OCI_TARGETS = (
     OciTarget("Infisical image", Path("values/ansible/inventory/local.yml"), r"(?m)^(\s*infisical_container_image:\s*)(\S+)\s*$", r"\g<1>{reference}", "infisical/infisical", r"v0\.161\.\d+", "docker.io/infisical/infisical:v0.161.11@sha256:efe2d4fe5f37fb250ce5956ecc4734cc9ab1b50629d97cf7793d54200a18642b", "infisical"),
     OciTarget("PostgreSQL image", Path("values/ansible/inventory/local.yml"), r"(?m)^(\s*infisical_postgres_image:\s*)(\S+)\s*$", r"\g<1>{reference}", "library/postgres", r"16\.\d+-alpine[\w.-]*", "docker.io/library/postgres:16.14-alpine3.22@sha256:786dab398303b8ce7cb76b407bb21ef2e4dfbbbd4c6abcf3d29b3130467ffdbc", "infisical"),
@@ -147,6 +170,26 @@ HERMES_DISCOVERY = HermesDiscoveryTarget(
     managed_tag="v2026.7.1",
     managed_commit="7c1a029553d87c43ecff8a3821336bc95872213b",
     managed_wheel_sha256="bf75c02d59f7c464cd0d85026fb7ee2e6bb15f003beccab3442b572f1ae1fd37",
+)
+
+CADDY_CLOUDFLARE_TAG = TagPinTarget(
+    name="Caddy Cloudflare module",
+    path=Path("values/ansible/inventory/local.yml"),
+    pattern=r'(?m)^(\s*caddy_build_cloudflare_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
+    replacement=r"\g<1>{version}\g<3>",
+    tags_url="https://api.github.com/repos/caddy-dns/cloudflare/tags?per_page=100",
+    commit_url_template="https://api.github.com/repos/caddy-dns/cloudflare/commits/{commit}",
+    managed_version="0.2.4",
+)
+
+CADDY_GO_TOOLCHAIN = GoToolchainTarget(
+    name="Caddy Go toolchain",
+    path=Path("values/ansible/inventory/local.yml"),
+    releases_url="https://go.dev/dl/?mode=json",
+    commit_url_template="https://api.github.com/repos/golang/go/commits/go{version}",
+    managed_version="1.25.1",
+    managed_sha256_amd64="7716a0d940a0f6ae8e1f3b3f4f36299dc53e31b16840dbd171254312c41ca12e",
+    managed_sha256_arm64="65a3e34fb2126f55b34e1edfc709121660e1be2dee6bdf405fc399a63a95a87d",
 )
 
 TECHNITIUM_DISCOVERY = DiscoveryTarget(
@@ -167,6 +210,30 @@ TECHNITIUM_DISCOVERY = DiscoveryTarget(
 
 
 TARGETS = (
+    Target(
+        name="Caddy",
+        path=Path("values/ansible/inventory/local.yml"),
+        pattern=r'(?m)^(\s*caddy_build_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
+        replacement=r"\g<1>{version}\g<3>",
+        release_url="https://api.github.com/repos/caddyserver/caddy/releases/latest",
+        managed_default_version="2.11.4",
+    ),
+    Target(
+        name="xcaddy",
+        path=Path("values/ansible/inventory/local.yml"),
+        pattern=r'(?m)^(\s*caddy_build_xcaddy_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
+        replacement=r"\g<1>{version}\g<3>",
+        release_url="https://api.github.com/repos/caddyserver/xcaddy/releases/latest",
+        managed_default_version="0.4.6",
+    ),
+    Target(
+        name="Tailscale",
+        path=Path("values/ansible/inventory/local.yml"),
+        pattern=r'(?m)^(\s*tailscale_client_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
+        replacement=r"\g<1>{version}\g<3>",
+        release_url="https://api.github.com/repos/tailscale/tailscale/releases/latest",
+        managed_default_version="1.98.8",
+    ),
     Target(
         name="OpenTofu",
         path=Path("tools/Dockerfile"),
@@ -194,10 +261,10 @@ TARGETS = (
         path=Path("values/ansible/inventory/local.yml"),
         pattern=r'(?m)^(\s*forgejo_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
-        release_url="https://code.forgejo.org/api/v1/repos/forgejo/forgejo/releases/latest",
+        release_url="https://codeberg.org/api/v1/repos/forgejo/forgejo/releases/latest",
         checksum_pattern=r"(?m)^(\s*forgejo_sha256_amd64:\s*)([^\s]+)$",
         checksum_replacement=r"\g<1>{checksum}",
-        checksum_asset_template="forgejo_{version}_sha256sums.txt",
+        checksum_asset_template="forgejo-{version}-linux-amd64.sha256",
         checksum_file_template="forgejo-{version}-linux-amd64",
         managed_default_version="12.0.4",
         managed_default_checksums=("59fb6129e0396dc3502be60950438a03d227bb5691ee08b02dd38794f3d25a2a",),
@@ -210,9 +277,10 @@ TARGETS = (
         release_url="https://code.forgejo.org/api/v1/repos/forgejo/runner/releases/latest",
         checksum_pattern=r"(?m)^(\s*forgejo_runner_sha256_amd64:\s*)([^\s]+)$",
         checksum_replacement=r"\g<1>{checksum}",
-        checksum_asset_template="forgejo-runner-{version}-sha256sums.txt",
+        checksum_asset_template="forgejo-runner-{version}-linux-amd64.sha256",
         checksum_file_template="forgejo-runner-{version}-linux-amd64",
         extra_checksums=((r"(?m)^(\s*forgejo_runner_sha256_arm64:\s*)([^\s]+)$", "forgejo-runner-{version}-linux-arm64", r"\g<1>{checksum}"),),
+        extra_checksum_asset_templates=("forgejo-runner-{version}-linux-arm64.sha256",),
         managed_default_version="12.7.3",
         managed_default_checksums=(
             "706f718bdf63baa345a1794924eec089be80df9bc38f02cefdc9a492f7c86b83",
@@ -417,9 +485,11 @@ def is_managed_default(target: Target, current: str, text: str) -> bool:
         return True
     if current != target.managed_default_version:
         return False
-    patterns = (target.checksum_pattern,) + tuple(
-        pattern for pattern, _file_name, _replacement in target.extra_checksums
-    )
+    patterns = tuple(
+        pattern
+        for pattern in (target.checksum_pattern,)
+        if pattern is not None
+    ) + tuple(pattern for pattern, _file_name, _replacement in target.extra_checksums)
     if len(patterns) != len(target.managed_default_checksums):
         raise UpdateError(f"{target.name}: incomplete managed-default checksum policy")
     return all(
@@ -497,11 +567,30 @@ def checksums_for_release(
     primary = checksum_from_manifest(
         checksum_text, asset_name, target.checksum_file_template.format(version=release.version)
     )
-    extra = tuple(
-        checksum_from_manifest(checksum_text, asset_name, file_template.format(version=release.version))
-        for _pattern, file_template, _replacement in target.extra_checksums
-    )
-    return primary, extra
+    if target.extra_checksum_asset_templates and len(
+        target.extra_checksum_asset_templates
+    ) != len(target.extra_checksums):
+        raise UpdateError(f"{target.name}: incomplete extra checksum asset policy")
+    extra = []
+    for index, (_pattern, file_template, _replacement) in enumerate(target.extra_checksums):
+        extra_asset_name = (
+            target.extra_checksum_asset_templates[index].format(version=release.version)
+            if target.extra_checksum_asset_templates
+            else asset_name
+        )
+        extra_checksum_text = (
+            fetch_url(release_asset_url(release, extra_asset_name), opener).decode("utf-8")
+            if extra_asset_name != asset_name
+            else checksum_text
+        )
+        extra.append(
+            checksum_from_manifest(
+                extra_checksum_text,
+                extra_asset_name,
+                file_template.format(version=release.version),
+            )
+        )
+    return primary, tuple(extra)
 
 
 def replace_version(target: Target, text: str, release: Release, checksum: str | None, extra_checksums: tuple[str, ...] = ()) -> str:
@@ -587,8 +676,7 @@ def process_target(
         target, confirmed_release, opener
     )
     if (
-        confirmed_release.version != release.version
-        or confirmed_release.published_at != release.published_at
+        release_identity(confirmed_release) != release_identity(release)
         or confirmed_checksum != checksum
         or confirmed_extra_checksums != extra_checksums
     ):
@@ -630,11 +718,17 @@ def response_header(response: OciResponse, name: str) -> str:
 def oci_digest(response: OciResponse, context: str, expected: str | None = None) -> str:
     header = response_header(response, "Docker-Content-Digest")
     computed = f"sha256:{sha256(response.body).hexdigest()}"
-    if not OCI_DIGEST_RE.fullmatch(header) or header != computed:
-        raise UpdateError(f"{context}: registry digest header does not match body")
-    if expected is not None and header != expected:
+    if header:
+        if not OCI_DIGEST_RE.fullmatch(header) or header != computed:
+            raise UpdateError(f"{context}: registry digest header does not match body")
+        digest = header
+    elif expected is not None and computed == expected:
+        digest = computed
+    else:
+        raise UpdateError(f"{context}: registry digest header is missing")
+    if expected is not None and digest != expected:
         raise UpdateError(f"{context}: registry digest changed during resolution")
-    return header
+    return digest
 
 
 def validate_oci_reference(reference: str, repository: str) -> None:
@@ -1011,8 +1105,7 @@ def process_discovery_target(
     confirmed_checksum = technitium_checksum(target, confirmed_release.version, opener)
     confirmed_provenance = technitium_provenance(target, confirmed_release, opener)
     if (
-        confirmed_release.version != release.version
-        or confirmed_release.published_at != release.published_at
+        release_identity(confirmed_release) != release_identity(release)
         or confirmed_checksum != checksum
         or confirmed_provenance != provenance
     ):
@@ -1528,16 +1621,6 @@ def process_custom_hermes_discovery_target(
     )
 
 
-
-
-def fetch_json_value(
-    url: str,
-    opener: Callable[[str], bytes] | None = None,
-) -> object:
-    try:
-        return json.loads(fetch_url(url, opener).decode("utf-8"))
-    except json.JSONDecodeError as error:
-        raise UpdateError(f"invalid JSON from {url}: {error}") from error
 def process_hermes_discovery_target(
     target: HermesDiscoveryTarget,
     root: Path,
@@ -1611,6 +1694,185 @@ def process_hermes_discovery_target(
     )
 
 
+def fetch_json_value(
+    url: str,
+    opener: Callable[[str], bytes] | None = None,
+) -> object:
+    try:
+        return json.loads(fetch_url(url, opener).decode("utf-8"))
+    except json.JSONDecodeError as error:
+        raise UpdateError(f"invalid JSON from {url}: {error}") from error
+
+
+def github_commit_time(payload: object, context: str) -> datetime:
+    if not isinstance(payload, dict):
+        raise UpdateError(f"{context}: unexpected commit payload")
+    commit = payload.get("commit")
+    if not isinstance(commit, dict):
+        raise UpdateError(f"{context}: commit metadata is missing")
+    committer = commit.get("committer")
+    if not isinstance(committer, dict) or not isinstance(committer.get("date"), str):
+        raise UpdateError(f"{context}: committer timestamp is missing")
+    return parse_timestamp(committer["date"])
+
+
+def resolve_tag_pin(
+    target: TagPinTarget,
+    opener: Callable[[str], bytes] | None = None,
+) -> tuple[str, str, datetime]:
+    payload = fetch_json_value(target.tags_url, opener)
+    if not isinstance(payload, list):
+        raise UpdateError(f"{target.name}: unexpected tags payload")
+    candidates: list[tuple[str, str]] = []
+    for item in payload:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            continue
+        match = re.fullmatch(r"v?(\d+[.]\d+[.]\d+)", item["name"])
+        commit = item.get("commit")
+        if match is None or not isinstance(commit, dict) or not isinstance(commit.get("sha"), str):
+            continue
+        candidates.append((match.group(1), commit["sha"]))
+    if not candidates:
+        raise UpdateError(f"{target.name}: no semantic version tags found")
+    version, commit = max(candidates, key=lambda item: natural_tag_key(item[0]))
+    published = github_commit_time(
+        fetch_json_value(target.commit_url_template.format(commit=commit), opener),
+        target.name,
+    )
+    return version, commit, published
+
+
+def process_tag_pin_target(
+    target: TagPinTarget,
+    root: Path,
+    now: datetime,
+    opener: Callable[[str], bytes] | None = None,
+) -> UpdateResult:
+    path = root / target.path
+    if not path.exists():
+        return UpdateResult(target.name, target.path, None, None, "skip", "file not present")
+    text = path.read_text(encoding="utf-8")
+    match = re.search(target.pattern, text)
+    if match is None:
+        return UpdateResult(target.name, target.path, None, None, "skip", "version pin not present")
+    current = match.group(2)
+    if current != target.managed_version:
+        return UpdateResult(target.name, target.path, current, None, "skip", "custom operator pin")
+    version, commit, published = resolve_tag_pin(target, opener)
+    if version == current:
+        return UpdateResult(target.name, target.path, current, version, "current", "latest semantic tag")
+    age = now - published
+    if age < timedelta(hours=OCI_MIN_AGE_HOURS):
+        return UpdateResult(target.name, target.path, current, version, "hold", f"tag commit age {age}; strict {OCI_MIN_AGE_HOURS}h hold")
+    confirmed = resolve_tag_pin(target, opener)
+    if confirmed != (version, commit, published):
+        raise UpdateError(f"{target.name}: tag changed during re-resolution")
+    if path.read_text(encoding="utf-8") != text:
+        raise UpdateError(f"{target.name}: pin file changed during resolution")
+    replacement_target = Target(target.name, target.path, "", "", target.tags_url)
+    updated = replace_once(
+        target.pattern,
+        target.replacement.format(version=version),
+        text,
+        replacement_target,
+    )
+    atomic_write_text(path, updated)
+    return UpdateResult(target.name, target.path, current, version, "updated", f"verified tag commit; strict {OCI_MIN_AGE_HOURS}h hold")
+
+
+def resolve_go_toolchain(
+    target: GoToolchainTarget,
+    opener: Callable[[str], bytes] | None = None,
+) -> tuple[str, str, str, datetime]:
+    payload = fetch_json_value(target.releases_url, opener)
+    if not isinstance(payload, list):
+        raise UpdateError(f"{target.name}: unexpected release payload")
+    release = next(
+        (item for item in payload if isinstance(item, dict) and item.get("stable") is True),
+        None,
+    )
+    if not isinstance(release, dict) or not isinstance(release.get("version"), str):
+        raise UpdateError(f"{target.name}: no stable release found")
+    version = release["version"].removeprefix("go")
+    files = release.get("files")
+    if not isinstance(files, list):
+        raise UpdateError(f"{target.name}: release files are missing")
+    checksums: dict[str, str] = {}
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        arch = item.get("arch")
+        if (
+            item.get("os") == "linux"
+            and item.get("kind") == "archive"
+            and arch in {"amd64", "arm64"}
+            and isinstance(item.get("sha256"), str)
+        ):
+            checksums[str(arch)] = item["sha256"]
+    if set(checksums) != {"amd64", "arm64"} or any(
+        not re.fullmatch(r"[0-9a-f]{64}", value) for value in checksums.values()
+    ):
+        raise UpdateError(f"{target.name}: Linux checksums are incomplete")
+    published = github_commit_time(
+        fetch_json_value(target.commit_url_template.format(version=version), opener),
+        target.name,
+    )
+    return version, checksums["amd64"], checksums["arm64"], published
+
+
+def process_go_toolchain_target(
+    target: GoToolchainTarget,
+    root: Path,
+    now: datetime,
+    opener: Callable[[str], bytes] | None = None,
+) -> UpdateResult:
+    path = root / target.path
+    if not path.exists():
+        return UpdateResult(target.name, target.path, None, None, "skip", "file not present")
+    text = path.read_text(encoding="utf-8")
+    patterns = {
+        "version": r'(?m)^(\s*caddy_build_go_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
+        "amd64": r"(?m)^(\s*caddy_build_go_sha256_amd64:\s*)([0-9a-f]+)\s*$",
+        "arm64": r"(?m)^(\s*caddy_build_go_sha256_arm64:\s*)([0-9a-f]+)\s*$",
+    }
+    matches = {name: re.search(pattern, text) for name, pattern in patterns.items()}
+    if any(match is None for match in matches.values()):
+        return UpdateResult(target.name, target.path, None, None, "skip", "incomplete Caddy Go pin group")
+    current = matches["version"].group(2)  # type: ignore[union-attr]
+    actual = tuple(matches[name].group(2) for name in ("version", "amd64", "arm64"))  # type: ignore[union-attr]
+    expected = (
+        target.managed_version,
+        target.managed_sha256_amd64,
+        target.managed_sha256_arm64,
+    )
+    if actual != expected:
+        return UpdateResult(target.name, target.path, current, None, "skip", "custom operator pin group (Caddy Go)")
+    resolved = resolve_go_toolchain(target, opener)
+    if resolved[:3] == actual:
+        return UpdateResult(target.name, target.path, current, current, "current", "verified official Go release checksums")
+    age = now - resolved[3]
+    if age < timedelta(hours=OCI_MIN_AGE_HOURS):
+        return UpdateResult(target.name, target.path, current, resolved[0], "hold", f"tag commit age {age}; strict {OCI_MIN_AGE_HOURS}h hold")
+    confirmed = resolve_go_toolchain(target, opener)
+    if confirmed != resolved:
+        raise UpdateError(f"{target.name}: release changed during re-resolution")
+    if path.read_text(encoding="utf-8") != text:
+        raise UpdateError(f"{target.name}: pin file changed during resolution")
+    updated = text
+    replacements = {"version": resolved[0], "amd64": resolved[1], "arm64": resolved[2]}
+    replacement_target = Target(target.name, target.path, "", "", target.releases_url)
+    for name in ("version", "amd64", "arm64"):
+        suffix = r"\g<3>" if name == "version" else ""
+        updated = replace_once(
+            patterns[name],
+            rf"\g<1>{replacements[name]}{suffix}",
+            updated,
+            replacement_target,
+        )
+    atomic_write_text(path, updated)
+    return UpdateResult(target.name, target.path, current, resolved[0], "updated", f"official Go checksums; strict {OCI_MIN_AGE_HOURS}h hold")
+
+
 def run(
     root: Path,
     min_age_hours: int,
@@ -1620,6 +1882,8 @@ def run(
     min_age = timedelta(hours=min_age_hours)
     results = [process_target(target, root, now, min_age, opener) for target in TARGETS]
     if opener is None:
+        results.append(process_tag_pin_target(CADDY_CLOUDFLARE_TAG, root, now))
+        results.append(process_go_toolchain_target(CADDY_GO_TOOLCHAIN, root, now))
         groups = dict.fromkeys(target.group for target in OCI_TARGETS)
         for group in groups:
             results.extend(process_oci_group(group, root, now, fetch_oci_registry))
@@ -1641,11 +1905,7 @@ def print_results(results: list[UpdateResult]) -> None:
 
 
 UNMANAGED = (
-    "Tailscale: installed only when missing; package upgrade policy is not defined yet.",
-    "Caddy, xcaddy, and Cloudflare module source pins are managed in private inventory; "
-    "their update policy is not automated yet.",
-    "Debian LXC OS packages: required packages are installed during playbooks, "
-    "but full OS upgrades are not managed.",
+    "Debian non-security package upgrades remain operator-reviewed; security updates are automatic and never reboot hosts.",
 )
 
 

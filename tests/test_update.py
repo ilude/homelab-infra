@@ -55,7 +55,7 @@ class UpdateTests(unittest.TestCase):
                 "ARG OPENTOFU_LINUX_AMD64_SHA256=old\n",
                 encoding="utf-8",
             )
-            target = update_script.TARGETS[0]
+            target = next(target for target in update_script.TARGETS if target.name == "OpenTofu")
             now = datetime(2026, 7, 5, tzinfo=timezone.utc)
 
             result = update_script.process_target(
@@ -73,6 +73,32 @@ class UpdateTests(unittest.TestCase):
                 f"ARG OPENTOFU_LINUX_AMD64_SHA256={'a' * 64}\n",
             )
 
+    def test_rejects_release_asset_url_change_during_re_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "tools").mkdir()
+            dockerfile = root / "tools" / "Dockerfile"
+            dockerfile.write_text("ARG OPENTOFU_VERSION=1.0.0\nARG OPENTOFU_LINUX_AMD64_SHA256=old\n", encoding="utf-8")
+            target = next(target for target in update_script.TARGETS if target.name == "OpenTofu")
+            now = datetime(2026, 7, 5, tzinfo=timezone.utc)
+            release_calls = 0
+
+            def opener(url: str) -> bytes:
+                nonlocal release_calls
+                if url.startswith("https://example.invalid/checksums-"):
+                    return f"{'a' * 64}  tofu_1.1.0_linux_amd64.zip\n".encode()
+                release_calls += 1
+                return json.dumps({
+                    "tag_name": "v1.1.0",
+                    "published_at": (now - timedelta(hours=72)).isoformat().replace("+00:00", "Z"),
+                    "html_url": "https://example.invalid/release",
+                    "assets": [{"name": "tofu_1.1.0_SHA256SUMS", "browser_download_url": f"https://example.invalid/checksums-{release_calls}"}],
+                }).encode()
+
+            with self.assertRaisesRegex(update_script.UpdateError, "changed during re-resolution"):
+                update_script.process_target(target, root, now, timedelta(hours=48), opener)
+            self.assertIn("ARG OPENTOFU_VERSION=1.0.0", dockerfile.read_text(encoding="utf-8"))
+
     def test_holds_recent_release(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -84,7 +110,7 @@ class UpdateTests(unittest.TestCase):
                 "forgejo_sha256_amd64: 59fb6129e0396dc3502be60950438a03d227bb5691ee08b02dd38794f3d25a2a\n",
                 encoding="utf-8",
             )
-            target = update_script.TARGETS[2]
+            target = next(target for target in update_script.TARGETS if target.name == "Forgejo")
             now = datetime(2026, 7, 5, tzinfo=timezone.utc)
 
             result = update_script.process_target(
@@ -115,7 +141,7 @@ class UpdateTests(unittest.TestCase):
             inventory.write_text(original, encoding="utf-8")
 
             result = update_script.process_target(
-                update_script.TARGETS[2],
+                next(target for target in update_script.TARGETS if target.name == "Forgejo"),
                 root,
                 datetime(2026, 7, 5, tzinfo=timezone.utc),
                 timedelta(hours=48),
@@ -146,11 +172,11 @@ class UpdateTests(unittest.TestCase):
                     {
                         "tag_name": "v12.1.0",
                         "published_at": (now - timedelta(hours=72)).isoformat().replace("+00:00", "Z"),
-                        "assets": [{"name": "forgejo_12.1.0_sha256sums.txt", "browser_download_url": "https://example.invalid/checksums"}],
+                        "assets": [{"name": "forgejo-12.1.0-linux-amd64.sha256", "browser_download_url": "https://example.invalid/checksums"}],
                     }
                 ).encode("utf-8")
 
-            result = update_script.process_target(update_script.TARGETS[2], root, now, timedelta(hours=48), opener)
+            result = update_script.process_target(next(target for target in update_script.TARGETS if target.name == "Forgejo"), root, now, timedelta(hours=48), opener)
 
             self.assertEqual(result.status, "updated")
             self.assertEqual(
@@ -170,24 +196,27 @@ class UpdateTests(unittest.TestCase):
                 'forgejo_runner_sha256_arm64: be77c54925aed80b0967dcdfe89aa8c9310fddefacbe16ca05ed22fe2bfd659c\n',
                 encoding="utf-8",
             )
-            target = update_script.TARGETS[3]
+            target = next(target for target in update_script.TARGETS if target.name == "Forgejo runner")
             now = datetime(2026, 7, 5, tzinfo=timezone.utc)
 
             def opener(url: str) -> bytes:
-                if url.endswith("checksums"):
-                    return (
-                        f"{'a' * 64}  forgejo-runner-12.8.0-linux-amd64\n"
-                        f"{'b' * 64}  forgejo-runner-12.8.0-linux-arm64\n"
-                    ).encode()
+                if url.endswith("amd64.sha256"):
+                    return f"{'a' * 64}  forgejo-runner-12.8.0-linux-amd64\n".encode()
+                if url.endswith("arm64.sha256"):
+                    return f"{'b' * 64}  forgejo-runner-12.8.0-linux-arm64\n".encode()
                 return json.dumps(
                     {
                         "tag_name": "v12.8.0",
                         "published_at": (now - timedelta(hours=72)).isoformat().replace("+00:00", "Z"),
                         "assets": [
                             {
-                                "name": "forgejo-runner-12.8.0-sha256sums.txt",
-                                "browser_download_url": "https://example.invalid/checksums",
-                            }
+                                "name": "forgejo-runner-12.8.0-linux-amd64.sha256",
+                                "browser_download_url": "https://example.invalid/amd64.sha256",
+                            },
+                            {
+                                "name": "forgejo-runner-12.8.0-linux-arm64.sha256",
+                                "browser_download_url": "https://example.invalid/arm64.sha256",
+                            },
                         ],
                     }
                 ).encode("utf-8")
@@ -287,6 +316,18 @@ class UpdateTests(unittest.TestCase):
     def test_rejects_oci_digest_header_body_mismatch(self) -> None:
         response = update_script.OciResponse(b"{}", {"Docker-Content-Digest": "sha256:" + "0" * 64})
         with self.assertRaisesRegex(update_script.UpdateError, "header does not match body"):
+            update_script.oci_digest(response, "fixture")
+
+    def test_accepts_missing_oci_digest_header_for_descriptor_addressed_blob(self) -> None:
+        body = b'{"created":"2026-06-01T00:00:00Z"}'
+        expected = f"sha256:{sha256(body).hexdigest()}"
+        response = update_script.OciResponse(body, {})
+
+        self.assertEqual(update_script.oci_digest(response, "fixture", expected), expected)
+
+    def test_rejects_missing_oci_digest_header_without_expected_descriptor(self) -> None:
+        response = update_script.OciResponse(b"{}", {})
+        with self.assertRaisesRegex(update_script.UpdateError, "header is missing"):
             update_script.oci_digest(response, "fixture")
 
     def technitium_release(self, version: str, published_at: datetime, release_id: int) -> dict[str, object]:
@@ -464,10 +505,12 @@ class UpdateTests(unittest.TestCase):
                     return json.dumps({"object": {"type": "commit", "sha": target.managed_commit}}).encode()
                 return json.dumps([held, eligible]).encode()
 
+            original = inventory.read_text(encoding="utf-8")
             result = update_script.process_hermes_discovery_target(target, root, now, opener)
 
             self.assertEqual(result.status, "current")
-            self.assertIn("v2026.7.7.2 remains inside", result.detail)
+            self.assertEqual(result.detail, "verified PyPI provenance and lock; v2026.7.7.2 remains inside the strict 168h hold")
+            self.assertEqual(inventory.read_text(encoding="utf-8"), original)
 
     def test_hermes_rejects_incomplete_tracked_lock(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -817,7 +860,7 @@ class UpdateTests(unittest.TestCase):
 
     def test_skips_missing_private_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            target = update_script.TARGETS[2]
+            target = next(target for target in update_script.TARGETS if target.name == "Forgejo")
             result = update_script.process_target(
                 target,
                 Path(temp),

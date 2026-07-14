@@ -34,6 +34,20 @@ class MigrateValuesTests(unittest.TestCase):
         self.assertIn("    custom: retained", updated)
         self.assertEqual(migrate_values.remove_legacy_pve_inventory_block(updated), (updated, []))
 
+    def test_removes_legacy_pve_inventory_block_with_environment_lookup(self) -> None:
+        inventory = (
+            "all:\n  hosts:\n    pve:\n"
+            "      ansible_host: \"{{ lookup('env', 'PVE_HOST') }}\"\n"
+            "      ansible_user: root\n"
+            "  vars:\n    custom: retained\n"
+        )
+
+        updated, changes = migrate_values.remove_legacy_pve_inventory_block(inventory)
+
+        self.assertEqual(changes, ["removed legacy static pve inventory host"])
+        self.assertNotIn("  hosts:", updated)
+        self.assertIn("  vars:", updated)
+
     def test_preserves_unrecognized_pve_inventory_block(self) -> None:
         inventory = (
             "all:\n  hosts:\n    pve:\n"

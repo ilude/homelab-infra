@@ -82,6 +82,22 @@ class ServiceStateCliTests(unittest.TestCase):
             self.assertEqual(2, rejected.returncode)
             self.assertIn("Unsupported service-state target: ineligible", rejected.stderr)
 
+    def test_windows_backup_acl_hardening_is_fail_closed(self) -> None:
+        script = SERVICE_SCRIPT.read_text(encoding="utf-8")
+        compose = (REPO / "compose.yaml").read_text(encoding="utf-8")
+        playbook = (REPO / "infra/ansible/playbooks/service-state-backup.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("MSYS2_ARG_CONV_EXCL='*' icacls.exe", script)
+        self.assertIn("/inheritance:r", script)
+        self.assertIn("*S-1-5-18:(OI)(CI)F", script)
+        self.assertIn("*S-1-5-32-544:(OI)(CI)F", script)
+        self.assertIn('SERVICE_STATE_HOST_ACL_ENFORCED="${service_state_host_acl_enforced}"', script)
+        self.assertIn("SERVICE_STATE_HOST_ACL_ENFORCED:", compose)
+        self.assertIn("service_state_host_acl_enforced", playbook)
+        self.assertIn("when: not service_state_host_acl_enforced", playbook)
+
     def test_list_behavior(self) -> None:
         result = run_script(SERVICE_SCRIPT, "list")
         self.assertEqual(0, result.returncode, result.stderr)

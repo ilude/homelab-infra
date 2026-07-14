@@ -16,6 +16,37 @@ USAGE
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 backup_root="${SERVICE_STATE_BACKUP_ROOT:-/workspace/values/service-backups}"
+host_backup_root="${repo_root}/values/service-backups"
+service_state_host_acl_enforced=false
+
+secure_local_backup_root() {
+  mkdir -p "${host_backup_root}"
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      command -v cygpath >/dev/null 2>&1 || {
+        printf 'cygpath is required to secure private service backups on Windows.\n' >&2
+        exit 1
+      }
+      command -v icacls.exe >/dev/null 2>&1 || {
+        printf 'icacls.exe is required to secure private service backups on Windows.\n' >&2
+        exit 1
+      }
+      local windows_path windows_identity
+      windows_path="$(cygpath -w "${host_backup_root}")"
+      windows_identity="$(whoami.exe | tr -d '\r')"
+      MSYS2_ARG_CONV_EXCL='*' icacls.exe "${windows_path}" \
+        /inheritance:r \
+        /grant:r "${windows_identity}:(OI)(CI)F" \
+        '*S-1-5-18:(OI)(CI)F' \
+        '*S-1-5-32-544:(OI)(CI)F' \
+        /T /C /Q >/dev/null
+      service_state_host_acl_enforced=true
+      ;;
+    *)
+      chmod 0700 "${host_backup_root}"
+      ;;
+  esac
+}
 
 if ! jq -e '.services | all(.[]; (.state_capable | type) == "boolean")' infra/services.json >/dev/null; then
   printf 'Every service must declare Boolean state_capable metadata.\n' >&2
@@ -120,6 +151,7 @@ run_playbook() {
   if [[ "${mode}" == "backup" ]]; then
     INFRA_COPY_SSH_KEYS="${INFRA_COPY_SSH_KEYS:-true}" \
       SERVICE_STATE_BACKUP_ROOT="${backup_root}" \
+      SERVICE_STATE_HOST_ACL_ENFORCED="${service_state_host_acl_enforced}" \
       scripts/run-infra.sh bash -lc \
       "export PATH=/opt/ansible/bin:\$PATH; ${refresh_direct_access} ansible-playbook ${inventory_args} -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-backup.yml"
   else
@@ -153,6 +185,7 @@ case "${command_name}" in
       usage
       exit 2
     fi
+    secure_local_backup_root
     target="$1"
     if [[ "${target}" == "all" ]]; then
       mapfile -t selected_services < <(enabled_supported_services)

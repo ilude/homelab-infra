@@ -20,6 +20,7 @@ services:
       INFRA_COPY_SSH_KEYS: ${INFRA_COPY_SSH_KEYS:-false}
       INFRA_HOST_UID: ${INFRA_HOST_UID:-1000}
       INFRA_HOST_GID: ${INFRA_HOST_GID:-1000}
+      SERVICE_STATE_HOST_ACL_ENFORCED: ${SERVICE_STATE_HOST_ACL_ENFORCED:-false}
 
 volumes:
   tofu-plugin-cache:

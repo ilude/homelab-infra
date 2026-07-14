@@ -7,6 +7,7 @@
     - ../vars/service-state.yml
   vars:
     service_state_backup_root: "{{ lookup('env', 'SERVICE_STATE_BACKUP_ROOT') | default('/workspace/values/service-backups', true) }}"
+    service_state_host_acl_enforced: "{{ lookup('env', 'SERVICE_STATE_HOST_ACL_ENFORCED') | default('false', true) | bool }}"
   tasks:
     - name: Validate service-state backup input
       ansible.builtin.assert:
@@ -27,11 +28,43 @@
         service_state_local_dir: "{{ service_state_backup_root }}/{{ service_state_service }}"
         service_state_remote_archive: "/tmp/{{ service_state_service }}-state-{{ service_state_timestamp }}.tar.gz"
 
-    - name: Ensure local service-state backup directory exists
+    - name: Ensure local service-state backup directory exists  # noqa risky-file-permissions
       ansible.builtin.file:
         path: "{{ service_state_local_dir }}"
         state: directory
-        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    - name: Restrict local service-state backup directory permissions when supported
+      ansible.builtin.command:
+        argv:
+          - chmod
+          - "0700"
+          - "{{ service_state_local_dir }}"
+      register: service_state_local_dir_chmod
+      changed_when: service_state_local_dir_chmod.rc == 0
+      failed_when: >-
+        service_state_local_dir_chmod.rc != 0 and
+        'Operation not permitted' not in service_state_local_dir_chmod.stderr
+      delegate_to: localhost
+      become: false
+      when: not service_state_host_acl_enforced
+
+    - name: Confirm host ACL protection for local service-state backups
+      ansible.builtin.debug:
+        msg: The host filesystem ACL protects the private service-state backup tree.
+      when: service_state_host_acl_enforced
+      delegate_to: localhost
+      become: false
+
+    - name: Report unsupported local service-state backup directory permissions
+      ansible.builtin.debug:
+        msg: >-
+          The controller filesystem does not support enforcing POSIX mode 0700 on
+          {{ service_state_local_dir }}; rely on host filesystem access controls.
+      when:
+        - not service_state_host_acl_enforced
+        - service_state_local_dir_chmod.rc | default(0) != 0
       delegate_to: localhost
       become: false
 

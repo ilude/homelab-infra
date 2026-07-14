@@ -381,7 +381,7 @@ def remove_legacy_pve_inventory_block(text: str) -> tuple[str, list[str]]:
     for line in lines[pve_index + 1 : pve_end]:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        match = re.fullmatch(r"      (ansible_host|ansible_user):\s*([^#\s]+)\s*(?:#.*)?\r?\n?", line)
+        match = re.fullmatch(r"      (ansible_host|ansible_user):\s*(.+?)\s*(?:#.*)?\r?\n?", line)
         if match is None or match.group(1) in entries:
             return text, []
         entries[match.group(1)] = match.group(2).strip("\"'")

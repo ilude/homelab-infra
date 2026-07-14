@@ -11,6 +11,19 @@ just apply
 
 `just update` applies the release-age safety hold before changing supported pins. For private inventory, it advances a version/checksum set only when every field still matches the runbook's managed defaults; a differing version or checksum is treated as an operator pin and is left unchanged. OCI updates use a 168-hour hold, Registry V2 multi-arch indexes, matching header/body digests, and a linux/amd64 manifest; the tag is resolved again immediately before writing. After any update, review the diff and plan before applying.
 
+## Local update-run journal
+
+Use the host-side journal only to observe one existing public recipe at a time:
+
+```bash
+episode_id="$(scripts/host-python.sh scripts/update-session.py start)"
+scripts/host-python.sh scripts/update-session.py run --episode "$episode_id" update
+scripts/host-python.sh scripts/update-session.py reflect --episode "$episode_id"
+scripts/host-python.sh scripts/update-session.py verify --episode "$episode_id"
+```
+
+Run later `validate` or `plan` observations explicitly with the same episode ID; the journal never advances the workflow or runs `apply`. Episode files under `.tmp/update-runs/` are sensitive local operational data. Windows ACLs do not guarantee confidentiality, so inspect the exact ignored episode before manually purging it. The journal does not persist command output, environment values, or private inventory; it stores only structured command and report metadata. A successful `plan` observation only records that `just plan` exited successfully and does not mean the plan is reviewed, safe, or approved for apply.
+
 ## Managed pins
 
 A service belongs in `just update` when the repo can identify a specific upstream release and update a deterministic local pin. Examples include Forgejo and Forgejo runner.
@@ -51,6 +64,14 @@ Apply stages a checksum-specific venv under `/usr/local/lib/hermes-agent/release
 
 Hermes state is not part of an application release. `HERMES_HOME` remains `/home/<runtime-user>/.hermes`, so installation and rollback do not move or replace memory, configuration, credentials, or other runtime state. Application rollback does not reverse state-schema changes; any such fork change requires a separate compatibility and restore review. Do not use `hermes update`, rerun the upstream installer, use a GitHub source archive, or execute downloaded scripts as an update path.
 
-## Unmanaged software
+## Managed Caddy builds
 
-If a component is not yet in `just update`, document that explicitly and avoid inventing one-off upgrade commands. Add managed update support before making routine version changes.
+`just update` checks Caddy and xcaddy releases, the Cloudflare DNS module's semantic version tags, and the official Go download manifest. Caddy source pins use the normal release hold; Cloudflare and Go tags use a strict 168-hour hold. Go version and architecture checksums advance atomically. Ansible builds the requested Caddy binary before replacing `/usr/bin/caddy`, verifies the embedded Caddy, Cloudflare module, and Go versions, and restarts Caddy only after a successful build.
+
+## Managed Tailscale packages
+
+Tailscale uses `tailscale_client_version` from private inventory. `just update` advances the pin from the stable upstream GitHub release after the normal release hold. Ansible installs that exact version from Tailscale's signed Debian 13 repository, refuses implicit downgrades, and verifies the installed version, service state, and client status. The optional Tailscale service remains disabled unless selected by operator settings.
+
+## Debian security updates
+
+Every managed Debian service host installs `unattended-upgrades` with a security-only origin policy. Package indexes and security upgrades run daily. Automatic reboots are disabled, so kernel or runtime updates that require a restart remain visible for a separately reviewed maintenance action. Non-security distribution upgrades are not automatic.

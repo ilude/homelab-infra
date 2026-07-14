@@ -6,7 +6,7 @@ This public repo is intentionally generic. Real domains, LAN IPs, DNS records, P
 
 ## Artifact integrity
 
-Forgejo, Forgejo runner, Docker Compose, just, Go, custom Caddy builds, Technitium portable releases, and Hermes Agent use pinned versions and SHA-256 verification before activation. Hermes 0.18.0 uses a complete hashed wheel lock for Debian 13 amd64/Python 3.13 and verifies its official PyPI provenance. Infisical, PostgreSQL, Redis, SearXNG, and the tooling Debian base use full OCI tag-and-digest references. After its release-age hold, `just update` advances only private pin sets that still exactly match this runbook's managed defaults; any differing pin is operator-owned and remains unchanged. OCI resolution verifies Registry V2 header/body digests and linux/amd64 multi-arch index semantics.
+Forgejo, Forgejo runner, Docker Compose, just, Go, custom Caddy builds, Tailscale, Technitium portable releases, and Hermes Agent use managed version pins and integrity checks before activation. Hermes 0.18.0 uses a complete hashed wheel lock for Debian 13 amd64/Python 3.13 and verifies its official PyPI provenance. Infisical, PostgreSQL, Redis, SearXNG, and the tooling Debian base use full OCI tag-and-digest references. After its release-age hold, `just update` advances only private pin sets that still exactly match this runbook's managed defaults; any differing pin is operator-owned and remains unchanged. OCI resolution verifies Registry V2 header/body digests and linux/amd64 multi-arch index semantics. Managed Debian hosts also install automatic security-only updates with automatic reboots disabled.
 
 ## Layout
 
@@ -44,7 +44,7 @@ Keep non-public material in `values/` or outside this checkout; do not add anoth
 
 ## Fresh setup
 
-Local prerequisites are Git, Docker/Docker Compose, and `just`. Python, OpenTofu, Ansible, TFLint, ShellCheck, SSH client usage for setup/apply, and related tooling run inside the Docker tooling container. Your host SSH directory is mounted read-only so the container can use your existing Proxmox SSH key when a command opts in.
+Local prerequisites are Git, Git Bash, Docker/Docker Compose, `just`, and CPython 3.11 or newer. Install CPython through Python.org, `winget install --exact --id Python.Python.3.13`, or your platform package manager. The journal helper is the only host Python workflow; infrastructure tooling remains containerized. Run the journal helper through `scripts/host-python.sh`. Python, OpenTofu, Ansible, TFLint, ShellCheck, SSH client usage for setup/apply, and related tooling run inside the Docker tooling container. Your host SSH directory is mounted read-only so the container can use your existing Proxmox SSH key when a command opts in.
 
 From a fresh checkout, optionally copy the local settings template:
 

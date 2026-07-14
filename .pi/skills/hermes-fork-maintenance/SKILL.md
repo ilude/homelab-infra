@@ -77,10 +77,10 @@ Releases use tags shaped as:
 homelab-v<package-version>.<positive-revision>
 ```
 
-Example for package version `0.18.0`:
+Example for package version `X.Y.Z`:
 
 ```text
-homelab-v0.18.0.1
+homelab-vX.Y.Z.1
 ```
 
 The package version remains aligned with the upstream base release for this first customization line. The revision distinguishes fork builds without changing dependency metadata.

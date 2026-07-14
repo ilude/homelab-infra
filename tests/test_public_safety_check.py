@@ -35,6 +35,14 @@ class PublicSafetyScanTests(unittest.TestCase):
             findings = public_safety.scan_ips("README.md", 1, line)
             self.assertEqual(findings, [], line)
 
+    def test_double_colon_configuration_keys_are_not_ipv6_addresses(self) -> None:
+        for line in (
+            'APT::Periodic::Unattended-Upgrade "1";',
+            'Unattended-Upgrade::Automatic-Reboot "false";',
+        ):
+            findings = public_safety.scan_ips("tasks/main.yml", 1, line)
+            self.assertEqual(findings, [], line)
+
     def test_allow_comment_skips_ip_scan(self) -> None:
         findings = public_safety.scan_ips(
             "README.md", 1, "host 192.168.1.10 # public-safety: allow-ip"

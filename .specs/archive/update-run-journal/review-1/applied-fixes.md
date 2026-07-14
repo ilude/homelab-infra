@@ -8,7 +8,7 @@ status: applied
 | Finding | Category | Target sections | Edit intent | Checklist impact |
 |---------|----------|-----------------|-------------|------------------|
 | Nested Docker and collapsed review boundaries | bug | Objective, MVP Boundary, Automation Plan, T2 | Replace `run --through` with a host-side wrapper around one allowlisted public recipe per invocation | T2 renamed; criteria replaced; remains unchecked |
-| Update/validate/plan mislabeled non-destructive | bug | Constraints, Risk, Automation Plan, T2 | Declare recipe-specific tracked/private/plan-artifact mutations before execution | T2 criteria expanded; remains unchecked |
+| Update/validate/plan mislabeled non-destructive | bug | Constraints, Risk, Automation Plan, T2 | Declare recipe-specific tracked, sensitive-local, and plan-artifact mutations before execution | T2 criteria expanded; remains unchecked |
 | Ambiguous start/latest/resume lifecycle | bug | Automation Plan, T1, T2, Success Criteria | Use generated episode ID plus explicit ID on every later command; remove `latest` and implicit resume | T1/T2 criteria replaced; remain unchecked |
 | Unverified recovery could clear incident | bug | MVP Boundary, Deferrals, T2, Telemetry Contract | Make recovery notes unverified display-only data; never clear state or claim success | T2 criterion added; remains unchecked |
 | Weak redaction and hostile output contract | bug/hardening | Constraints, T1, Telemetry Contract | Add pre-write redaction, safe argv identifiers, environment non-capture, stream bounds, utility assertions | T1 criteria expanded; remains unchecked |

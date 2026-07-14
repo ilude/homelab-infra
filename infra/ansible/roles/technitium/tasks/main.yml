@@ -273,12 +273,18 @@
       ansible.builtin.systemd:
         name: dns
         state: stopped
-      register: technitium_stop
-    - name: Verify Technitium service is inactive before activation
-      ansible.builtin.assert:
-        that:
-          - technitium_stop.status.ActiveState == 'inactive'
-        fail_msg: Technitium service must be inactive before changing the application link.
+    - name: Wait for Technitium to become inactive before activation
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - dns
+      register: technitium_inactive
+      changed_when: false
+      failed_when: false
+      retries: 12
+      delay: 5
+      until: technitium_inactive.stdout | trim in ['inactive', 'failed']
     - name: Replace previous Technitium state snapshot staging directory
       ansible.builtin.file:
         path: "{{ technitium_install_root }}/rollback-state/{{ technitium_discovery_version }}.new"

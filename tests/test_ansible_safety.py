@@ -240,6 +240,24 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertIn('go version -m "$(command -v caddy)"', marker, name)
             self.assertIn(expected, marker, name)
 
+    def test_debian_security_updates_are_automatic_without_reboots(self) -> None:
+        role = REPO / "infra" / "ansible" / "roles" / "debian_security_updates" / "tasks" / "main.yml"
+        text = role.read_text(encoding="utf-8")
+        self.assertIn('APT::Periodic::Unattended-Upgrade "1"', text)  # public-safety: allow-ip
+        self.assertIn('codename=${distro_codename}-security', text)  # public-safety: allow-ip
+        self.assertIn('Unattended-Upgrade::Automatic-Reboot "false"', text)  # public-safety: allow-ip
+        for name in (
+            "technitium.yml",
+            "forgejo.yml",
+            "forgejo-runner.yml",
+            "infisical.yml",
+            "hermes.yml",
+            "tailscale-client.yml",
+            "onramp-host.yml",
+        ):
+            playbook = (REPO / "infra" / "ansible" / "playbooks" / name).read_text(encoding="utf-8")
+            self.assertIn("debian_security_updates", playbook, name)
+
     def test_tailscale_uses_signed_debian_13_repository(self) -> None:
         path = REPO / "infra" / "ansible" / "roles" / "tailscale_client" / "tasks" / "main.yml"
         text = path.read_text(encoding="utf-8")
@@ -248,6 +266,8 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("trixie.tailscale-keyring.list", text)
         self.assertIn("checksum: sha256:5a1b21b30892bf22fb5d7c4f52fefe9b65efda2100e82abba2e0849da2a2264b", text)
         self.assertIn("tailscale-archive-keyring.gpg", text)
+        self.assertIn('name: "tailscale={{ tailscale_client_version }}"', text)
+        self.assertIn("Verify installed Tailscale version", text)
         self.assertNotIn("tailscale.com/install.sh", text)
 
     def test_caddy_validation_does_not_fmt_overwrite_managed_files(self) -> None:

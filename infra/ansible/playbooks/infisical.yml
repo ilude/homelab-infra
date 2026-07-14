@@ -16,4 +16,5 @@
   gather_facts: false
   become: true
   roles:
+    - debian_security_updates
     - infisical

@@ -26,7 +26,7 @@ argument_specs:
       forgejo_download_base:
         type: str
         required: false
-        description: "Base URL for Forgejo binary downloads (default: https://code.forgejo.org/forgejo/forgejo/releases/download)."
+        description: "Base URL for Forgejo binary downloads (default: https://codeberg.org/forgejo/forgejo/releases/download)."
       forgejo_enable_caddy:
         type: bool
         required: false

@@ -57,7 +57,7 @@
       - bash
       - -lc
       - >-
-        set -euo pipefail; base={{ forgejo_download_base | default('https://code.forgejo.org/forgejo/forgejo/releases/download') }};
+        set -euo pipefail; base={{ forgejo_download_base | default('https://codeberg.org/forgejo/forgejo/releases/download') }};
         tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT;
         artifact="${tmp}/forgejo";
         curl -fsSL -o "${artifact}"

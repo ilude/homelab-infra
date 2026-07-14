@@ -98,6 +98,7 @@ all:
     searxng_instance_name: Homelab SearXNG
     tailscale_client_enabled: false
     tailscale_client_vmid: 108
+    tailscale_client_version: "1.98.8"
     tailscale_client_restore_backup: false
     tailscale_client_backup_archive: ../../values/backups/tailscale-client/example/client-config-full.tgz
     tailscale_client_enable_ip_forwarding: true

@@ -102,8 +102,9 @@
     - name: Snapshot managed service-state paths
       ansible.builtin.command:
         argv:
-          - rsync
-          - -aR
+          - cp
+          - --archive
+          - --parents
           - "{{ item }}"
           - "{{ service_state_snapshot_dir.path }}/"
       loop: "{{ service_state_existing_paths }}"

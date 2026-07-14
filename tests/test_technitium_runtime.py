@@ -87,9 +87,9 @@ class TechnitiumRoleContractTests(unittest.TestCase):
         stop_and_verify = activation.split(
             "    - name: Replace previous Technitium state snapshot staging directory", 1
         )[0]
-        self.assertIn("register: technitium_stop", stop_and_verify)
-        self.assertIn("technitium_stop.status.ActiveState == 'inactive'", stop_and_verify)
-        self.assertNotIn("failed_when: false", stop_and_verify)
+        self.assertIn("register: technitium_inactive", stop_and_verify)
+        self.assertIn("until: technitium_inactive.stdout | trim in ['inactive', 'failed']", stop_and_verify)
+        self.assertIn("retries: 12", stop_and_verify)
 
     def test_state_is_outside_release_directories(self) -> None:
         self.assertIn("technitium_state_directory: /etc/dns", (TASKS.parent.parent / "defaults/main.yml").read_text(encoding="utf-8"))

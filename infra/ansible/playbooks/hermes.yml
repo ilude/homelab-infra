@@ -16,4 +16,5 @@
   gather_facts: true
   become: true
   roles:
+    - debian_security_updates
     - hermes

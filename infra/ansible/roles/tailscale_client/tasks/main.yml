@@ -3,8 +3,12 @@
   ansible.builtin.assert:
     that:
       - tailscale_client_vmid is defined
+      - tailscale_client_version is defined
+      - tailscale_client_version is match('^[0-9]+[.][0-9]+[.][0-9]+$')
       - not (tailscale_client_restore_backup | default(false) | bool) or tailscale_client_backup_archive is defined
-    fail_msg: tailscale_client_vmid is required, and tailscale_client_backup_archive is required when restore is enabled.
+    fail_msg: >-
+      tailscale_client_vmid and a semantic tailscale_client_version are required,
+      and tailscale_client_backup_archive is required when restore is enabled.
   when: tailscale_client_enabled | default(false) | bool
 - name: Install Tailscale APT repository prerequisites
   ansible.builtin.apt:
@@ -32,11 +36,12 @@
     owner: root
     group: root
   when: tailscale_client_enabled | default(false) | bool
-- name: Install Tailscale package from signed APT repository
+- name: Install pinned Tailscale package from signed APT repository
   ansible.builtin.apt:
-    name: tailscale
+    name: "tailscale={{ tailscale_client_version }}"
     state: present
     update_cache: true
+    allow_downgrade: false
   when: tailscale_client_enabled | default(false) | bool
 - name: Enable IPv4 forwarding in Tailscale client LXC
   ansible.builtin.command:
@@ -102,6 +107,16 @@
   retries: 6
   delay: 5
   until: tailscale_client_active.rc == 0
+  when: tailscale_client_enabled | default(false) | bool
+- name: Verify installed Tailscale version
+  ansible.builtin.command:
+    argv:
+      - tailscale
+      - version
+  register: tailscale_client_installed_version
+  changed_when: false
+  failed_when: >-
+    tailscale_client_installed_version.stdout_lines | first | trim != tailscale_client_version
   when: tailscale_client_enabled | default(false) | bool
 - name: Check Tailscale client status
   ansible.builtin.command:

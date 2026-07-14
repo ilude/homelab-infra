@@ -159,6 +159,15 @@ class TfvarsInventoryTests(unittest.TestCase):
 
         self.assertNotIn("pve", inventory)
 
+    def test_disabled_service_groups_exist_without_hosts(self) -> None:
+        inventory = tfvars_inventory.build_inventory({}, [])
+
+        for group in ("technitium", "forgejo", "tailscale_client", "infisical", "hermes", "onramp_host"):
+            with self.subTest(group=group):
+                self.assertEqual(inventory[group]["hosts"], [])
+        self.assertEqual(inventory["services"]["children"], [])
+        self.assertEqual(inventory["_meta"]["hostvars"], {})
+
     def test_load_tfvars_uses_python_hcl2(self) -> None:
         fake_file = mock.mock_open(read_data='technitium_container_vmid = 106\n')
         with mock.patch("pathlib.Path.open", fake_file), mock.patch.object(

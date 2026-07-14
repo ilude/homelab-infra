@@ -187,6 +187,8 @@ def build_inventory(
         "services": {"children": []},
     }
     hostvars = inventory["_meta"]["hostvars"]
+    for group in sorted({config["group"] for config in SERVICE_HOSTS.values()}):
+        inventory[group] = {"hosts": []}
     if DIRECT_LXC_SERVICES.intersection(services):
         node_name = proxmox_node_name(tfvars)
         target = pve_target(pve_host if pve_host is not None else os.environ.get("PVE_HOST"))

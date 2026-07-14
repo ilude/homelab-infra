@@ -1142,18 +1142,24 @@ variable "tailscale_client_startup_down_delay" {
   default     = "10"
 }
 
+# Consumed by Ansible dynamic inventory rather than OpenTofu resources.
+# tflint-ignore: terraform_unused_declarations
 variable "searxng_server_name" {
   description = "DNS hostname for the temporary SearXNG onramp workload. Ansible/DNS consume this value."
   type        = string
   default     = "searxng.apps.example.net"
 }
 
+# Consumed by Ansible dynamic inventory rather than OpenTofu resources.
+# tflint-ignore: terraform_unused_declarations
 variable "searxng_public_url" {
   description = "Public HTTPS URL for the temporary SearXNG onramp workload. Hermes can consume this value."
   type        = string
   default     = "https://searxng.apps.example.net"
 }
 
+# Consumed by Ansible dynamic inventory rather than OpenTofu resources.
+# tflint-ignore: terraform_unused_declarations
 variable "searxng_container_image" {
   description = "Digest-pinned SearXNG OCI image used by the onramp workload."
   type        = string
@@ -1165,24 +1171,32 @@ variable "searxng_container_image" {
   }
 }
 
+# Consumed by Ansible dynamic inventory rather than OpenTofu resources.
+# tflint-ignore: terraform_unused_declarations
 variable "searxng_container_port" {
   description = "Loopback port exposed by the rootless SearXNG container for Caddy."
   type        = number
   default     = 8080
 }
 
+# Consumed by Ansible dynamic inventory rather than OpenTofu resources.
+# tflint-ignore: terraform_unused_declarations
 variable "searxng_bind_address" {
   description = "Host address that receives the rootless SearXNG container port. Keep this loopback-only."
   type        = string
   default     = "127.0.0.1"
 }
 
+# Consumed by Ansible dynamic inventory rather than OpenTofu resources.
+# tflint-ignore: terraform_unused_declarations
 variable "searxng_instance_name" {
   description = "Display name for the SearXNG instance."
   type        = string
   default     = "Homelab SearXNG"
 }
 
+# Consumed by Ansible dynamic inventory rather than OpenTofu resources.
+# tflint-ignore: terraform_unused_declarations
 variable "searxng_enable_public_url" {
   description = "Whether SearXNG should advertise searxng_public_url in its settings."
   type        = bool

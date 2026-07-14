@@ -92,7 +92,7 @@ Release procedure:
 3. Confirm the tag revision has never been published.
 4. Create and push the tag only after explicit operator approval.
 5. Wait for `.github/workflows/homelab-release.yml` to publish the wheel and `.sha256` release assets.
-6. Do not deploy a draft, prerelease, failed workflow, or release younger than the configured 168-hour hold.
+6. Do not deploy a draft, prerelease, or failed workflow. Operator-owned custom releases have no age delay after successful publication; upstream releases retain their configured hold.
 
 GitHub release assets are trusted as output of the configured fork. `just update` independently downloads the wheel, validates its canonical release URL, checks the manifest and actual SHA-256, confirms package metadata compatibility with the official wheel, resolves the exact tag commit, and writes checksum-specific private locks.
 
@@ -164,7 +164,7 @@ Treat upstream updates as a separate reviewed wave from customization changes.
 5. Regenerate the Debian 13 amd64/Python 3.13 dependency lock when package metadata changes.
 6. Run the relevant Hermes regression suite and release smoke checks.
 7. Publish a new `homelab-v*` revision.
-8. Use the normal hold, update, validate, plan, backup, and canary apply sequence.
+8. Use the upstream hold when applicable, then run update, validate, plan, backup, and the canary apply sequence.
 
 ## Contribution Boundary
 

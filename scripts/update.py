@@ -1331,9 +1331,9 @@ def hermes_custom_release(
         match = pattern.fullmatch(release.version)
         if match is not None:
             candidates.append((release, match.group(1)))
-    eligible = [item for item in candidates if now - item[0].published_at >= timedelta(hours=OCI_MIN_AGE_HOURS)]
+    eligible = [item for item in candidates if item[0].published_at <= now]
     if not eligible:
-        raise UpdateError(f"Hermes: no custom release satisfies the strict {OCI_MIN_AGE_HOURS}h hold")
+        raise UpdateError("Hermes: no published custom release is eligible")
     return max(eligible, key=lambda item: (natural_tag_key(item[1]), int(item[0].version.rsplit('.', 1)[1])))
 
 
@@ -1518,7 +1518,14 @@ def process_custom_hermes_discovery_target(
         pattern = rf"(?m)^(\s*{field}:\s*)[^\n]*$"
         updated = replace_once(pattern, rf"\g<1>{value}", updated, replacement_target) if re.search(pattern, updated) else updated.rstrip() + f"\n    {field}: {value}\n"
     atomic_write_if_changed(root / target.path, updated)
-    return UpdateResult(target.name, target.path, hermes_inventory_value(text, "hermes_discovery_version"), version, "updated", f"custom GitHub wheel; tag commit {commit}; strict {OCI_MIN_AGE_HOURS}h hold")
+    return UpdateResult(
+        target.name,
+        target.path,
+        hermes_inventory_value(text, "hermes_discovery_version"),
+        version,
+        "updated",
+        f"verified custom GitHub wheel; tag commit {commit}; no release-age hold",
+    )
 
 
 

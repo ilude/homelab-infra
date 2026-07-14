@@ -561,7 +561,7 @@ class UpdateTests(unittest.TestCase):
             now = datetime(2026, 7, 12, tzinfo=timezone.utc)
             filename = f"hermes_agent-{version}-py3-none-any.whl"
             release = {
-                "tag_name": "homelab-v0.18.0.1", "published_at": (now - timedelta(hours=168)).isoformat().replace("+00:00", "Z"),  # public-safety: allow-ip
+                "tag_name": "homelab-v0.18.0.1", "published_at": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),  # public-safety: allow-ip
                 "draft": False, "prerelease": False,
                 "assets": [
                     {"name": filename, "browser_download_url": f"https://github.com/operator/hermes/releases/download/homelab-v0.18.0.1/{filename}"},  # public-safety: allow-ip
@@ -599,6 +599,7 @@ class UpdateTests(unittest.TestCase):
                 result = update_script.process_hermes_discovery_target(update_script.HERMES_DISCOVERY, root, now, opener)
 
             self.assertEqual(result.status, "updated")
+            self.assertIn("no release-age hold", result.detail)
             self.assertEqual(writes[-1], inventory)
             self.assertTrue(all(path.parent == writes[0].parent for path in writes[:-1]))
             updated = inventory.read_text(encoding="utf-8")

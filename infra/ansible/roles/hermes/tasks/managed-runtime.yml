@@ -5,12 +5,69 @@
       - hermes_discovery_version is defined
       - hermes_discovery_version is match('^[0-9]+[.][0-9]+[.][0-9]+$')
       - hermes_discovery_tag is defined
-      - hermes_discovery_tag is match('^v[0-9]{4}[.][0-9]+[.][0-9]+(?:[.][0-9]+)?$')
+      - >-
+        hermes_artifact_source | default('official_pypi') == 'official_pypi' or
+        hermes_artifact_source | default('official_pypi') == 'custom_github_release'
+      - >-
+        hermes_artifact_source | default('official_pypi') != 'official_pypi' or
+        hermes_discovery_tag is match('^v[0-9]{4}[.][0-9]+[.][0-9]+(?:[.][0-9]+)?$')
+      - >-
+        hermes_artifact_source | default('official_pypi') != 'custom_github_release' or
+        hermes_custom_repository | default('') is match('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
+      - >-
+        hermes_artifact_source | default('official_pypi') != 'custom_github_release' or
+        hermes_custom_tag_prefix | default('') is match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+      - >-
+        hermes_artifact_source | default('official_pypi') != 'custom_github_release' or
+        hermes_discovery_tag is match('^' ~ (hermes_custom_tag_prefix | regex_escape)
+        ~ (hermes_discovery_version | regex_escape) ~ '[.][1-9][0-9]*$')
       - hermes_discovery_commit is defined
       - hermes_discovery_commit is match('^[0-9a-f]{40}$')
       - hermes_discovery_wheel_sha256 is defined
       - hermes_discovery_wheel_sha256 is match('^[0-9a-f]{64}$')
-    fail_msg: Hermes version, release tag, commit, and wheel SHA-256 must be complete lowercase managed pins.
+      - hermes_artifact_source | default('official_pypi') in ['official_pypi', 'custom_github_release']
+      - >-
+        hermes_artifact_source | default('official_pypi') != 'custom_github_release' or
+        hermes_custom_wheel_url | default('') ==
+        'https://github.com/' ~ hermes_custom_repository ~ '/releases/download/'
+        ~ hermes_discovery_tag ~ '/hermes_agent-' ~ hermes_discovery_version ~ '-py3-none-any.whl'
+      - >-
+        hermes_artifact_source | default('official_pypi') != 'custom_github_release' or
+        hermes_custom_requirements_lock_path | default('') ==
+        '/workspace/values/artifacts/hermes/' ~ hermes_discovery_tag ~ '-'
+        ~ hermes_discovery_wheel_sha256[0:12] ~ '/requirements.lock'
+      - >-
+        hermes_artifact_source | default('official_pypi') != 'custom_github_release' or
+        hermes_custom_dependencies_lock_path | default('') ==
+        '/workspace/values/artifacts/hermes/' ~ hermes_discovery_tag ~ '-'
+        ~ hermes_discovery_wheel_sha256[0:12] ~ '/requirements-dependencies.lock'
+    fail_msg: >-
+      Hermes version, source-aware release tag, commit, and wheel SHA-256 must be complete
+      lowercase managed pins. Custom GitHub releases require an owner/repo, safe tag prefix,
+      canonical GitHub wheel URL, and checksum-specific controller hash lock paths.
+
+- name: Select Hermes artifact and lock sources
+  ansible.builtin.set_fact:
+    hermes_requirements_lock_source: >-
+      {{ hermes_custom_requirements_lock_path
+         if hermes_artifact_source | default('official_pypi') == 'custom_github_release'
+         else role_path ~ '/files/requirements-' ~ hermes_discovery_version ~ '.lock' }}
+    hermes_dependencies_lock_source: >-
+      {{ hermes_custom_dependencies_lock_path
+         if hermes_artifact_source | default('official_pypi') == 'custom_github_release'
+         else role_path ~ '/files/requirements-' ~ hermes_discovery_version ~ '.lock' }}
+    hermes_wheel_filename: >-
+      {{ (hermes_custom_wheel_url | urlsplit('path') | basename)
+         if hermes_artifact_source | default('official_pypi') == 'custom_github_release'
+         else 'hermes_agent-' ~ hermes_discovery_version ~ '-py3-none-any.whl' }}
+
+- name: Validate custom Hermes lock files on the controller
+  ansible.builtin.assert:
+    that:
+      - lookup('file', hermes_requirements_lock_source) | length > 0
+      - lookup('file', hermes_dependencies_lock_source) | length > 0
+    fail_msg: Custom Hermes hash locks must exist and be readable on the Ansible controller.
+  when: hermes_artifact_source | default('official_pypi') == 'custom_github_release'
 
 - name: Verify Hermes managed runtime platform
   ansible.builtin.assert:
@@ -22,23 +79,32 @@
       - ansible_python.version.minor == 13
     fail_msg: The tracked Hermes wheel lock supports only Debian 13 amd64 with Python 3.13.
 
-- name: Compute Hermes requirements lock checksum
+- name: Compute Hermes requirements lock checksums
   ansible.builtin.set_fact:
-    hermes_requirements_lock_sha256: >-
-      {{ lookup('file', role_path ~ '/files/requirements-' ~ hermes_discovery_version ~ '.lock')
-         | hash('sha256') }}
+    hermes_requirements_lock_sha256: "{{ lookup('file', hermes_requirements_lock_source) | hash('sha256') }}"
+    hermes_dependencies_lock_sha256: "{{ lookup('file', hermes_dependencies_lock_source) | hash('sha256') }}"
 
 - name: Compute Hermes managed release paths
   ansible.builtin.set_fact:
     hermes_install_root: /usr/local/lib/hermes-agent
     hermes_release_id: >-
-      {{ hermes_discovery_version }}-{{ hermes_discovery_commit[0:12] }}-{{ hermes_requirements_lock_sha256[0:12] }}
+      {{ hermes_discovery_version ~ '-'
+         ~ hermes_discovery_commit[0:12] ~ '-'
+         ~ hermes_discovery_wheel_sha256[0:12] ~ '-'
+         ~ hermes_requirements_lock_sha256[0:12] ~ '-'
+         ~ hermes_dependencies_lock_sha256[0:12] }}
     hermes_release_directory: >-
-      /usr/local/lib/hermes-agent/releases/{{ hermes_discovery_version }}-{{ hermes_discovery_commit[0:12] }}-{{ hermes_requirements_lock_sha256[0:12] }}
+      {{ '/usr/local/lib/hermes-agent/releases/'
+         ~ hermes_discovery_version ~ '-'
+         ~ hermes_discovery_commit[0:12] ~ '-'
+         ~ hermes_discovery_wheel_sha256[0:12] ~ '-'
+         ~ hermes_requirements_lock_sha256[0:12] ~ '-'
+         ~ hermes_dependencies_lock_sha256[0:12] }}
     hermes_release_marker: >-
       {{ hermes_discovery_version }} {{ hermes_discovery_tag }}
       {{ hermes_discovery_commit }} {{ hermes_discovery_wheel_sha256 }}
-      {{ hermes_requirements_lock_sha256 }}
+      {{ hermes_requirements_lock_sha256 }} {{ hermes_dependencies_lock_sha256 }}
+      {{ hermes_artifact_source | default('official_pypi') }}
 
 - name: Ensure Hermes managed release directories exist
   ansible.builtin.file:
@@ -51,13 +117,22 @@
     - "{{ hermes_install_root }}"
     - "{{ hermes_install_root }}/releases"
 
-- name: Install tracked Hermes transitive requirements lock
+- name: Install tracked Hermes full requirements lock
   ansible.builtin.copy:
-    src: "requirements-{{ hermes_discovery_version }}.lock"
+    src: "{{ hermes_requirements_lock_source }}"
     dest: "{{ hermes_install_root }}/requirements-{{ hermes_discovery_version }}.lock"
     owner: root
     group: root
     mode: '0644'
+
+- name: Install tracked Hermes dependencies-only requirements lock
+  ansible.builtin.copy:
+    src: "{{ hermes_dependencies_lock_source }}"
+    dest: "{{ hermes_install_root }}/requirements-{{ hermes_discovery_version }}-dependencies.lock"
+    owner: root
+    group: root
+    mode: '0644'
+  when: hermes_artifact_source | default('official_pypi') == 'custom_github_release'
 
 - name: Read healthy Hermes release marker
   ansible.builtin.command:
@@ -144,9 +219,36 @@
           - --requirement
           - "{{ hermes_install_root }}/requirements-{{ hermes_discovery_version }}.lock"
       changed_when: true
-    - name: Verify staged official Hermes wheel checksum
+      when: hermes_artifact_source | default('official_pypi') == 'official_pypi'
+    - name: Download locked official PyPI dependencies for custom Hermes wheel
+      ansible.builtin.command:
+        argv:
+          - "{{ hermes_release_directory }}/venv/bin/python"
+          - -m
+          - pip
+          - download
+          - --require-hashes
+          - '--only-binary=:all:'
+          - --index-url
+          - https://pypi.org/simple
+          - --dest
+          - "{{ hermes_release_directory }}/wheelhouse"
+          - --requirement
+          - "{{ hermes_install_root }}/requirements-{{ hermes_discovery_version }}-dependencies.lock"
+      changed_when: true
+      when: hermes_artifact_source | default('official_pypi') == 'custom_github_release'
+    - name: Download and verify custom Hermes release wheel before pip installation
+      ansible.builtin.get_url:
+        url: "{{ hermes_custom_wheel_url }}"
+        dest: "{{ hermes_release_directory }}/wheelhouse/{{ hermes_wheel_filename }}"
+        checksum: "sha256:{{ hermes_discovery_wheel_sha256 }}"
+        owner: root
+        group: root
+        mode: '0644'
+      when: hermes_artifact_source | default('official_pypi') == 'custom_github_release'
+    - name: Verify staged Hermes wheel checksum
       ansible.builtin.stat:
-        path: "{{ hermes_release_directory }}/wheelhouse/hermes_agent-{{ hermes_discovery_version }}-py3-none-any.whl"
+        path: "{{ hermes_release_directory }}/wheelhouse/{{ hermes_wheel_filename }}"
         checksum_algorithm: sha256
       register: hermes_staged_wheel
       failed_when: >-
@@ -390,6 +492,18 @@
         name: hermes-gateway
         enabled: true
         state: started
+      when: hermes_active_venv.stat.exists | default(false)
+    - name: Verify rolled-back Hermes gateway
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - hermes-gateway
+      changed_when: false
+      register: hermes_rollback_gateway_health
+      retries: 6
+      delay: 5
+      until: hermes_rollback_gateway_health.rc == 0
       when: hermes_active_venv.stat.exists | default(false)
     - name: Verify rolled-back Hermes dashboard
       ansible.builtin.uri:

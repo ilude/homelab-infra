@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ROLE = ROOT / "infra" / "ansible" / "roles" / "hermes"
 LOCK = ROLE / "files" / "requirements-0.18.0.lock"
 RUNTIME_TASKS = ROLE / "tasks" / "managed-runtime.yml"
+ARGUMENT_SPECS = ROLE / "meta" / "argument_specs.yml"
+SCAFFOLD_INVENTORY = ROOT / "scaffold" / "ansible" / "inventory" / "local.yml"
 MAIN_TASKS = ROLE / "tasks" / "main.yml"
 BOOTSTRAP_TASKS = ROLE / "tasks" / "bootstrap-state.yml"
 DEFAULTS = ROLE / "defaults" / "main.yml"
@@ -54,6 +56,8 @@ class HermesRuntimeContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.tasks = RUNTIME_TASKS.read_text(encoding="utf-8")
+        cls.argument_specs = ARGUMENT_SPECS.read_text(encoding="utf-8")
+        cls.scaffold_inventory = SCAFFOLD_INVENTORY.read_text(encoding="utf-8")
         cls.main = MAIN_TASKS.read_text(encoding="utf-8")
         cls.bootstrap = BOOTSTRAP_TASKS.read_text(encoding="utf-8")
         cls.defaults = DEFAULTS.read_text(encoding="utf-8")
@@ -68,8 +72,47 @@ class HermesRuntimeContractTests(unittest.TestCase):
         self.assertIn("https://pypi.org/simple", self.tasks)
         self.assertIn("hermes_staged_wheel.stat.checksum != hermes_discovery_wheel_sha256", self.tasks)
 
+    def test_custom_github_release_wheels_are_verified_and_installed_offline(self) -> None:
+        self.assertIn("hermes_artifact_source | default('official_pypi')", self.tasks)
+        self.assertIn("['official_pypi', 'custom_github_release']", self.tasks)
+        self.assertIn("hermes_custom_repository | default('') is match('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')", self.tasks)
+        self.assertIn("hermes_custom_tag_prefix | default('') is match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')", self.tasks)
+        self.assertIn("hermes_discovery_tag is match('^' ~ (hermes_custom_tag_prefix | regex_escape)", self.tasks)
+        self.assertIn("'https://github.com/' ~ hermes_custom_repository ~ '/releases/download/'", self.tasks)
+        self.assertIn("'/workspace/values/artifacts/hermes/' ~ hermes_discovery_tag ~ '-'", self.tasks)
+        self.assertIn("~ hermes_discovery_wheel_sha256[0:12] ~ '/requirements.lock'", self.tasks)
+        self.assertIn("~ hermes_discovery_wheel_sha256[0:12] ~ '/requirements-dependencies.lock'", self.tasks)
+        self.assertIn("Download locked official PyPI dependencies for custom Hermes wheel", self.tasks)
+        self.assertIn("requirements-{{ hermes_discovery_version }}-dependencies.lock", self.tasks)
+        self.assertIn("Download and verify custom Hermes release wheel before pip installation", self.tasks)
+        self.assertIn("checksum: \"sha256:{{ hermes_discovery_wheel_sha256 }}\"", self.tasks)
+        self.assertIn("Verify staged Hermes wheel checksum", self.tasks)
+        self.assertIn("--no-index", self.tasks)
+        self.assertIn("hermes_discovery_wheel_sha256[0:12]", self.tasks)
+        self.assertIn("hermes_dependencies_lock_sha256[0:12]", self.tasks)
+        self.assertIn("hermes_artifact_source:\n        type: str", self.argument_specs)
+        self.assertIn("custom_github_release", self.argument_specs)
+        self.assertIn("hermes_custom_wheel_url:", self.argument_specs)
+        self.assertIn("hermes_custom_requirements_lock_path:", self.argument_specs)
+        self.assertIn("hermes_custom_dependencies_lock_path:", self.argument_specs)
+        self.assertIn("hermes_artifact_source: official_pypi", self.scaffold_inventory)
+
     def test_activation_is_versioned_atomic_and_rolls_back(self) -> None:
-        self.assertIn("/releases/{{ hermes_discovery_version }}-", self.tasks)
+        self.assertIn("'/usr/local/lib/hermes-agent/releases/'", self.tasks)
+        self.assertIn("~ hermes_discovery_version ~ '-'", self.tasks)
+        release_paths = self.tasks[
+            self.tasks.index("- name: Compute Hermes managed release paths"):self.tasks.index(
+                "- name: Ensure Hermes managed release directories exist"
+            )
+        ]
+        release_id = release_paths[
+            release_paths.index("hermes_release_id:"):release_paths.index("hermes_release_directory:")
+        ]
+        release_directory = release_paths[
+            release_paths.index("hermes_release_directory:"):release_paths.index("hermes_release_marker:")
+        ]
+        self.assertIn("hermes_dependencies_lock_sha256[0:12]", release_id)
+        self.assertIn("hermes_dependencies_lock_sha256[0:12]", release_directory)
         self.assertIn("Atomically activate Hermes virtual environment", self.tasks)
         self.assertIn("mv\n          - -Tf", self.tasks)
         self.assertIn("Retain previous Hermes release link", self.tasks)
@@ -78,7 +121,20 @@ class HermesRuntimeContractTests(unittest.TestCase):
         self.assertIn("Stop Hermes gateway before activation", self.tasks)
         self.assertIn("Start activated Hermes gateway", self.tasks)
         self.assertIn("Restart rolled-back Hermes gateway", self.tasks)
-        self.assertIn("Verify rolled-back Hermes dashboard", self.tasks)
+        rollback_gateway = self.tasks.index("- name: Verify rolled-back Hermes gateway")
+        rollback_dashboard = self.tasks.index("- name: Verify rolled-back Hermes dashboard")
+        recovery_failure = self.tasks.index("- name: Report failed Hermes activation after rollback")
+        self.assertLess(rollback_gateway, rollback_dashboard)
+        self.assertLess(rollback_dashboard, recovery_failure)
+        rollback_section = self.tasks[rollback_gateway:rollback_dashboard]
+        self.assertIn("systemctl", rollback_section)
+        self.assertIn("is-active", rollback_section)
+        self.assertIn("hermes-gateway", rollback_section)
+        self.assertIn("until: hermes_rollback_gateway_health.rc == 0", rollback_section)
+        dashboard_section = self.tasks[rollback_dashboard:recovery_failure]
+        self.assertIn("ansible.builtin.uri", dashboard_section)
+        self.assertIn("status_code: 200", dashboard_section)
+        self.assertIn("until: hermes_rollback_health.status == 200", dashboard_section)
         self.assertIn("Record healthy managed Hermes release", self.tasks)
 
     def test_launcher_systemd_and_runtime_state_contract_are_stable(self) -> None:

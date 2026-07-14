@@ -118,6 +118,11 @@ OCI_PIN_DEFAULTS = {
     "infisical_redis_image": "    infisical_redis_image: docker.io/library/redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
 }
 
+HERMES_ARTIFACT_SOURCE_DEFAULTS = {
+    "hermes_artifact_source": "    hermes_artifact_source: official_pypi",
+    "hermes_custom_tag_prefix": "    hermes_custom_tag_prefix: homelab-v",
+}
+
 HERMES_DISCOVERY_PIN_DEFAULTS = {
     "hermes_discovery_version": '    hermes_discovery_version: "0.18.0"',
     "hermes_discovery_tag": '    hermes_discovery_tag: "v2026.7.1"',
@@ -659,6 +664,16 @@ def ensure_pin_inventory_vars(text: str, defaults: dict[str, str], group: str) -
     return "\n".join(lines) + "\n", [f"added {group} pin {key}" for key in defaults]
 
 
+def ensure_inventory_defaults(text: str, defaults: dict[str, str], group: str) -> tuple[str, list[str]]:
+    """Add independent default fields without replacing operator configuration."""
+    missing = [key for key in defaults if not inventory_has_key(text, key)]
+    if not missing:
+        return text, []
+    lines = text.rstrip().splitlines() if text.strip() else ["---", "all:", "  vars:"]
+    lines.extend(defaults[key] for key in missing)
+    return "\n".join(lines) + "\n", [f"added {group} default {key}" for key in missing]
+
+
 def migrate_searxng_inventory_image(text: str, tfvars_lines: list[str]) -> tuple[str, list[str]]:
     pattern = re.compile(r"(?m)^\s*searxng_container_image:\s*([^\s#]+)\s*\n?")
     match = pattern.search(text)
@@ -877,6 +892,9 @@ def migrate(values_dir: Path) -> list[str]:
     oci_pin_changes: list[str] = []
     if not legacy_infisical_pin:
         inventory_text, oci_pin_changes = ensure_pin_inventory_vars(inventory_text, OCI_PIN_DEFAULTS, "OCI")
+    inventory_text, hermes_artifact_source_changes = ensure_inventory_defaults(
+        inventory_text, HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"
+    )
     inventory_text, hermes_discovery_changes = ensure_pin_inventory_vars(
         inventory_text, HERMES_DISCOVERY_PIN_DEFAULTS, "Hermes managed release"
     )
@@ -892,6 +910,7 @@ def migrate(values_dir: Path) -> list[str]:
         + searxng_image_changes
         + mutable_image_changes
         + oci_pin_changes
+        + hermes_artifact_source_changes
         + hermes_discovery_changes
         + hermes_node_changes
         + technitium_discovery_changes

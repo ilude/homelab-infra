@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import argparse
 import base64
+import email.parser
+import io
+import inspect
 import json
 import os
 import re
 import stat
 import sys
 import tempfile
+import zipfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -34,6 +38,10 @@ HERMES_LOCK_REQUIREMENT_RE = re.compile(
     r"(?m)^[a-z0-9][a-z0-9_.-]*(?:\[[^]]+\])?==[^ \t\\]+"
     r"(?: \\| --hash=sha256:[0-9a-f]{64}(?:\s+#.*)?)$"
 )
+HERMES_CUSTOM_ARTIFACT_DIR = Path("values/artifacts/hermes")
+HERMES_MAX_WHEEL_BYTES = 128 * 1024 * 1024
+HERMES_MAX_MANIFEST_BYTES = 1024 * 1024
+HERMES_MAX_METADATA_ENTRY_BYTES = 2 * 1024 * 1024
 
 
 class UpdateError(RuntimeError):
@@ -313,16 +321,41 @@ def normalize_version(tag: str, strip_prefix: str) -> str:
     return tag
 
 
-def fetch_url(url: str, opener: Callable[[str], bytes] | None = None) -> bytes:
+def fetch_url(
+    url: str,
+    opener: Callable[..., bytes] | None = None,
+    max_bytes: int | None = None,
+) -> bytes:
+    if max_bytes is not None and max_bytes < 0:
+        raise ValueError("max_bytes must not be negative")
     if opener is not None:
-        return opener(url)
+        try:
+            inspect.signature(opener).bind(url, max_bytes)
+        except TypeError:
+            data = opener(url)
+        else:
+            data = opener(url, max_bytes)
+        if max_bytes is not None and len(data) > max_bytes:
+            raise UpdateError(f"response from {url} exceeds {max_bytes} bytes")
+        return data
     request = urllib.request.Request(
         url,
         headers={"Accept": "application/json", "User-Agent": USER_AGENT},
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return response.read()
+            content_length = response.headers.get("Content-Length")
+            if content_length is not None:
+                try:
+                    declared_length = int(content_length)
+                except ValueError as error:
+                    raise UpdateError(f"response from {url} has an invalid Content-Length") from error
+                if declared_length < 0 or (max_bytes is not None and declared_length > max_bytes):
+                    raise UpdateError(f"response from {url} exceeds {max_bytes} bytes")
+            data = response.read() if max_bytes is None else response.read(max_bytes + 1)
+            if max_bytes is not None and len(data) > max_bytes:
+                raise UpdateError(f"response from {url} exceeds {max_bytes} bytes")
+            return data
     except urllib.error.URLError as error:
         raise UpdateError(f"failed to fetch {url}: {error}") from error
 
@@ -419,6 +452,25 @@ def release_asset_url(release: Release, asset_name: str) -> str:
         if isinstance(url, str) and url:
             return url
     raise UpdateError(f"release {release.version} does not include asset {asset_name}")
+
+
+def release_identity(release: Release) -> tuple[str, datetime, str, tuple[tuple[str, str, int | None], ...]]:
+    assets = release.payload.get("assets", [])
+    if not isinstance(assets, list):
+        raise UpdateError(f"release payload for {release.version} has invalid assets")
+    identity: list[tuple[str, str, int | None]] = []
+    for asset in assets:
+        if not isinstance(asset, dict):
+            raise UpdateError(f"release payload for {release.version} has invalid asset")
+        name = asset.get("name")
+        url = asset.get("browser_download_url")
+        asset_id = asset.get("id")
+        if not isinstance(name, str) or not name or not isinstance(url, str) or not url:
+            raise UpdateError(f"release payload for {release.version} has unidentified asset")
+        if asset_id is not None and not isinstance(asset_id, int):
+            raise UpdateError(f"release payload for {release.version} has invalid asset id")
+        identity.append((name, url, asset_id))
+    return release.version, release.published_at, release.url, tuple(sorted(identity))
 
 
 def checksum_from_manifest(checksum_text: str, asset_name: str, file_name: str) -> str:
@@ -1050,7 +1102,7 @@ def hermes_releases(
 def hermes_pypi_artifact(
     version: str,
     opener: Callable[[str], bytes] | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     filename = f"hermes_agent-{version}-py3-none-any.whl"
     metadata_url = f"https://pypi.org/pypi/hermes-agent/{version}/json"
     payload = fetch_release(metadata_url, opener)
@@ -1081,7 +1133,7 @@ def hermes_pypi_artifact(
         or not url.endswith("/" + filename)
     ):
         raise UpdateError(f"Hermes {version}: invalid official PyPI wheel metadata")
-    return filename, digests["sha256"]
+    return filename, digests["sha256"], url
 
 
 def hermes_pypi_provenance(
@@ -1153,7 +1205,7 @@ def hermes_tag_commit(
     return commit
 
 
-def validate_hermes_lock(root: Path, version: str, checksum: str) -> None:
+def validate_hermes_lock(root: Path, version: str, checksum: str | None) -> None:
     path = root / "infra/ansible/roles/hermes/files" / f"requirements-{version}.lock"
     if not path.exists():
         raise UpdateError(f"Hermes {version}: tracked transitive requirements lock is absent")
@@ -1178,7 +1230,7 @@ def validate_hermes_lock(root: Path, version: str, checksum: str) -> None:
         line.startswith("hermes-agent[") and line.endswith(f"]=={version} \\")
         for line in text.splitlines()
     )
-    if not has_requirement or f"--hash=sha256:{checksum}" not in text:
+    if not has_requirement or (checksum is not None and f"--hash=sha256:{checksum}" not in text):
         raise UpdateError(f"Hermes {version}: tracked lock does not contain the official wheel pin")
 
 
@@ -1191,7 +1243,10 @@ def atomic_write_text(path: Path, text: str) -> None:
             file.write(text)
             file.flush()
             os.fsync(file.fileno())
-        os.chmod(temporary_path, stat.S_IMODE(path.stat().st_mode))
+        if path.exists():
+            os.chmod(temporary_path, stat.S_IMODE(path.stat().st_mode))
+        else:
+            os.chmod(temporary_path, 0o644)
         os.replace(temporary_path, path)
         if os.name != "nt":
             directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
@@ -1203,6 +1258,13 @@ def atomic_write_text(path: Path, text: str) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
+def atomic_write_if_changed(path: Path, text: str) -> bool:
+    if path.exists() and path.read_text(encoding="utf-8") == text:
+        return False
+    atomic_write_text(path, text)
+    return True
+
+
 def resolve_hermes_release(
     target: HermesDiscoveryTarget,
     release: Release,
@@ -1210,13 +1272,265 @@ def resolve_hermes_release(
     opener: Callable[[str], bytes] | None,
 ) -> tuple[str, str, str]:
     version = hermes_release_version(release)
-    filename, checksum = hermes_pypi_artifact(version, opener)
+    filename, checksum, _url = hermes_pypi_artifact(version, opener)
     hermes_pypi_provenance(version, filename, checksum, opener)
     commit = hermes_tag_commit(target, release, opener)
     validate_hermes_lock(root, version, checksum)
     return version, commit, checksum
 
 
+def hermes_inventory_value(text: str, key: str) -> str | None:
+    matches = re.findall(rf"(?m)^\s*{re.escape(key)}:\s*[\"']?([^\s\"'#]+)[\"']?\s*$", text)
+    if len(matches) > 1:
+        raise UpdateError(f"Hermes: duplicate inventory field {key}")
+    return matches[0] if matches else None
+
+
+def hermes_custom_config(text: str) -> tuple[str, str] | None:
+    source = hermes_inventory_value(text, "hermes_artifact_source") or "official_pypi"
+    repository = hermes_inventory_value(text, "hermes_custom_repository")
+    tag_prefix = hermes_inventory_value(text, "hermes_custom_tag_prefix")
+    custom_fields = (
+        "hermes_custom_repository",
+        "hermes_custom_wheel_url",
+        "hermes_custom_requirements_lock_path",
+        "hermes_custom_dependencies_lock_path",
+    )
+    if source == "official_pypi":
+        if any(hermes_inventory_value(text, key) is not None for key in custom_fields):
+            raise UpdateError("Hermes: official_pypi source cannot include custom release fields")
+        return None
+    if source != "custom_github_release":
+        raise UpdateError("Hermes: artifact source must be official_pypi or custom_github_release")
+    if repository is None or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise UpdateError("Hermes: custom_github_release requires hermes_custom_repository owner/repo")
+    if tag_prefix is None or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", tag_prefix):
+        raise UpdateError("Hermes: custom_github_release tag prefix is invalid")
+    output = tuple(hermes_inventory_value(text, key) for key in custom_fields[1:])
+    if any(value is not None for value in output) and any(value is None for value in output):
+        raise UpdateError("Hermes: custom release pin group is incomplete")
+    return repository, tag_prefix
+
+
+def hermes_custom_release(
+    repository: str, tag_prefix: str, now: datetime, opener: Callable[[str], bytes] | None
+) -> tuple[Release, str]:
+    url = f"https://api.github.com/repos/{repository}/releases?per_page=100"
+    payload = fetch_json_value(url, opener)
+    if not isinstance(payload, list):
+        raise UpdateError("Hermes: custom GitHub releases payload is invalid")
+    if len(payload) == 100:
+        raise UpdateError("Hermes: custom GitHub release pagination is unsupported")
+    candidates: list[tuple[Release, str]] = []
+    pattern = re.compile(rf"^{re.escape(tag_prefix)}([0-9]+[.][0-9]+[.][0-9]+)[.]([1-9][0-9]*)$")
+    release_target = Target("Hermes custom wheel", Path(), "", "", url, strip_prefix="")
+    for item in payload:
+        if not isinstance(item, dict) or item.get("draft") is not False or item.get("prerelease") is not False:
+            continue
+        release = release_from_payload(release_target, item)
+        match = pattern.fullmatch(release.version)
+        if match is not None:
+            candidates.append((release, match.group(1)))
+    eligible = [item for item in candidates if now - item[0].published_at >= timedelta(hours=OCI_MIN_AGE_HOURS)]
+    if not eligible:
+        raise UpdateError(f"Hermes: no custom release satisfies the strict {OCI_MIN_AGE_HOURS}h hold")
+    return max(eligible, key=lambda item: (natural_tag_key(item[1]), int(item[0].version.rsplit('.', 1)[1])))
+
+
+def hermes_custom_assets(repository: str, release: Release, version: str) -> tuple[str, str, str]:
+    filename = f"hermes_agent-{version}-py3-none-any.whl"
+    required = (filename, f"{filename}.sha256")
+    assets = release.payload.get("assets")
+    if not isinstance(assets, list):
+        raise UpdateError(f"Hermes {release.version}: custom release has no assets")
+    found: dict[str, str] = {}
+    for asset in assets:
+        if not isinstance(asset, dict) or asset.get("name") not in required:
+            continue
+        name = asset["name"]
+        url = asset.get("browser_download_url")
+        expected = "https://github.com/{}/releases/download/{}/{}".format(
+            repository, urllib.parse.quote(release.version, safe=""), urllib.parse.quote(name, safe="")
+        )
+        if name in found or not isinstance(url, str) or url != expected:
+            raise UpdateError(f"Hermes {release.version}: custom release assets are malformed")
+        found[name] = url
+    if set(found) != set(required):
+        raise UpdateError(f"Hermes {release.version}: custom release assets are malformed")
+    return filename, found[filename], found[f"{filename}.sha256"]
+
+
+def hermes_wheel_metadata(wheel: bytes, version: str, source: str) -> tuple[object, ...]:
+    if len(wheel) > HERMES_MAX_WHEEL_BYTES:
+        raise UpdateError(f"Hermes: {source} wheel exceeds {HERMES_MAX_WHEEL_BYTES} bytes")
+    try:
+        with zipfile.ZipFile(io.BytesIO(wheel)) as archive:
+            names = {
+                kind: [entry for entry in archive.infolist() if re.fullmatch(rf"[^/]+[.]dist-info/{kind}", entry.filename)]
+                for kind in ("METADATA", "WHEEL")
+            }
+            if any(len(entries) != 1 for entries in names.values()):
+                raise UpdateError(f"Hermes: {source} wheel has no unique METADATA and WHEEL files")
+            if any(entry.file_size > HERMES_MAX_METADATA_ENTRY_BYTES for entries in names.values() for entry in entries):
+                raise UpdateError(f"Hermes: {source} wheel metadata entry exceeds {HERMES_MAX_METADATA_ENTRY_BYTES} bytes")
+            message = email.parser.BytesParser().parsebytes(archive.read(names["METADATA"][0]))
+            wheel_message = email.parser.BytesParser().parsebytes(archive.read(names["WHEEL"][0]))
+    except (OSError, zipfile.BadZipFile) as error:
+        raise UpdateError(f"Hermes: {source} wheel is invalid") from error
+    if message.get("Name") != "hermes-agent" or message.get("Version") != version:
+        raise UpdateError(f"Hermes: {source} wheel metadata does not match its release version")
+    return (
+        message["Name"], message["Version"],
+        tuple(sorted(" ".join(value.split()) for value in message.get_all("Requires-Dist", []))),
+        message.get("Requires-Python"),
+        tuple(sorted(message.get_all("Provides-Extra", []))),
+        tuple(sorted(wheel_message.get_all("Tag", []))),
+    )
+
+
+def hermes_official_wheel_metadata(
+    version: str, opener: Callable[[str], bytes] | None, verify_provenance: bool = True
+) -> tuple[object, ...]:
+    filename, checksum, url = hermes_pypi_artifact(version, opener)
+    if verify_provenance:
+        hermes_pypi_provenance(version, filename, checksum, opener)
+    wheel = fetch_url(url, opener)
+    if sha256(wheel).hexdigest() != checksum:
+        raise UpdateError(f"Hermes {version}: official PyPI wheel SHA-256 does not match metadata")
+    return hermes_wheel_metadata(wheel, version, "official PyPI")
+
+
+def hermes_custom_wheel_metadata(wheel: bytes, version: str, expected: tuple[object, ...]) -> None:
+    if hermes_wheel_metadata(wheel, version, "custom") != expected:
+        raise UpdateError("Hermes: custom wheel metadata differs from the official wheel")
+
+
+def hermes_custom_locks(root: Path, version: str, checksum: str) -> tuple[str, str]:
+    path = root / "infra/ansible/roles/hermes/files" / f"requirements-{version}.lock"
+    if not path.exists():
+        raise UpdateError(f"Hermes {version}: tracked transitive requirements lock is absent")
+    full = path.read_text(encoding="utf-8")
+    validate_hermes_lock(root, version, checksum=None)
+    pattern = re.compile(rf"(?ms)^hermes-agent\[[^]]+\]=={re.escape(version)}.*?(?=^[a-z0-9][a-z0-9_.-]*(?:\[[^]]+\])?==|\Z)")
+    match = pattern.search(full)
+    if match is None:
+        raise UpdateError(f"Hermes {version}: tracked lock does not contain the Hermes requirement block")
+    block = re.sub(r"(?m)^\s*--hash=sha256:[0-9a-f]{64}.*\n?", "", match.group())
+    block = re.sub(r"(?m)^(hermes-agent\[[^]]+\]==[^\\]+\\)\s*$", rf"\1\n    --hash=sha256:{checksum}", block)
+    if f"--hash=sha256:{checksum}" not in block:
+        raise UpdateError(f"Hermes {version}: unable to replace the Hermes wheel hash")
+    return full[:match.start()] + block + full[match.end():], full[:match.start()] + full[match.end():]
+
+
+def hermes_custom_tag_key(tag_prefix: str, tag: str) -> tuple[tuple[tuple[int, int | str], ...], int] | None:
+    match = re.fullmatch(rf"{re.escape(tag_prefix)}([0-9]+[.][0-9]+[.][0-9]+)[.]([1-9][0-9]*)", tag)
+    return (natural_tag_key(match.group(1)), int(match.group(2))) if match is not None else None
+
+
+def hermes_custom_artifact_dir(root: Path, tag: str, checksum: str) -> Path:
+    current = root
+    for component in HERMES_CUSTOM_ARTIFACT_DIR.parts:
+        current /= component
+        if current.exists():
+            if current.is_symlink() or not current.is_dir():
+                raise UpdateError("Hermes: custom artifact hierarchy must contain only directories, not symlinks")
+        else:
+            current.mkdir()
+    directory = current / f"{urllib.parse.quote(tag, safe='')}-{checksum[:12]}"
+    if directory.exists():
+        if directory.is_symlink() or not directory.is_dir():
+            raise UpdateError("Hermes: custom artifact directory must not be a symlink")
+    else:
+        directory.mkdir()
+    return directory
+
+
+def process_custom_hermes_discovery_target(
+    target: HermesDiscoveryTarget, root: Path, now: datetime, text: str, repository: str, tag_prefix: str,
+    opener: Callable[[str], bytes] | None,
+) -> UpdateResult:
+    fields = ("hermes_discovery_version", "hermes_discovery_tag", "hermes_discovery_commit", "hermes_discovery_wheel_sha256")
+    if any(hermes_inventory_value(text, key) is None for key in fields):
+        raise UpdateError("Hermes: custom release discovery pin group is incomplete")
+    release, version = hermes_custom_release(repository, tag_prefix, now, opener)
+    current_tag = hermes_inventory_value(text, "hermes_discovery_tag")
+    current_group_complete = all(hermes_inventory_value(text, key) is not None for key in (
+        "hermes_custom_wheel_url", "hermes_custom_requirements_lock_path", "hermes_custom_dependencies_lock_path",
+    ))
+    current_key = hermes_custom_tag_key(tag_prefix, current_tag) if current_group_complete and current_tag is not None else None
+    selected_key = hermes_custom_tag_key(tag_prefix, release.version)
+    if current_key is not None and selected_key is not None and selected_key < current_key:
+        raise UpdateError("Hermes: refusing custom release rollback")
+    filename, wheel_url, manifest_url = hermes_custom_assets(repository, release, version)
+    checksum = checksum_from_manifest(
+        fetch_url(manifest_url, opener, HERMES_MAX_MANIFEST_BYTES).decode("utf-8"),
+        f"{filename}.sha256",
+        filename,
+    )
+    wheel = fetch_url(wheel_url, opener, HERMES_MAX_WHEEL_BYTES)
+    if sha256(wheel).hexdigest() != checksum:
+        raise UpdateError("Hermes: custom wheel SHA-256 does not match its manifest")
+    expected_metadata = hermes_official_wheel_metadata(version, opener, verify_provenance=False)
+    hermes_custom_wheel_metadata(wheel, version, expected_metadata)
+    tag_target = HermesDiscoveryTarget(target.name, target.path, "", f"https://api.github.com/repos/{repository}/git/ref/tags/{{tag}}", "", "", "", "")
+    commit = hermes_tag_commit(tag_target, release, opener)
+    full_lock, dependencies_lock = hermes_custom_locks(root, version, checksum)
+    confirmed_release, confirmed_version = hermes_custom_release(repository, tag_prefix, now, opener)
+    confirmed_filename, confirmed_wheel_url, confirmed_manifest_url = hermes_custom_assets(repository, confirmed_release, confirmed_version)
+    confirmed_checksum = checksum_from_manifest(
+        fetch_url(confirmed_manifest_url, opener, HERMES_MAX_MANIFEST_BYTES).decode("utf-8"),
+        f"{confirmed_filename}.sha256",
+        confirmed_filename,
+    )
+    confirmed_wheel = fetch_url(confirmed_wheel_url, opener, HERMES_MAX_WHEEL_BYTES)
+    if sha256(confirmed_wheel).hexdigest() != confirmed_checksum:
+        raise UpdateError("Hermes: custom wheel SHA-256 does not match its manifest")
+    confirmed_metadata = hermes_official_wheel_metadata(confirmed_version, opener, verify_provenance=False)
+    hermes_custom_wheel_metadata(confirmed_wheel, confirmed_version, confirmed_metadata)
+    confirmed_commit = hermes_tag_commit(tag_target, confirmed_release, opener)
+    confirmed_full, confirmed_dependencies = hermes_custom_locks(root, confirmed_version, confirmed_checksum)
+    if (release_identity(confirmed_release), confirmed_version, confirmed_checksum, confirmed_commit, confirmed_metadata, confirmed_full, confirmed_dependencies) != (release_identity(release), version, checksum, commit, expected_metadata, full_lock, dependencies_lock):
+        raise UpdateError("Hermes: custom release changed during re-resolution")
+    if (root / target.path).read_text(encoding="utf-8") != text:
+        raise UpdateError("Hermes: pin file changed during resolution")
+    artifact_dir = hermes_custom_artifact_dir(root, release.version, checksum)
+    full_path = artifact_dir / "requirements.lock"
+    dependencies_path = artifact_dir / "requirements-dependencies.lock"
+    lock_base = f"/workspace/{HERMES_CUSTOM_ARTIFACT_DIR.as_posix()}/{artifact_dir.name}"
+    replacements = {
+        "version": version, "tag": release.version, "commit": commit, "checksum": checksum,
+        "wheel_url": wheel_url, "requirements_lock_path": f"{lock_base}/requirements.lock",
+        "dependencies_lock_path": f"{lock_base}/requirements-dependencies.lock",
+    }
+    current_group = tuple(hermes_inventory_value(text, field) for field in (
+        "hermes_discovery_version", "hermes_discovery_tag", "hermes_discovery_commit", "hermes_discovery_wheel_sha256",
+        "hermes_custom_wheel_url", "hermes_custom_requirements_lock_path", "hermes_custom_dependencies_lock_path",
+    ))
+    resolved_group = tuple(replacements[key] for key in ("version", "tag", "commit", "checksum", "wheel_url", "requirements_lock_path", "dependencies_lock_path"))
+    if current_group == resolved_group and full_path.exists() and dependencies_path.exists() and not full_path.is_symlink() and not dependencies_path.is_symlink() and full_path.read_text(encoding="utf-8") == full_lock and dependencies_path.read_text(encoding="utf-8") == dependencies_lock:
+        return UpdateResult(target.name, target.path, version, version, "current", "current custom GitHub release is verified")
+    atomic_write_if_changed(full_path, full_lock)
+    atomic_write_if_changed(dependencies_path, dependencies_lock)
+    updated = text
+    replacement_target = Target(target.name, target.path, "", "", target.release_url)
+    for key, value in replacements.items():
+        field = {"checksum": "hermes_discovery_wheel_sha256", "wheel_url": "hermes_custom_wheel_url", "requirements_lock_path": "hermes_custom_requirements_lock_path", "dependencies_lock_path": "hermes_custom_dependencies_lock_path"}.get(key, f"hermes_discovery_{key}")
+        pattern = rf"(?m)^(\s*{field}:\s*)[^\n]*$"
+        updated = replace_once(pattern, rf"\g<1>{value}", updated, replacement_target) if re.search(pattern, updated) else updated.rstrip() + f"\n    {field}: {value}\n"
+    atomic_write_if_changed(root / target.path, updated)
+    return UpdateResult(target.name, target.path, hermes_inventory_value(text, "hermes_discovery_version"), version, "updated", f"custom GitHub wheel; tag commit {commit}; strict {OCI_MIN_AGE_HOURS}h hold")
+
+
+
+
+def fetch_json_value(
+    url: str,
+    opener: Callable[[str], bytes] | None = None,
+) -> object:
+    try:
+        return json.loads(fetch_url(url, opener).decode("utf-8"))
+    except json.JSONDecodeError as error:
+        raise UpdateError(f"invalid JSON from {url}: {error}") from error
 def process_hermes_discovery_target(
     target: HermesDiscoveryTarget,
     root: Path,
@@ -1227,6 +1541,9 @@ def process_hermes_discovery_target(
     if not path.exists():
         return UpdateResult(target.name, target.path, None, None, "skip", "file not present")
     text = path.read_text(encoding="utf-8")
+    custom = hermes_custom_config(text)
+    if custom is not None:
+        return process_custom_hermes_discovery_target(target, root, now, text, *custom, opener)
     patterns = {
         "version": r'(?m)^(\s*hermes_discovery_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         "tag": r'(?m)^(\s*hermes_discovery_tag:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
@@ -1260,8 +1577,7 @@ def process_hermes_discovery_target(
     confirmed_release, _confirmed_held = hermes_releases(target, now, opener)
     confirmed = resolve_hermes_release(target, confirmed_release, root, opener)
     if (
-        confirmed_release.version != release.version
-        or confirmed_release.published_at != release.published_at
+        release_identity(confirmed_release) != release_identity(release)
         or confirmed != resolved
     ):
         raise UpdateError(f"{target.name}: release, provenance, or wheel changed during re-resolution")

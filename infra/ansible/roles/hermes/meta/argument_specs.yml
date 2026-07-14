@@ -74,7 +74,34 @@ argument_specs:
       hermes_discovery_wheel_sha256:
         type: str
         required: true
-        description: "Official PyPI Hermes wheel SHA-256 verified before release activation."
+        description: "Hermes wheel SHA-256 verified before release activation."
+      hermes_artifact_source:
+        type: str
+        required: false
+        choices:
+          - official_pypi
+          - custom_github_release
+        description: "Hermes wheel source (default: official_pypi); custom_github_release requires the custom wheel URL and both controller lock paths."
+      hermes_custom_repository:
+        type: str
+        required: false
+        description: "GitHub owner/repository used by just update for custom release discovery."
+      hermes_custom_tag_prefix:
+        type: str
+        required: false
+        description: "Tag prefix used by just update for custom release discovery."
+      hermes_custom_wheel_url:
+        type: str
+        required: false
+        description: "HTTPS URL of the checksum-pinned custom GitHub release wheel; required for custom_github_release."
+      hermes_custom_requirements_lock_path:
+        type: path
+        required: false
+        description: "Absolute Ansible-controller path to the full hash lock for custom_github_release."
+      hermes_custom_dependencies_lock_path:
+        type: path
+        required: false
+        description: "Absolute Ansible-controller path to the dependencies-only hash lock for custom_github_release."
       hermes_repo_path:
         type: str
         required: false

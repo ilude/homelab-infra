@@ -38,7 +38,12 @@ __pycache__/
 # Local scratch/log output
 .tmp/
 .ansible/
-.pi/
+.pi/*
+!.pi/skills/
+.pi/skills/*
+!.pi/skills/hermes-fork-maintenance/
+.pi/skills/hermes-fork-maintenance/*
+!.pi/skills/hermes-fork-maintenance/SKILL.md
 
 # OS/editor
 .DS_Store

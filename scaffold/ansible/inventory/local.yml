@@ -64,6 +64,13 @@ all:
     hermes_discovery_tag: "v2026.7.1"
     hermes_discovery_commit: 7c1a029553d87c43ecff8a3821336bc95872213b
     hermes_discovery_wheel_sha256: bf75c02d59f7c464cd0d85026fb7ee2e6bb15f003beccab3442b572f1ae1fd37
+    hermes_artifact_source: official_pypi
+    # Custom releases use a checksum-pinned GitHub wheel plus private locks under values/.
+    hermes_custom_repository: ""
+    hermes_custom_tag_prefix: homelab-v
+    hermes_custom_wheel_url: ""
+    hermes_custom_requirements_lock_path: ""
+    hermes_custom_dependencies_lock_path: ""
     hermes_compose_version: "5.3.0"
     hermes_compose_sha256_amd64: fffb010206c952ee5e45d0cd05dc88d3ca063c4634d40eaad6b72677c4c7bbf0
     hermes_compose_sha256_arm64: ba0d9f5ce70086b3830448ce2f8a6405513c996065fe45d2f7c144a1f0d99398

@@ -248,6 +248,44 @@ class MigrateValuesTests(unittest.TestCase):
             self.assertIn("searxng_container_image = \"docker.io/searxng/searxng:2026.7.2-67973783d@sha256:", tfvars_text)
             self.assertEqual(migrate_values.migrate(values), [])
 
+    def test_adds_complete_official_hermes_source_defaults_idempotently(self) -> None:
+        inventory = "---\nall:\n  vars:\n"
+
+        updated, changes = migrate_values.ensure_inventory_defaults(
+            inventory, migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"
+        )
+
+        self.assertEqual(
+            updated,
+            "---\nall:\n  vars:\n    hermes_artifact_source: official_pypi\n    hermes_custom_tag_prefix: homelab-v\n",
+        )
+        self.assertEqual(
+            changes,
+            [
+                "added Hermes artifact source default hermes_artifact_source",
+                "added Hermes artifact source default hermes_custom_tag_prefix",
+            ],
+        )
+        self.assertEqual(
+            migrate_values.ensure_inventory_defaults(updated, migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"),
+            (updated, []),
+        )
+
+    def test_adds_hermes_official_source_defaults_without_overwriting_custom_source(self) -> None:
+        inventory = "---\nall:\n  vars:\n    hermes_artifact_source: custom_github_release\n"
+
+        updated, changes = migrate_values.ensure_inventory_defaults(
+            inventory, migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"
+        )
+
+        self.assertIn("hermes_artifact_source: custom_github_release", updated)
+        self.assertIn("hermes_custom_tag_prefix: homelab-v", updated)
+        self.assertEqual(changes, ["added Hermes artifact source default hermes_custom_tag_prefix"])
+        self.assertEqual(
+            migrate_values.ensure_inventory_defaults(updated, migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"),
+            (updated, []),
+        )
+
     def test_preserves_partial_custom_hermes_pin_group(self) -> None:
         inventory = (
             "---\nall:\n  vars:\n"

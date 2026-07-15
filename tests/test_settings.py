@@ -42,6 +42,22 @@ class SettingsTests(unittest.TestCase):
         finally:
             path.unlink()
 
+    def test_enable_service_preserves_other_settings_and_is_idempotent(self) -> None:
+        path = self.write_settings(
+            {
+                "values_repo": {"remote": "git@example.invalid:repo.git"},
+                "services": ["technitium", "forgejo"],
+            }
+        )
+        try:
+            self.assertTrue(settings_script.enable_service(path, "technitium_secondary"))
+            self.assertFalse(settings_script.enable_service(path, "technitium_secondary"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+        finally:
+            path.unlink()
+        self.assertEqual(data["values_repo"]["remote"], "git@example.invalid:repo.git")
+        self.assertEqual(data["services"], ["technitium", "forgejo", "technitium_secondary"])
+
     def write_registry(self, services: dict[str, object]) -> Path:
         return self.write_settings({"default_services": ["first"], "services": services})
 
@@ -113,6 +129,7 @@ class SettingsTests(unittest.TestCase):
             [
                 "infra/ansible/playbooks/technitium.yml",
                 "infra/ansible/playbooks/caddy-proxy.yml",
+                "infra/ansible/playbooks/technitium-cluster.yml",
                 "infra/ansible/playbooks/technitium-dns.yml",
             ],
         )
@@ -225,6 +242,7 @@ class SettingsTests(unittest.TestCase):
             [
                 "infra/ansible/playbooks/technitium.yml",
                 "infra/ansible/playbooks/caddy-proxy.yml",
+                "infra/ansible/playbooks/technitium-cluster.yml",
                 "infra/ansible/playbooks/technitium-dns.yml",
                 "infra/ansible/playbooks/forgejo.yml",
                 "infra/ansible/playbooks/tailscale-client.yml",

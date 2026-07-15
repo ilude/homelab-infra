@@ -38,6 +38,7 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
             direct_lxc_services,
             {
                 "technitium",
+                "technitium_secondary",
                 "forgejo",
                 "tailscale_client",
                 "forgejo_runner",
@@ -119,6 +120,7 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
                 ["ansible-playbook", "-i", "inventory.yml", "infra/ansible/playbooks/technitium.yml"],
                 ["ansible-playbook", "-i", "inventory.yml", "infra/ansible/playbooks/caddy-proxy.yml"],
                 ["python", "scripts/bootstrap-technitium-api-token.py", "--env-file", str(env_path)],
+                ["ansible-playbook", "-i", "inventory.yml", "infra/ansible/playbooks/technitium-cluster.yml"],
                 ["ansible-playbook", "-i", "inventory.yml", "infra/ansible/playbooks/technitium-dns.yml"],
             ],
         )

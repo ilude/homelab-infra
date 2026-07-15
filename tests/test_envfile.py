@@ -46,6 +46,27 @@ class EnvfileTests(unittest.TestCase):
         finally:
             path.unlink()
 
+    def test_rename_env_key_preserves_value_and_position(self) -> None:
+        path = self.write_env("# comment\nexport OLD_KEY='value with spaces'\nNEXT=value\n")
+        try:
+            self.assertTrue(envfile.rename_env_key(path, "OLD_KEY", "NEW_KEY"))
+            self.assertEqual(envfile.get_env_value(path, "OLD_KEY"), "")
+            self.assertEqual(envfile.get_env_value(path, "NEW_KEY"), "value with spaces")
+            self.assertEqual(
+                path.read_text(encoding="utf-8"),
+                "# comment\nexport NEW_KEY='value with spaces'\nNEXT=value\n",
+            )
+        finally:
+            path.unlink()
+
+    def test_rename_env_key_rejects_existing_destination(self) -> None:
+        path = self.write_env("OLD_KEY=old\nNEW_KEY=new\n")
+        try:
+            with self.assertRaises(envfile.EnvFileError):
+                envfile.rename_env_key(path, "OLD_KEY", "NEW_KEY")
+        finally:
+            path.unlink()
+
     def test_parse_env_lines_strict_unknown_rejects_bad_line(self) -> None:
         with self.assertRaises(envfile.EnvFileError):
             envfile.parse_env_lines(["not an env line"], Path(".env"), strict_unknown=True)

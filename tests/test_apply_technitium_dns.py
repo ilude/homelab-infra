@@ -130,6 +130,30 @@ class DnsApplyTests(unittest.TestCase):
         self.assertIn("/zones/create", paths)
         self.assertIn("/zones/records/add", paths)
 
+    def test_apply_registers_managed_zones_with_catalog(self) -> None:
+        client = FakeClient()
+        apply_dns.apply_config(
+            apply_dns.validate_config(VALID_CONFIG),
+            client,
+            "cluster-catalog.dns-cluster.example.internal",
+        )
+        catalog_calls = [
+            params for path, params in client.calls if path == "/zones/options/set"
+        ]
+        self.assertEqual(
+            catalog_calls,
+            [
+                {
+                    "zone": "example.internal",
+                    "catalog": "cluster-catalog.dns-cluster.example.internal",
+                },
+                {
+                    "zone": "apps.example.net",
+                    "catalog": "cluster-catalog.dns-cluster.example.internal",
+                },
+            ],
+        )
+
     def test_apply_sends_expected_payloads(self) -> None:
         client = FakeClient()
         apply_dns.apply_config(apply_dns.validate_config(VALID_CONFIG), client)

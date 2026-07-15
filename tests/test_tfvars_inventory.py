@@ -35,6 +35,7 @@ class TfvarsInventoryTests(unittest.TestCase):
         self.assertEqual(hostvars["technitium_dns"]["ansible_host"], "192.0.2.53")
         self.assertEqual(hostvars["technitium_dns"]["technitium_vmid"], 106)
         self.assertEqual(hostvars["technitium_dns"]["direct_access_vmid"], 106)
+        self.assertEqual(hostvars["technitium_dns"]["direct_access_pve_host"], "pve_target")
         self.assertEqual(
             hostvars["technitium_dns"]["ansible_ssh_common_args"],
             "-o UserKnownHostsFile=/tmp/homelab-infra/ansible/known_hosts "
@@ -52,6 +53,36 @@ class TfvarsInventoryTests(unittest.TestCase):
         self.assertEqual(hostvars["pve_target"]["ansible_host"], "proxmox.example.internal")
         self.assertEqual(hostvars["pve_target"]["ansible_user"], "root")
         self.assertEqual(inventory["all"]["vars"]["proxmox_node_name"], "pve-a")
+
+    def test_secondary_technitium_uses_secondary_proxmox_authority(self) -> None:
+        with mock.patch.dict(
+            "os.environ", {"SECONDARY_PVE_HOST": "proxmox-secondary.example.internal"}
+        ):
+            inventory = tfvars_inventory.build_inventory(
+                {
+                    "technitium_secondary_container_vmid": 106,
+                    "technitium_secondary_container_ipv4_address": "192.0.2.54/24",
+                    "secondary_proxmox_node_name": "pve-secondary",
+                    "technitium_cluster_domain": "dns-cluster.example.internal",
+                    "technitium_cluster_enabled": False,
+                    "technitium_virtual_ipv4_address": "192.0.2.53/24",
+                },
+                ["technitium_secondary"],
+            )
+
+        hostvars = inventory["_meta"]["hostvars"]
+        secondary = hostvars["technitium_secondary_dns"]
+        self.assertEqual(secondary["ansible_host"], "192.0.2.54")
+        self.assertEqual(secondary["direct_access_vmid"], 106)
+        self.assertEqual(secondary["direct_access_pve_host"], "pve_secondary_target")
+        self.assertEqual(inventory["pve_secondary"]["hosts"], ["pve_secondary_target"])
+        self.assertEqual(
+            hostvars["pve_secondary_target"]["ansible_host"],
+            "proxmox-secondary.example.internal",
+        )
+        self.assertEqual(
+            hostvars["pve_secondary_target"]["proxmox_node_name"], "pve-secondary"
+        )
 
     def test_forgejo_runner_promotes_configured_pve_node_identity(self) -> None:
         inventory = tfvars_inventory.build_inventory(
@@ -162,7 +193,15 @@ class TfvarsInventoryTests(unittest.TestCase):
     def test_disabled_service_groups_exist_without_hosts(self) -> None:
         inventory = tfvars_inventory.build_inventory({}, [])
 
-        for group in ("technitium", "forgejo", "tailscale_client", "infisical", "hermes", "onramp_host"):
+        for group in (
+            "technitium",
+            "technitium_secondary",
+            "forgejo",
+            "tailscale_client",
+            "infisical",
+            "hermes",
+            "onramp_host",
+        ):
             with self.subTest(group=group):
                 self.assertEqual(inventory[group]["hosts"], [])
         self.assertEqual(inventory["services"]["children"], [])

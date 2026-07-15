@@ -97,6 +97,7 @@ class ServiceStateCliTests(unittest.TestCase):
         self.assertIn("SERVICE_STATE_HOST_ACL_ENFORCED:", compose)
         self.assertIn("service_state_host_acl_enforced", playbook)
         self.assertIn("when: not service_state_host_acl_enforced", playbook)
+        self.assertGreaterEqual(script.count("secure_local_backup_root"), 3)
 
     def test_list_behavior(self) -> None:
         result = run_script(SERVICE_SCRIPT, "list")

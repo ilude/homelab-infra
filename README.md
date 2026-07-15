@@ -41,6 +41,7 @@ Keep non-public material in `values/` or outside this checkout; do not add anoth
 - [Onramp SearXNG handoff](docs/onramp-searxng-handoff.md) documents the default future Onramp-owned SearXNG contract and the current temporary `homelab-infra` exception.
 - [App-host runbook](docs/onramp-host-runbook.md) covers `onramp_host` rollback and future deployment validation.
 - [Service update policy](docs/service-update-policy.md) defines managed version updates and the Technitium portable-release path.
+- [Technitium high availability](docs/technitium-ha.md) covers the optional second Proxmox node, clustering, floating DNS address, staged rollout, and recovery.
 
 ## Fresh setup
 
@@ -52,7 +53,7 @@ From a fresh checkout, optionally copy the local settings template:
 cp settings.example.json settings.local.json
 ```
 
-Edit `settings.local.json` if you want `just setup` to clone your private `values/` Git repo. For example, set `values_repo.remote` to your Forgejo SSH URL. The file is ignored by Git. Supported services are defined in `infra/services.json` and currently include `technitium`, `forgejo`, `tailscale_client`, `forgejo_runner`, `infisical`, `infisical_onramp`, `hermes`, `onramp_host`, and `searxng_onramp`; `technitium` includes its Caddy proxy, LXC browser-facing services use service-local Caddy, `onramp_host` prepares a Debian 13 Podman VM with shared Caddy, `infisical_onramp` and `searxng_onramp` deploy rootless services on that VM, and `forgejo_runner` creates/configures a separate Forgejo Actions runner LXC.
+Edit `settings.local.json` if you want `just setup` to clone your private `values/` Git repo. For example, set `values_repo.remote` to your Forgejo SSH URL. The file is ignored by Git. Supported services are defined in `infra/services.json` and currently include `technitium`, `technitium_secondary`, `forgejo`, `tailscale_client`, `forgejo_runner`, `infisical`, `infisical_onramp`, `hermes`, `onramp_host`, and `searxng_onramp`; `technitium` includes its Caddy proxy, LXC browser-facing services use service-local Caddy, `onramp_host` prepares a Debian 13 Podman VM with shared Caddy, `infisical_onramp` and `searxng_onramp` deploy rootless services on that VM, and `forgejo_runner` creates/configures a separate Forgejo Actions runner LXC.
 
 Then run:
 
@@ -188,8 +189,9 @@ Ansible manages:
 
 - Proxmox host ZFS dataset/storage preparation before OpenTofu apply
 - LXC lifecycle readiness on the Proxmox host, including the narrow [Forgejo bind-mount lifecycle boundary](docs/forgejo-bind-mount.md), followed by direct SSH/become service configuration on each service host
-- Technitium installation
-- Caddy installation/configuration directly on the Technitium LXC. The scaffold exposes the Technitium UI at both `dns.example.internal` and `technitium.example.internal`; set `caddy_server_names` in private inventory for your real domain aliases.
+- Technitium installation, including an optional clustered secondary LXC on a standalone Proxmox host
+- Keepalived unicast VRRP for an optional floating LAN DNS address, with local UDP and TCP DNS health checks
+- Caddy installation/configuration directly on the primary Technitium LXC. The scaffold exposes the Technitium UI at both `dns.example.internal` and `technitium.example.internal`; set `caddy_server_names` in private inventory for your real domain aliases.
 - Forgejo installation/configuration, including Actions settings
 - Caddy and OpenSSH integration on the Forgejo LXC
 - Forgejo Actions runner installation/registration on a separate LXC

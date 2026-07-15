@@ -11,3 +11,11 @@ provider "proxmox" {
   username  = var.proxmox_username
   password  = var.proxmox_password
 }
+
+provider "proxmox" {
+  alias = "secondary"
+
+  endpoint  = var.secondary_proxmox_endpoint
+  insecure  = var.secondary_proxmox_insecure
+  api_token = var.secondary_proxmox_api_token
+}

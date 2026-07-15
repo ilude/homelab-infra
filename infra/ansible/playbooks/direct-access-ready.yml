@@ -27,12 +27,13 @@
           - ansible_host | string is match('^[A-Za-z0-9][A-Za-z0-9._:-]*$')
           - inventory_hostname is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
           - direct_access_known_hosts_file == '/tmp/homelab-infra/ansible/known_hosts'
-          - groups['pve'] | default([]) | length == 1
-          - hostvars[groups['pve'][0]].ansible_user | default('') == 'root'
+          - direct_access_pve_host is defined
+          - direct_access_pve_host in hostvars
+          - hostvars[direct_access_pve_host].ansible_user | default('') == 'root'
         fail_msg: >-
           Direct LXC host-key refresh requires a numeric inventory-derived VMID,
-          a direct inventory address, the managed known_hosts path, and exactly
-          one root-authenticated Proxmox inventory target.
+          a direct inventory address, the managed known_hosts path, and its
+          root-authenticated Proxmox inventory target.
 
     - name: Read LXC SSH host public keys through authenticated Proxmox access
       ansible.builtin.command:
@@ -49,7 +50,7 @@
               ssh-keygen -l -f "$key" >/dev/null
               awk 'NF >= 2 { print $1 " " $2 }' "$key"
             done
-      delegate_to: "{{ groups['pve'][0] }}"
+      delegate_to: "{{ direct_access_pve_host }}"
       register: direct_access_host_keys
       changed_when: false
       no_log: true

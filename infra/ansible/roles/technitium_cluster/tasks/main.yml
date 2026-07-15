@@ -1,0 +1,43 @@
+---
+- name: Validate Technitium cluster inputs
+  ansible.builtin.assert:
+    that:
+      - technitium_cluster_domain is defined
+      - technitium_cluster_domain | length > 0
+      - technitium_cluster_primary_ipv4_address is defined
+      - technitium_cluster_primary_ipv4_address is match('^[0-9.]+$')
+      - technitium_cluster_secondary_ipv4_address is defined
+      - technitium_cluster_secondary_ipv4_address is match('^[0-9.]+$')
+      - technitium_cluster_primary_admin_user | length > 0
+      - technitium_cluster_primary_admin_password | length > 0
+      - technitium_cluster_api_token | length > 0
+  no_log: true
+  when: technitium_cluster_enabled | bool
+
+- name: Install Technitium cluster configurator
+  ansible.builtin.copy:
+    src: configure-technitium-cluster.py
+    dest: /usr/local/sbin/configure-technitium-cluster
+    owner: root
+    group: root
+    mode: '0755'
+  when: technitium_cluster_enabled | bool
+
+- name: Initialize and join Technitium cluster
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/configure-technitium-cluster
+      - --domain
+      - "{{ technitium_cluster_domain }}"
+      - --primary-ip
+      - "{{ technitium_cluster_primary_ipv4_address }}"
+      - --secondary-ip
+      - "{{ technitium_cluster_secondary_ipv4_address }}"
+  environment:
+    TECHNITIUM_API_TOKEN: "{{ technitium_cluster_api_token }}"
+    TECHNITIUM_ADMIN_USER: "{{ technitium_cluster_primary_admin_user }}"
+    TECHNITIUM_ADMIN_PASSWORD: "{{ technitium_cluster_primary_admin_password }}"
+  register: technitium_cluster_result
+  changed_when: "technitium_cluster_result.stdout is match('^changed:')"
+  no_log: true
+  when: technitium_cluster_enabled | bool

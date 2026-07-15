@@ -18,6 +18,26 @@ output "technitium_dns_endpoint" {
   value       = local.technitium_enabled ? "${split("/", var.technitium_container_ipv4_address)[0]}:53" : null
 }
 
+output "technitium_secondary_container_vmid" {
+  description = "Proxmox VMID for the secondary Technitium DNS LXC, or null when disabled."
+  value       = local.technitium_secondary_enabled ? module.technitium_secondary_dns[0].vm_id : null
+}
+
+output "technitium_secondary_dns_ip" {
+  description = "Secondary Technitium DNS LXC IPv4 address without CIDR suffix, or null when disabled."
+  value       = local.technitium_secondary_enabled ? split("/", var.technitium_secondary_container_ipv4_address)[0] : null
+}
+
+output "technitium_secondary_web_url" {
+  description = "Secondary Technitium web console URL after bootstrap install, or null when disabled."
+  value       = local.technitium_secondary_enabled ? "http://${split("/", var.technitium_secondary_container_ipv4_address)[0]}:5380/" : null
+}
+
+output "technitium_secondary_dns_endpoint" {
+  description = "Secondary DNS endpoint after Technitium is configured, or null when disabled."
+  value       = local.technitium_secondary_enabled ? "${split("/", var.technitium_secondary_container_ipv4_address)[0]}:53" : null
+}
+
 output "forgejo_container_vmid" {
   description = "Proxmox VMID for the Forgejo LXC, or null when disabled."
   value       = local.forgejo_enabled ? module.forgejo[0].vm_id : null

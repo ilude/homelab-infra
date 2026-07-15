@@ -1,0 +1,5 @@
+---
+technitium_cluster_enabled: false
+technitium_cluster_primary_admin_user: admin
+technitium_cluster_primary_admin_password: ''
+technitium_cluster_api_token: ''

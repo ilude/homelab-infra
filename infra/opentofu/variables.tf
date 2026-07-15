@@ -180,6 +180,169 @@ variable "technitium_container_disk_gb" {
   type        = number
 }
 
+variable "technitium_cluster_enabled" {
+  description = "Initialize the primary and secondary Technitium instances as a cluster."
+  type        = bool
+  default     = false
+}
+
+variable "technitium_cluster_domain" {
+  description = "Immutable DNS domain used by the Technitium cluster. Choose it before enabling clustering."
+  type        = string
+  default     = "dns-cluster.example.internal"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])$", var.technitium_cluster_domain))
+    error_message = "technitium_cluster_domain must be a fully qualified DNS name."
+  }
+}
+
+variable "technitium_virtual_ipv4_address" {
+  description = "Floating IPv4 CIDR advertised by Keepalived for LAN DNS clients."
+  type        = string
+  default     = "192.0.2.53/24"
+
+  validation {
+    condition     = can(cidrhost(var.technitium_virtual_ipv4_address, 0))
+    error_message = "technitium_virtual_ipv4_address must be a valid IPv4 CIDR address."
+  }
+}
+
+variable "secondary_proxmox_endpoint" {
+  description = "Proxmox VE API endpoint for the standalone secondary provider. Set in terraform.tfvars before enabling technitium_secondary."
+  type        = string
+  default     = "https://proxmox-secondary.example.invalid:8006/"
+
+  validation {
+    condition     = can(regex("^https://", var.secondary_proxmox_endpoint))
+    error_message = "secondary_proxmox_endpoint must be an HTTPS Proxmox VE API endpoint."
+  }
+}
+
+variable "secondary_proxmox_insecure" {
+  description = "Allow the secondary Proxmox provider to trust its self-signed certificate."
+  type        = bool
+  default     = false
+}
+
+variable "secondary_proxmox_api_token" {
+  description = "API token for the standalone secondary Proxmox provider. Store it only in private values or environment injection."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "secondary_proxmox_node_name" {
+  description = "Node on the standalone secondary Proxmox provider that hosts the Technitium secondary LXC."
+  type        = string
+  default     = "pve-secondary"
+}
+
+variable "secondary_proxmox_rootfs_datastore_id" {
+  description = "Datastore on the secondary Proxmox provider for the Technitium secondary LXC root filesystem."
+  type        = string
+  default     = "local-lvm"
+}
+
+variable "secondary_proxmox_template_datastore_id" {
+  description = "Datastore on the secondary Proxmox provider for downloaded LXC templates."
+  type        = string
+  default     = "local"
+}
+
+variable "technitium_secondary_container_vmid" {
+  description = "Proxmox VMID for the secondary Technitium DNS LXC."
+  type        = number
+  default     = 102
+
+  validation {
+    condition     = var.technitium_secondary_container_vmid > 0 && var.technitium_secondary_container_vmid < 1000000000
+    error_message = "technitium_secondary_container_vmid must be a positive Proxmox VMID."
+  }
+}
+
+variable "technitium_secondary_container_hostname" {
+  description = "Hostname for the secondary Technitium DNS LXC."
+  type        = string
+  default     = "technitium-secondary"
+}
+
+variable "technitium_secondary_container_description" {
+  description = "Description for the secondary Technitium DNS LXC."
+  type        = string
+  default     = "Technitium DNS secondary resolver managed by OpenTofu."
+}
+
+variable "technitium_secondary_container_ipv4_address" {
+  description = "Static IPv4 address/CIDR for the secondary Technitium DNS LXC."
+  type        = string
+  default     = "192.0.2.11/24"
+
+  validation {
+    condition     = can(cidrhost(var.technitium_secondary_container_ipv4_address, 0))
+    error_message = "technitium_secondary_container_ipv4_address must be a valid IPv4 CIDR address, for example 192.0.2.11/24."
+  }
+}
+
+variable "technitium_secondary_container_ipv4_gateway" {
+  description = "IPv4 gateway for the secondary Technitium DNS LXC."
+  type        = string
+  default     = "192.0.2.1"
+}
+
+variable "technitium_secondary_container_dns_servers" {
+  description = "DNS servers used by the secondary Technitium LXC before it becomes a resolver."
+  type        = list(string)
+  default     = ["1.1.1.1", "9.9.9.9"]
+}
+
+variable "technitium_secondary_container_search_domain" {
+  description = "DNS search domain for the secondary Technitium LXC."
+  type        = string
+  default     = "example.internal"
+}
+
+variable "technitium_secondary_container_bridge" {
+  description = "Proxmox bridge for the secondary Technitium LXC interface."
+  type        = string
+  default     = "vmbr0"
+}
+
+variable "technitium_secondary_container_vlan_id" {
+  description = "Optional VLAN tag for the secondary Technitium LXC interface. Null leaves the interface untagged."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.technitium_secondary_container_vlan_id == null || (var.technitium_secondary_container_vlan_id >= 1 && var.technitium_secondary_container_vlan_id <= 4094)
+    error_message = "technitium_secondary_container_vlan_id must be null or a VLAN ID from 1 through 4094."
+  }
+}
+
+variable "technitium_secondary_container_cores" {
+  description = "CPU cores for the secondary Technitium DNS LXC."
+  type        = number
+  default     = 1
+}
+
+variable "technitium_secondary_container_memory_mb" {
+  description = "Dedicated memory for the secondary Technitium DNS LXC."
+  type        = number
+  default     = 1024
+}
+
+variable "technitium_secondary_container_swap_mb" {
+  description = "Swap for the secondary Technitium DNS LXC."
+  type        = number
+  default     = 512
+}
+
+variable "technitium_secondary_container_disk_gb" {
+  description = "Root filesystem size in GB for the secondary Technitium DNS LXC."
+  type        = number
+  default     = 8
+}
+
 variable "forgejo_container_vmid" {
   description = "Proxmox VMID for the Forgejo LXC. Set in terraform.tfvars. Import existing CTs before applying this resource."
   type        = number

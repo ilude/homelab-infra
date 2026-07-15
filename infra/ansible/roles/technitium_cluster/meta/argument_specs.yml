@@ -1,0 +1,26 @@
+---
+argument_specs:
+  main:
+    short_description: Initialize and join a Technitium DNS cluster
+    options:
+      technitium_cluster_enabled:
+        type: bool
+        default: false
+      technitium_cluster_domain:
+        type: str
+        required: false
+      technitium_cluster_primary_ipv4_address:
+        type: str
+        required: false
+      technitium_cluster_secondary_ipv4_address:
+        type: str
+        required: false
+      technitium_cluster_primary_admin_user:
+        type: str
+        default: admin
+      technitium_cluster_primary_admin_password:
+        type: str
+        default: ''
+      technitium_cluster_api_token:
+        type: str
+        default: ''

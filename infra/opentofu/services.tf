@@ -4,13 +4,14 @@ locals {
   enabled_services         = toset(coalesce(var.enabled_services, local.service_registry.default_services))
   invalid_enabled_services = setsubtract(local.enabled_services, toset(local.service_names))
 
-  technitium_enabled       = contains(local.enabled_services, "technitium")
-  forgejo_enabled          = contains(local.enabled_services, "forgejo")
-  tailscale_client_enabled = contains(local.enabled_services, "tailscale_client") && var.tailscale_client_enabled
-  forgejo_runner_enabled   = contains(local.enabled_services, "forgejo_runner")
-  infisical_enabled        = contains(local.enabled_services, "infisical")
-  hermes_enabled           = contains(local.enabled_services, "hermes")
-  onramp_host_enabled      = contains(local.enabled_services, "onramp_host")
+  technitium_enabled           = contains(local.enabled_services, "technitium")
+  technitium_secondary_enabled = contains(local.service_names, "technitium_secondary") && contains(local.enabled_services, "technitium_secondary")
+  forgejo_enabled              = contains(local.enabled_services, "forgejo")
+  tailscale_client_enabled     = contains(local.enabled_services, "tailscale_client") && var.tailscale_client_enabled
+  forgejo_runner_enabled       = contains(local.enabled_services, "forgejo_runner")
+  infisical_enabled            = contains(local.enabled_services, "infisical")
+  hermes_enabled               = contains(local.enabled_services, "hermes")
+  onramp_host_enabled          = contains(local.enabled_services, "onramp_host")
 
   lxc_template_enabled = local.technitium_enabled || local.forgejo_enabled || local.tailscale_client_enabled || local.forgejo_runner_enabled || local.infisical_enabled || local.hermes_enabled
 }

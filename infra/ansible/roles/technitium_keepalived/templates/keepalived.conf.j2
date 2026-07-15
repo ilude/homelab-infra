@@ -1,0 +1,34 @@
+global_defs {
+    router_id {{ inventory_hostname }}
+    enable_script_security
+    script_user root
+}
+
+vrrp_script check_technitium_dns {
+    script "/usr/local/sbin/check-technitium-dns"
+    interval 2
+    timeout 3
+    fall 3
+    rise 2
+}
+
+vrrp_instance TECHNITIUM_DNS {
+    state {{ technitium_keepalived_state }}
+    interface {{ technitium_keepalived_interface }}
+    virtual_router_id {{ technitium_keepalived_virtual_router_id }}
+    priority {{ technitium_keepalived_priority }}
+    advert_int 1
+
+    unicast_src_ip {{ ansible_host }}
+    unicast_peer {
+        {{ technitium_keepalived_peer_ipv4_address }}
+    }
+
+    virtual_ipaddress {
+        {{ technitium_keepalived_virtual_ipv4_address }} dev {{ technitium_keepalived_interface }}
+    }
+
+    track_script {
+        check_technitium_dns
+    }
+}

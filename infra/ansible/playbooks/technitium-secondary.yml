@@ -1,0 +1,20 @@
+---
+- name: Prepare secondary Technitium DNS LXC lifecycle boundary
+  hosts: pve_secondary
+  gather_facts: false
+  roles:
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: '{{ technitium_secondary_vmid }}'
+        lxc_ready_name: technitium-secondary
+- name: Run direct access handoff for secondary Technitium DNS
+  ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: technitium_secondary
+- name: Configure secondary Technitium DNS service directly
+  hosts: technitium_secondary
+  gather_facts: false
+  become: true
+  roles:
+    - debian_security_updates
+    - technitium

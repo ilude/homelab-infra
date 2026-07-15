@@ -1,0 +1,7 @@
+---
+technitium_keepalived_enabled: false
+technitium_keepalived_interface: eth0
+technitium_keepalived_virtual_router_id: 53
+technitium_keepalived_priority: 100
+technitium_keepalived_state: BACKUP
+technitium_keepalived_health_record_type: SOA

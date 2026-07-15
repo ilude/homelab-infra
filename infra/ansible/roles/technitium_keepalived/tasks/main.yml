@@ -1,0 +1,58 @@
+---
+- name: Validate Technitium Keepalived inputs
+  ansible.builtin.assert:
+    that:
+      - technitium_keepalived_virtual_ipv4_address is defined
+      - technitium_keepalived_virtual_ipv4_address is match('^[0-9.]+/[0-9]{1,2}$')
+      - technitium_keepalived_peer_ipv4_address is defined
+      - technitium_keepalived_peer_ipv4_address is match('^[0-9.]+$')
+      - technitium_keepalived_cluster_domain is defined
+      - technitium_keepalived_cluster_domain | length > 0
+      - technitium_keepalived_priority >= 1
+      - technitium_keepalived_priority <= 254
+      - technitium_keepalived_virtual_router_id >= 1
+      - technitium_keepalived_virtual_router_id <= 255
+  when: technitium_keepalived_enabled | bool
+
+- name: Install Keepalived
+  ansible.builtin.apt:
+    name: keepalived
+    state: present
+    update_cache: true
+  when: technitium_keepalived_enabled | bool
+
+- name: Install Technitium DNS health check
+  ansible.builtin.template:
+    src: check-technitium-dns.sh.j2
+    dest: /usr/local/sbin/check-technitium-dns
+    owner: root
+    group: root
+    mode: '0755'
+  when: technitium_keepalived_enabled | bool
+  notify: Restart keepalived
+
+- name: Configure Keepalived
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    owner: root
+    group: root
+    mode: '0600'
+    validate: keepalived --config-test --use-file=%s
+  when: technitium_keepalived_enabled | bool
+  notify: Restart keepalived
+
+- name: Enable and start Keepalived
+  ansible.builtin.systemd_service:
+    name: keepalived
+    state: started
+    enabled: true
+  when: technitium_keepalived_enabled | bool
+
+- name: Disable Keepalived when floating DNS is disabled
+  ansible.builtin.systemd_service:
+    name: keepalived
+    state: stopped
+    enabled: false
+  failed_when: false
+  when: not (technitium_keepalived_enabled | bool)

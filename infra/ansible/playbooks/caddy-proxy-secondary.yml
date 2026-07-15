@@ -1,0 +1,11 @@
+---
+- name: Run direct access handoff for secondary Technitium Caddy proxy
+  ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: technitium_secondary
+- name: Configure secondary Technitium Caddy HTTPS proxy directly
+  hosts: technitium_secondary
+  gather_facts: false
+  become: true
+  roles:
+    - caddy_proxy

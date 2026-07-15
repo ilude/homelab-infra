@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+systemctl is-active --quiet dns.service
+
+dig @127.0.0.1 {{ technitium_keepalived_cluster_domain | quote }} {{ technitium_keepalived_health_record_type | quote }} +short +time=1 +tries=1 | grep -q .
+dig @127.0.0.1 {{ technitium_keepalived_cluster_domain | quote }} {{ technitium_keepalived_health_record_type | quote }} +tcp +short +time=1 +tries=1 | grep -q .

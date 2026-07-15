@@ -11,6 +11,7 @@
       "playbooks": [
         "infra/ansible/playbooks/technitium.yml",
         "infra/ansible/playbooks/caddy-proxy.yml",
+        "infra/ansible/playbooks/technitium-cluster.yml",
         "infra/ansible/playbooks/technitium-dns.yml"
       ],
       "dependencies": [],
@@ -19,9 +20,42 @@
         "group": "technitium",
         "vmid_var": "technitium_vmid",
         "tf_vmid": "technitium_container_vmid",
-        "tf_host": "technitium_container_ipv4_address"
+        "tf_host": "technitium_container_ipv4_address",
+        "extra_play_vars": {
+          "technitium_cluster_domain": "technitium_cluster_domain",
+          "technitium_cluster_enabled": "technitium_cluster_enabled",
+          "technitium_keepalived_enabled": "technitium_cluster_enabled",
+          "technitium_virtual_ipv4_address": "technitium_virtual_ipv4_address"
+        }
       },
       "terraform_module": "technitium_dns"
+    },
+    "technitium_secondary": {
+      "execution_resource": "direct_lxc_known_hosts",
+      "state_capable": false,
+      "playbooks": [
+        "infra/ansible/playbooks/technitium-secondary.yml",
+        "infra/ansible/playbooks/caddy-proxy-secondary.yml"
+      ],
+      "dependencies": [],
+      "inventory": {
+        "host": "technitium_secondary_dns",
+        "group": "technitium_secondary",
+        "vmid_var": "technitium_secondary_vmid",
+        "tf_vmid": "technitium_secondary_container_vmid",
+        "tf_host": "technitium_secondary_container_ipv4_address",
+        "pve_group": "pve_secondary",
+        "pve_host": "pve_secondary_target",
+        "pve_host_env": "SECONDARY_PVE_HOST",
+        "tf_pve_node": "secondary_proxmox_node_name",
+        "extra_play_vars": {
+          "technitium_cluster_domain": "technitium_cluster_domain",
+          "technitium_cluster_enabled": "technitium_cluster_enabled",
+          "technitium_keepalived_enabled": "technitium_cluster_enabled",
+          "technitium_virtual_ipv4_address": "technitium_virtual_ipv4_address"
+        }
+      },
+      "terraform_module": "technitium_secondary_dns"
     },
     "forgejo": {
       "execution_resource": "direct_lxc_known_hosts",

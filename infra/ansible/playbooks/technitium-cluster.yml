@@ -1,0 +1,26 @@
+---
+- name: Run direct access handoff for secondary Technitium clustering
+  ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: technitium_secondary
+- name: Configure Technitium clustering and secondary DNS failover
+  hosts: technitium_secondary
+  gather_facts: false
+  become: true
+  roles:
+    - role: technitium_keepalived
+      vars:
+        technitium_keepalived_state: BACKUP
+        technitium_keepalived_priority: 100
+        technitium_keepalived_virtual_ipv4_address: "{{ technitium_virtual_ipv4_address }}"
+        technitium_keepalived_peer_ipv4_address: >-
+          {{ hostvars[(groups['technitium'] | first)].ansible_host }}
+        technitium_keepalived_cluster_domain: "{{ technitium_cluster_domain }}"
+    - role: technitium_cluster
+      vars:
+        technitium_cluster_primary_ipv4_address: >-
+          {{ hostvars[(groups['technitium'] | first)].ansible_host }}
+        technitium_cluster_secondary_ipv4_address: "{{ ansible_host }}"
+        technitium_cluster_primary_admin_user: "{{ lookup('env', 'TECHNITIUM_ADMIN_USER') }}"
+        technitium_cluster_primary_admin_password: "{{ lookup('env', 'TECHNITIUM_ADMIN_PASSWORD') }}"
+        technitium_cluster_api_token: "{{ lookup('env', 'TECHNITIUM_API_TOKEN') }}"

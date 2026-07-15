@@ -17,10 +17,16 @@
 
     - name: Sync Technitium DNS records
       ansible.builtin.command:
-        argv:
-          - python3
-          - "{{ playbook_dir }}/../scripts/apply-technitium-dns.py"
-          - "{{ dns_records_file }}"
+        argv: >-
+          {{
+            ['python3', playbook_dir + '/../scripts/apply-technitium-dns.py']
+            + (
+                ['--catalog', 'cluster-catalog.' + technitium_cluster_domain]
+                if (technitium_cluster_enabled | default(false) | bool)
+                else []
+              )
+            + [dns_records_file]
+          }}
       args:
         chdir: "{{ playbook_dir }}/../../.."
       register: technitium_dns_sync

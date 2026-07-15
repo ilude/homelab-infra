@@ -219,7 +219,9 @@ def record_matches(
     return False
 
 
-def apply_config(config: Mapping[str, Any], client: TechnitiumClient) -> None:
+def apply_config(
+    config: Mapping[str, Any], client: TechnitiumClient, catalog: str | None = None
+) -> None:
     zones = config["zones"]
     settings = config.get("settings")
     if settings:
@@ -248,6 +250,13 @@ def apply_config(config: Mapping[str, Any], client: TechnitiumClient) -> None:
                 print(f"zone exists {zone}")
             else:
                 raise
+
+        if catalog:
+            client.call(
+                "/zones/options/set",
+                {"zone": zone, "catalog": catalog},
+            )
+            print(f"configured catalog membership {zone}")
 
         for index, forwarder in enumerate(forwarders):
             client.call(
@@ -307,6 +316,7 @@ def apply_config(config: Mapping[str, Any], client: TechnitiumClient) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Apply or validate Technitium DNS records JSON.")
     parser.add_argument("--check", action="store_true", help="validate JSON without API calls")
+    parser.add_argument("--catalog", default="", help="catalog zone for managed zone membership")
     parser.add_argument("dns_records_file", type=Path)
     args = parser.parse_args(argv)
 
@@ -318,7 +328,8 @@ def main(argv: list[str] | None = None) -> int:
 
         api_url = os.environ["TECHNITIUM_API_URL"]
         token = os.environ["TECHNITIUM_API_TOKEN"]
-        apply_config(config, TechnitiumClient(api_url, token))
+        catalog = validate_dns_name(args.catalog, "catalog") if args.catalog else None
+        apply_config(config, TechnitiumClient(api_url, token), catalog)
     except KeyError as error:
         print(f"Missing environment variable: {error.args[0]}", file=sys.stderr)
         return 1

@@ -3,10 +3,6 @@ argument_specs:
   main:
     short_description: "Configure a Caddy reverse proxy and TLS policy on a DNS/utility host."
     options:
-      technitium_vmid:
-        type: int
-        required: true
-        description: "LXC VMID used by the host role for required task gating."
       caddy_server_name:
         type: str
         required: false

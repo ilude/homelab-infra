@@ -18,3 +18,11 @@
   roles:
     - debian_security_updates
     - technitium
+    - role: technitium_keepalived
+      vars:
+        technitium_keepalived_state: MASTER
+        technitium_keepalived_priority: 150
+        technitium_keepalived_virtual_ipv4_address: "{{ technitium_virtual_ipv4_address }}"
+        technitium_keepalived_peer_ipv4_address: >-
+          {{ hostvars[(groups['technitium_secondary'] | default([]) | first) | default('')].ansible_host | default('') }}
+        technitium_keepalived_cluster_domain: "{{ technitium_cluster_domain | default('') }}"

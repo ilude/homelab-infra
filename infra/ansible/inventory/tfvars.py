@@ -120,10 +120,10 @@ def pve_target(raw_value: str | None) -> str:
     return value
 
 
-def proxmox_node_name(tfvars: dict[str, Any]) -> str:
-    value = str(tfvars.get("proxmox_node_name", "")).strip()
+def proxmox_node_name(tfvars: dict[str, Any], key: str = "proxmox_node_name") -> str:
+    value = str(tfvars.get(key, "")).strip()
     if not value or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", value):
-        raise InventoryError("proxmox_node_name must be a valid short hostname in terraform.tfvars")
+        raise InventoryError(f"{key} must be a valid short hostname in terraform.tfvars")
     return value
 
 
@@ -173,6 +173,7 @@ def service_hostvars(service: str, tfvars: dict[str, Any]) -> tuple[str, str, di
         # The direct-access handoff consumes these inventory-derived values;
         # no VMID, address, or trust-store path is duplicated in private inventory.
         hostvars["direct_access_vmid"] = tfvars.get(config["tf_vmid"])
+        hostvars["direct_access_pve_host"] = config.get("pve_host", "pve_target")
         hostvars["ansible_ssh_common_args"] = DIRECT_LXC_SSH_ARGS
 
     return host, group, hostvars
@@ -189,12 +190,22 @@ def build_inventory(
     hostvars = inventory["_meta"]["hostvars"]
     for group in sorted({config["group"] for config in SERVICE_HOSTS.values()}):
         inventory[group] = {"hosts": []}
-    if DIRECT_LXC_SERVICES.intersection(services):
-        node_name = proxmox_node_name(tfvars)
-        target = pve_target(pve_host if pve_host is not None else os.environ.get("PVE_HOST"))
-        inventory["pve"] = {"hosts": ["pve_target"]}
-        inventory["all"]["vars"]["proxmox_node_name"] = node_name
-        hostvars["pve_target"] = {
+    direct_services = DIRECT_LXC_SERVICES.intersection(services)
+    for service in sorted(direct_services):
+        config = SERVICE_HOSTS[service]
+        group = config.get("pve_group", "pve")
+        host = config.get("pve_host", "pve_target")
+        host_env = config.get("pve_host_env", "PVE_HOST")
+        node_key = config.get("tf_pve_node", "proxmox_node_name")
+        node_name = proxmox_node_name(tfvars, node_key)
+        raw_target = pve_host if pve_host is not None and host_env == "PVE_HOST" else os.environ.get(host_env)
+        target = pve_target(raw_target)
+        existing_hosts = inventory.get(group, {}).get("hosts", [])
+        if existing_hosts and existing_hosts != [host]:
+            raise InventoryError(f"conflicting Proxmox inventory hosts for group {group}")
+        inventory[group] = {"hosts": [host]}
+        inventory["all"]["vars"][node_key] = node_name
+        hostvars[host] = {
             "ansible_host": target,
             "ansible_user": DEFAULT_ANSIBLE_USER,
             "proxmox_node_name": node_name,

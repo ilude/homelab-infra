@@ -55,10 +55,11 @@
   changed_when: false
   failed_when: false
 
-- name: Set host storage ownership {{ storage_dataset.mountpoint }}
+- name: Set initial host storage ownership {{ storage_dataset.mountpoint }}
   ansible.builtin.file:
     path: "{{ storage_dataset.mountpoint }}"
     state: directory
     owner: "{{ storage_dataset.uid }}"
     group: "{{ storage_dataset.gid }}"
     mode: "0750"
+  when: storage_zfs_list.rc != 0

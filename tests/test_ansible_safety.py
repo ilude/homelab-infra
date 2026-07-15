@@ -11,6 +11,7 @@ REPO = Path(__file__).resolve().parents[1]
 RUNNER_TASKS = REPO / "infra" / "ansible" / "roles" / "forgejo_runner" / "tasks" / "main.yml"
 LXC_READY_TASKS = REPO / "infra" / "ansible" / "roles" / "lxc_ready" / "tasks" / "main.yml"
 DIRECT_ACCESS_PLAYBOOK = REPO / "infra" / "ansible" / "playbooks" / "direct-access-ready.yml"
+ZFS_DATASET_TASKS = REPO / "infra" / "ansible" / "tasks" / "zfs-dataset.yml"
 CADDY_TASK_FILES = (
     REPO / "infra" / "ansible" / "roles" / "caddy_proxy" / "tasks" / "main.yml",
     REPO / "infra" / "ansible" / "roles" / "forgejo" / "tasks" / "caddy.yml",
@@ -68,6 +69,10 @@ def command_text(task: dict[str, Any]) -> str:
 
 
 class AnsibleSafetyTests(unittest.TestCase):
+    def test_storage_prep_does_not_reset_existing_service_ownership(self) -> None:
+        task = task_by_name(ZFS_DATASET_TASKS, "Set initial host storage ownership {{ storage_dataset.mountpoint }}")
+        self.assertEqual(task.get("when"), "storage_zfs_list.rc != 0")
+
     def test_service_roles_do_not_use_pct_for_steady_state(self) -> None:
         for path in sorted((REPO / "infra" / "ansible" / "roles").glob("*/**/*.yml")):
             if path in ALLOWLIST_PCT:

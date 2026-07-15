@@ -2,7 +2,7 @@
 
 Forgejo's data bind mount is owned by Ansible at the Proxmox host boundary, not by the Proxmox API provider. OpenTofu still creates the Forgejo LXC with API-token authentication, but the Forgejo module declares no `mount_points`. The shared LXC resource ignores `mount_point` changes because no module-managed bind mounts remain; this prevents a later refresh or apply from deleting the SSH-managed mount.
 
-`forgejo_data_host_path` in private `values/terraform.tfvars` remains the source of truth. Dynamic inventory promotes it, together with `forgejo_data_mount_path` and the Forgejo VMID, to the PVE lifecycle play without copying values into Ansible inventory.
+`forgejo_data_host_path` in private `values/terraform.tfvars` remains the source of truth. Dynamic inventory promotes it, together with `forgejo_data_mount_path` and the Forgejo VMID, to the PVE lifecycle play without copying values into Ansible inventory. Storage preparation assigns the mapped-root owner only when it creates the dataset. Later applies preserve the service-managed owner set inside the LXC.
 
 During `infra/ansible/playbooks/forgejo.yml`, Ansible:
 

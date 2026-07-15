@@ -217,6 +217,20 @@ def settings_summary(settings: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def enable_service(path: Path, service: str) -> bool:
+    if service not in SERVICE_NAMES:
+        raise SettingsError(f"unknown service: {service}")
+    raw = load_raw(path)
+    services = normalize_services(raw.get("services"), path)
+    if service in services:
+        return False
+    services.append(service)
+    normalize_services(services, path)
+    raw["services"] = services
+    path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
 def load_settings(path: Path | None = None) -> dict[str, Any]:
     resolved_path = path or settings_path()
     raw = load_raw(resolved_path)
@@ -254,6 +268,8 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("validate")
     subparsers.add_parser("values-remote")
     subparsers.add_parser("services")
+    enable_service_parser = subparsers.add_parser("enable-service")
+    enable_service_parser.add_argument("service")
     ansible_playbooks_parser = subparsers.add_parser("ansible-playbooks")
     ansible_playbooks_parser.add_argument("--all", action="store_true")
     ansible_playbooks_parser.add_argument("--settings", type=Path, default=None)
@@ -275,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
         print(settings["values_repo"]["remote"])
     elif args.command == "services":
         print(" ".join(settings["services"]))
+    elif args.command == "enable-service":
+        enable_service(args.settings or settings_path(), args.service)
     elif args.command == "ansible-playbooks":
         playbooks = all_ansible_playbooks() if args.all else ansible_playbooks(settings["services"])
         for playbook in playbooks:

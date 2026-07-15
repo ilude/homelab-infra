@@ -15,6 +15,7 @@ PROXMOX_KEYS = {
     "PROXMOX_VE_USERNAME",
     "PROXMOX_VE_PASSWORD",
     "PVE_HOST",
+    "SECONDARY_PVE_HOST",
 }
 
 CADDY_KEYS = {
@@ -25,6 +26,8 @@ CADDY_KEYS = {
 TERRAFORM_KEYS = {
     "TF_VAR_lxc_root_password",
     "TF_VAR_lxc_ssh_public_keys",
+    "TF_VAR_secondary_proxmox_api_token",
+    "TF_VAR_secondary_proxmox_endpoint",
 }
 
 TECHNITIUM_DNS_KEYS = {

@@ -127,11 +127,17 @@ def run_service(
     playbooks = tuple(settings.SERVICES[service]["playbooks"])
     log_path = log_dir / f"{service}.log"
     env = dict(base_env)
+    technitium_token_ready = False
+    token_required_playbooks = {
+        "infra/ansible/playbooks/technitium-cluster.yml",
+        "infra/ansible/playbooks/technitium-dns.yml",
+    }
     for playbook in playbooks:
-        if playbook == "infra/ansible/playbooks/technitium-dns.yml":
+        if playbook in token_required_playbooks and not technitium_token_ready:
             rc = bootstrap_technitium_token(env_file, log_path, env, runner)
             if rc != 0:
                 return ServiceResult(service, playbooks, rc, log_path)
+            technitium_token_ready = True
         command = ["ansible-playbook", *inventory_args(inventories), playbook]
         rc = runner(command, log_path, env)
         if rc != 0:

@@ -29,6 +29,7 @@ python -m unittest discover -s tests -p "test_*.py"
 export ANSIBLE_TFVARS_FILE=scaffold/terraform.tfvars
 export INFRA_SETTINGS_FILE=settings.example.json
 export PVE_HOST=proxmox.example.internal
+export SECONDARY_PVE_HOST=proxmox-secondary.example.internal
 ansible-inventory -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --list >/dev/null
 mapfile -t playbooks < <(python scripts/settings.py --settings settings.example.json ansible-playbooks --all)
 ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check \

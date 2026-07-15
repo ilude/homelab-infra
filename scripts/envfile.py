@@ -106,6 +106,24 @@ def set_env_value(path: Path, key: str, value: str) -> bool:
     return changed
 
 
+def rename_env_key(path: Path, old_key: str, new_key: str) -> bool:
+    lines = read_lines(path)
+    entries = parse_env_lines(lines, path)
+    if old_key not in entries:
+        return False
+    if new_key in entries:
+        raise EnvFileError(f"cannot rename {old_key}: {new_key} already exists")
+    entry = entries[old_key]
+    match = ENV_LINE_RE.match(lines[entry.index])
+    if match is None:
+        raise EnvFileError(f"cannot rename malformed environment key {old_key}")
+    lines[entry.index] = (
+        f"{match.group('prefix')}{new_key}{match.group('sep')}{match.group('value')}"
+    )
+    write_lines(path, lines)
+    return True
+
+
 def set_env(lines: list[str], entries: dict[str, EnvEntry], key: str, value: str) -> bool:
     line = f"export {key}={shell_quote(value)}"
     if key in entries:
@@ -147,12 +165,19 @@ def main(argv: list[str] | None = None) -> int:
     set_cmd.add_argument("key")
     set_cmd.add_argument("value")
 
+    rename = subparsers.add_parser("rename")
+    rename.add_argument("path", type=Path)
+    rename.add_argument("old_key")
+    rename.add_argument("new_key")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "get":
             print(get_env_value(args.path, args.key))
         elif args.command == "set":
             set_env_value(args.path, args.key, args.value)
+        elif args.command == "rename":
+            rename_env_key(args.path, args.old_key, args.new_key)
     except EnvFileError as error:
         print(error, file=sys.stderr)
         return 1

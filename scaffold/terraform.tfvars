@@ -17,7 +17,7 @@ lxc_ssh_public_keys = [
 technitium_container_vmid          = 106
 technitium_container_hostname      = "technitium-dns"
 technitium_container_description   = "Technitium DNS primary resolver managed by OpenTofu."
-technitium_container_ipv4_address  = "192.0.2.53/24"
+technitium_container_ipv4_address  = "192.0.2.54/24"
 technitium_container_ipv4_gateway  = "192.0.2.1"
 technitium_container_dns_servers   = ["1.1.1.1", "9.9.9.9"]
 technitium_container_search_domain = "example.internal"
@@ -36,6 +36,30 @@ technitium_container_cores     = 1
 technitium_container_memory_mb = 1024
 technitium_container_swap_mb   = 512
 technitium_container_disk_gb   = 8
+
+# Optional Technitium cluster node on a standalone secondary Proxmox host.
+# Enable by adding technitium_secondary to settings.local.json services.
+technitium_cluster_enabled                   = false
+technitium_cluster_domain                    = "dns-cluster.example.internal"
+technitium_virtual_ipv4_address              = "192.0.2.53/24"
+secondary_proxmox_insecure                   = true
+secondary_proxmox_node_name                  = "pve-secondary"
+secondary_proxmox_rootfs_datastore_id        = "local-lvm"
+secondary_proxmox_template_datastore_id      = "local"
+technitium_secondary_container_vmid          = 206
+technitium_secondary_container_hostname      = "technitium-dns-2"
+technitium_secondary_container_description   = "Technitium DNS secondary resolver managed by OpenTofu."
+technitium_secondary_container_ipv4_address  = "192.0.2.55/24"
+technitium_secondary_container_ipv4_gateway  = "192.0.2.1"
+technitium_secondary_container_dns_servers   = ["1.1.1.1", "9.9.9.9"]
+technitium_secondary_container_search_domain = "example.internal"
+technitium_secondary_container_bridge        = "vmbr0"
+technitium_secondary_container_vlan_id       = null
+
+technitium_secondary_container_cores     = 1
+technitium_secondary_container_memory_mb = 1024
+technitium_secondary_container_swap_mb   = 512
+technitium_secondary_container_disk_gb   = 8
 
 forgejo_container_vmid          = 107
 forgejo_container_hostname      = "forgejo"

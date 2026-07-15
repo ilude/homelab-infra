@@ -39,6 +39,12 @@ secure_local_backup_root() {
         /grant:r "${windows_identity}:(OI)(CI)F" \
         '*S-1-5-18:(OI)(CI)F' \
         '*S-1-5-32-544:(OI)(CI)F' \
+        /Q >/dev/null
+      MSYS2_ARG_CONV_EXCL='*' icacls.exe "${windows_path}\\*" \
+        /inheritance:r \
+        /grant:r "${windows_identity}:F" \
+        '*S-1-5-18:F' \
+        '*S-1-5-32-544:F' \
         /T /C /Q >/dev/null
       service_state_host_acl_enforced=true
       ;;
@@ -204,6 +210,9 @@ case "${command_name}" in
       fi
       run_playbook backup "${target}"
     fi
+    # Files created through the Docker bind mount may not inherit the host ACL.
+    # Reapply it after backup creation so later container reads do not fail.
+    secure_local_backup_root
     ;;
   restore)
     if [[ $# -ne 2 ]]; then

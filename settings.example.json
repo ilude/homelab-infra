@@ -4,6 +4,7 @@
   },
   "services": [
     "technitium",
+    "technitium_secondary",
     "forgejo",
     "forgejo_runner",
     "infisical_onramp",

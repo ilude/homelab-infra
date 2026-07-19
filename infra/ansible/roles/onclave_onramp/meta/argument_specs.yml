@@ -62,7 +62,7 @@ argument_specs:
       onclave_onramp_core_port:
         type: int
         required: false
-        description: "Loopback host port for Onclave core (default: 8080)."
+        description: "Loopback host port for Onclave core (default: 18080)."
       onclave_onramp_management_port:
         type: int
         required: false

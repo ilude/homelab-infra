@@ -1,7 +1,7 @@
 ---
 onclave_onramp_base_dir: "{{ onramp_host_deploy_dir }}/onclave"
 onclave_onramp_compose_provider_command: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
-onclave_onramp_core_port: 8080
+onclave_onramp_core_port: 18080
 onclave_onramp_management_port: 15672
 onclave_onramp_amqp_port: 5672
 onclave_onramp_amqp_allowed_cidrs: "{{ onramp_host_allowed_ssh_cidrs }}"

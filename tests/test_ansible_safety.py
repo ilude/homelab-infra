@@ -420,6 +420,19 @@ class AnsibleSafetyTests(unittest.TestCase):
             mode = (REPO / rel_path).stat().st_mode
             self.assertTrue(mode & 0o111, rel_path)
 
+    def test_onramp_default_http_ports_do_not_collide(self) -> None:
+        onclave_defaults = yaml.safe_load(
+            (REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "defaults" / "main.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        searxng_defaults = yaml.safe_load(
+            (REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "defaults" / "main.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertNotEqual(onclave_defaults["onclave_onramp_core_port"], searxng_defaults["searxng_onramp_container_port"])
+
     def test_searxng_onramp_ports_are_loopback_only(self) -> None:
         compose = REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "templates" / "docker-compose.yml.j2"
         text = compose.read_text(encoding="utf-8")

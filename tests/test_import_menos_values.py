@@ -64,7 +64,10 @@ class ImportMenosValuesTests(unittest.TestCase):
                 encoding="utf-8",
             )
             source = root / "legacy.env"
-            source.write_text("SURREALDB_PASSWORD=value\n", encoding="utf-8")
+            source.write_text(
+                "SURREALDB_PASSWORD=value\n",  # public-safety: allow-secret
+                encoding="utf-8",
+            )
             keys = root / "authorized_keys"
             keys.write_text(
                 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestMaterial test@example\n",

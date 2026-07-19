@@ -1,12 +1,14 @@
 # App-host runbook
 
-The optional `onramp_host` service creates a Debian 13 VM substrate for rootless Podman services and owns the shared Caddy instance. It is not an app deployment by itself; enable app services such as `infisical_onramp` or `searxng_onramp` with `onramp_host` when this repo should manage those workloads on that VM.
+The optional `onramp_host` service creates a Debian 13 VM substrate for rootless Podman services and owns the shared Caddy instance. It is not an app deployment by itself; enable app services such as `infisical_onramp`, `searxng_onramp`, or `onclave_onramp` with `onramp_host` when this repo should manage those workloads on that VM.
 
 ## Enable or disable
 
 - Enable host only: add `onramp_host` to `settings.local.json` services and fill the private `values/terraform.tfvars` onramp-host fields.
 - Enable Infisical onramp: add both `onramp_host` and `infisical_onramp`, then set the Infisical private secrets and point `infisical_server_name` DNS at the onramp host.
 - Enable temporary SearXNG: add both `onramp_host` and `searxng_onramp`, then set `SEARXNG_SECRET_KEY`, `HERMES_WEB_SEARXNG_URL`, `searxng_server_name`, and `searxng_public_url` in private values.
+- Enable Onclave: add both `onramp_host` and `onclave_onramp`, then set the app/image pins, RabbitMQ credentials, HTTP server names, and Technitium records in private values. AMQP is the only LAN-published app port; its firewall sources inherit the approved onramp-host CIDRs.
+- Enable Menos: add both `onramp_host` and `menos_onramp`, then set six image pins, required credentials, authorized public keys, the Menos server name, and its Technitium record. Only the API is loopback-bound behind Caddy; dependency ports remain internal.
 - Disable SearXNG only: remove `searxng_onramp`, remove or update its DNS/Hermes private values, then run a reviewed `just plan` before any apply.
 - Disable host: remove `onramp_host` from `settings.local.json` services, then run a reviewed `just plan` before any apply.
 
@@ -24,8 +26,23 @@ Tracked scaffold values use only placeholders such as `onramp-host.example.inter
 
 Onramp services use the shared system Caddy instance from `onramp_host`. The base Caddyfile imports `/etc/caddy/sites.d/*.caddy`; each app role owns only its own snippet and must not overwrite `/etc/caddy/Caddyfile`.
 
-Temporary SearXNG private values are:
+Onclave private values are:
 
+- `values/.env`: `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS`
+- `values/ansible/inventory/local.yml`: source Compose checksum, digest-pinned RabbitMQ and core images, and Onclave/RabbitMQ server names
+- `values/dns-records.local.json`: Onclave and RabbitMQ names mapped to the onramp-host IP
+
+The role verifies the source Compose checksum, keeps AMQP published for approved LAN clients, binds both HTTP surfaces to loopback behind shared Caddy, and stores RabbitMQ/core data below the service deployment directory for backup coverage.
+
+Menos private values are:
+
+- `values/.env`: database, object-storage, search, proxy, and model-provider credentials
+- `values/ansible/inventory/local.yml`: source Compose checksum, six digest-pinned images, the HTTPS server name, and authorized public keys
+- `values/dns-records.local.json`: the Menos API name mapped to the onramp-host IP
+
+The managed state boundary is the full Menos deployment directory, including SurrealDB, MinIO, Ollama, authorized keys, private env, and the source-derived Compose file. Restore that directory before starting the user service. Cross-host legacy cutover additionally requires the quiesced export/import and parity gates in the Onclave Menos cutover plan.
+
+Temporary SearXNG private values are:
 - `values/.env`: `SEARXNG_SECRET_KEY` and `HERMES_WEB_SEARXNG_URL`
 - `values/terraform.tfvars`: `searxng_server_name`, `searxng_public_url`, container image/port/bind variables
 - `values/dns-records.local.json`: `searxng.apps.<domain>` mapped to the onramp-host IP
@@ -39,9 +56,11 @@ A later live deployment plan must:
 3. Run `just apply` to create/configure the VM and onramp-host readiness role.
 4. Verify SSH reachability as the Onramp deploy user, `anvil` by default.
 5. Verify rootless `podman info`, the selected Compose provider, rootless socket semantics if used, and deployment directory ownership.
-6. If app services such as `infisical_onramp` or `searxng_onramp` are enabled, let this repo deploy them through Ansible on the onramp host.
-7. Verify Caddy on the onramp host and confirm no default host-published app ports exist outside approved proxy ports 80/443.
+6. If app services such as `infisical_onramp`, `searxng_onramp`, or `onclave_onramp` are enabled, let this repo deploy them through Ansible on the onramp host.
+7. Verify Caddy on the onramp host and confirm no host-published app ports exist outside approved proxy ports 80/443 and explicitly approved protocol ports such as Onclave AMQP 5672.
 8. Confirm private `HERMES_WEB_SEARXNG_URL` points to the SearXNG endpoint and smoke-test Hermes search integration once the plugin/runtime exists.
+9. For Onclave, verify the core health response reports broker connectivity and topology declaration, then test AMQP from an approved LAN client.
+10. For Menos, verify `/health` reports the pinned source SHA, `/ready` reports healthy SurrealDB, S3, and Ollama dependencies, then run signed content, ingest, list, and semantic-search acceptance checks before consumer cutover.
 
 ## Rollback choices
 

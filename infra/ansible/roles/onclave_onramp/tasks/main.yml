@@ -1,0 +1,252 @@
+---
+- name: Validate Onclave onramp required variables
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version | int >= 13
+      - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_host_deploy_user != 'root'
+      - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
+      - onclave_server_name is match('^[A-Za-z0-9.-]+$')
+      - onclave_rabbitmq_server_name is match('^[A-Za-z0-9.-]+$')
+      - onclave_app_definition_url is match('^https://raw.githubusercontent.com/[^/]+/[^/]+/[0-9a-f]{40}/')
+      - onclave_app_definition_sha256 is match('^[0-9a-f]{64}$')
+      - onclave_rabbitmq_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_core_image_repository is match('^[A-Za-z0-9./_-]+$')
+      - onclave_core_image_tag is match('^[0-9a-f]{40}$')
+      - onclave_core_image_digest is match('^sha256:[0-9a-f]{64}$')
+      - onclave_rabbitmq_default_user is match('^[A-Za-z0-9_.-]+$')
+      - onclave_rabbitmq_default_pass | length >= 24
+      - onclave_onramp_core_port | int > 0
+      - onclave_onramp_core_port | int < 65536
+      - onclave_onramp_management_port | int > 0
+      - onclave_onramp_management_port | int < 65536
+      - onclave_onramp_amqp_port | int > 0
+      - onclave_onramp_amqp_port | int < 65536
+      - onclave_onramp_amqp_allowed_cidrs | length > 0
+    fail_msg: >-
+      Onclave onramp requires the Debian 13 onramp host, immutable app and
+      image pins, private RabbitMQ credentials, valid DNS names, and approved
+      AMQP source CIDRs.
+  no_log: true
+
+- name: Install Onclave onramp OS dependencies
+  ansible.builtin.apt:
+    name: "{{ onclave_onramp_required_packages }}"
+    state: present
+    update_cache: true
+  when: onclave_onramp_required_packages | length > 0
+
+- name: Ensure Onclave deployment directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ onclave_onramp_base_dir }}"
+      mode: "0750"
+    - path: "{{ onclave_onramp_base_dir }}/data"
+      mode: "0750"
+    - path: "{{ onclave_onramp_base_dir }}/data/rabbitmq"
+      mode: "0750"
+    - path: "{{ onclave_onramp_base_dir }}/data/onclave"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
+      mode: "0750"
+
+- name: Download pinned Onclave app definition
+  ansible.builtin.get_url:
+    url: "{{ onclave_app_definition_url }}"
+    dest: "{{ onclave_onramp_base_dir }}/compose.upstream.yaml"
+    checksum: "sha256:{{ onclave_app_definition_sha256 }}"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+
+- name: Read pinned Onclave app definition
+  ansible.builtin.slurp:
+    src: "{{ onclave_onramp_base_dir }}/compose.upstream.yaml"
+  register: onclave_onramp_upstream_compose
+
+- name: Validate Onclave app definition consumer seams
+  vars:
+    onclave_onramp_upstream_text: "{{ onclave_onramp_upstream_compose.content | b64decode }}"
+  ansible.builtin.assert:
+    that:
+      - "'image: rabbitmq:4-management' in onclave_onramp_upstream_text"
+      - "'- \"5672:5672\"' in onclave_onramp_upstream_text"
+      - "'- \"15672:15672\"' in onclave_onramp_upstream_text"
+      - "'- \"8080:8080\"' in onclave_onramp_upstream_text"
+      - "'- rabbitmq-data:/var/lib/rabbitmq' in onclave_onramp_upstream_text"
+      - "'- onclave-data:/data' in onclave_onramp_upstream_text"
+    fail_msg: The pinned Onclave app definition changed its consumer-owned image, networking, or storage seams.
+
+- name: Render Onclave app definition for the onramp host
+  ansible.builtin.set_fact:
+    onclave_onramp_compose_content: >-
+      {{ onclave_onramp_upstream_compose.content | b64decode
+         | replace('image: rabbitmq:4-management', 'image: ' ~ onclave_rabbitmq_image)
+         | replace('- "5672:5672"', '- "0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672"')
+         | replace('- "15672:15672"', '- "127.0.0.1:' ~ (onclave_onramp_management_port | string) ~ ':15672"')
+         | replace('- "8080:8080"', '- "127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8080"')
+         | replace('- rabbitmq-data:/var/lib/rabbitmq', '- ./data/rabbitmq:/var/lib/rabbitmq:Z,U')
+         | replace('- onclave-data:/data', '- ./data/onclave:/data:Z,U') }}
+
+- name: Install Onclave compose file
+  ansible.builtin.copy:
+    content: "{{ onclave_onramp_compose_content }}"
+    dest: "{{ onclave_onramp_base_dir }}/compose.yaml"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  notify: Restart onclave onramp
+
+- name: Install Onclave environment contract
+  ansible.builtin.template:
+    src: onclave.env.j2
+    dest: "{{ onclave_onramp_base_dir }}/.env"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart onclave onramp
+
+- name: Resolve Onclave deploy user UID
+  ansible.builtin.command:
+    argv:
+      - id
+      - -u
+      - "{{ onramp_host_deploy_user }}"
+  register: onclave_onramp_deploy_user_uid
+  changed_when: false
+
+- name: Install Onclave rootless systemd unit
+  ansible.builtin.template:
+    src: onclave-onramp.service.j2
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.service"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  notify: Restart onclave onramp
+
+- name: Enable Onclave rootless systemd unit
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: onclave-onramp.service
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+
+- name: Allow approved clients to reach Onclave AMQP
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - allow
+      - from
+      - "{{ item }}"
+      - to
+      - any
+      - port
+      - "{{ onclave_onramp_amqp_port | string }}"
+      - proto
+      - tcp
+  loop: "{{ onclave_onramp_amqp_allowed_cidrs }}"
+  changed_when: false
+
+- name: Install Onclave Caddy site snippets
+  ansible.builtin.template:
+    src: onclave.caddy.j2
+    dest: /etc/caddy/sites.d/onclave.caddy
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart caddy
+
+- name: Validate Onclave Caddy config
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
+  changed_when: false
+
+- name: Flush Onclave service restarts before endpoint checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify Onclave rootless service is active
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - is-active
+      - onclave-onramp.service
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  changed_when: false
+  register: onclave_onramp_service_active
+  retries: 6
+  delay: 5
+  until: onclave_onramp_service_active.rc == 0
+
+- name: Verify Onclave core health and broker connectivity
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ onclave_onramp_core_port }}/health"
+    status_code: 200
+    return_content: true
+  register: onclave_onramp_health
+  retries: 24
+  delay: 5
+  until:
+    - onclave_onramp_health.status == 200
+    - onclave_onramp_health.json.broker.connected | default(false)
+    - onclave_onramp_health.json.broker.topologyDeclared | default(false)
+
+- name: Verify Onclave HTTPS route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ onclave_server_name }}:443:127.0.0.1"
+      - "https://{{ onclave_server_name }}/health"
+  changed_when: false
+  register: onclave_onramp_https_check
+  retries: 24
+  delay: 5
+  until: onclave_onramp_https_check.rc == 0
+
+- name: Verify RabbitMQ management HTTPS route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ onclave_rabbitmq_server_name }}:443:127.0.0.1"
+      - "https://{{ onclave_rabbitmq_server_name }}/"
+  changed_when: false
+  register: onclave_onramp_management_https_check
+  retries: 24
+  delay: 5
+  until: onclave_onramp_management_https_check.rc == 0

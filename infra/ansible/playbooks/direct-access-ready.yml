@@ -80,6 +80,12 @@
         mode: '0700'
       delegate_to: localhost
 
+    - name: Reset the ephemeral controller known_hosts file
+      ansible.builtin.file:
+        path: "{{ direct_access_known_hosts_file }}"
+        state: absent
+      delegate_to: localhost
+
     - name: Ensure the managed controller known_hosts file has restrictive permissions
       ansible.builtin.file:
         path: "{{ direct_access_known_hosts_file }}"

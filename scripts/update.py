@@ -203,8 +203,8 @@ TECHNITIUM_DISCOVERY = DiscoveryTarget(
     release_url="https://api.github.com/repos/TechnitiumSoftware/DnsServer/releases?per_page=100",
     checksum_url_template="https://download.technitium.com/dns/archive/{version}/DnsServerPortable.tar.gz.sha256",
     tag_ref_url_template="https://api.github.com/repos/TechnitiumSoftware/DnsServer/git/ref/tags/v{version}",
-    managed_version="15.2.0",
-    managed_checksum="2e39fb8d0718475790cc025e083a1bcfd837a5e79e4a1d0ed775881bd90287ef",
+    managed_version="15.3.0",
+    managed_checksum="8e372b70f63daba41bf7cfb35652c32c15e8e6d4db5f3127411d5772ae088eb5",
     managed_artifact_path="values/artifacts/technitium/",
 )
 

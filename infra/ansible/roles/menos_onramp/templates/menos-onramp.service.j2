@@ -1,0 +1,16 @@
+[Unit]
+Description=Menos rootless Podman workload
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ menos_onramp_base_dir }}
+ExecStart={{ menos_onramp_compose_provider_command }} -f {{ menos_onramp_base_dir }}/compose.yaml up -d
+ExecStop={{ menos_onramp_compose_provider_command }} -f {{ menos_onramp_base_dir }}/compose.yaml down
+TimeoutStartSec=900
+TimeoutStopSec=180
+
+[Install]
+WantedBy=default.target

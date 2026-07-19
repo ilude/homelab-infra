@@ -1,0 +1,81 @@
+---
+argument_specs:
+  main:
+    short_description: "Deploy the Onclave app definition on the shared onramp host."
+    options:
+      onramp_host_deploy_user:
+        type: str
+        required: true
+        description: "Rootless deploy user inherited from onramp host setup."
+      onramp_host_deploy_dir:
+        type: str
+        required: true
+        description: "Base deployment directory inherited from onramp host setup."
+      onclave_server_name:
+        type: str
+        required: true
+        description: "Caddy server name for the Onclave HTTP health surface."
+      onclave_rabbitmq_server_name:
+        type: str
+        required: true
+        description: "DNS name for AMQP and the Caddy-routed RabbitMQ management UI."
+      onclave_app_definition_url:
+        type: str
+        required: true
+        description: "Commit-pinned raw URL for Onclave's reusable Compose definition."
+      onclave_app_definition_sha256:
+        type: str
+        required: true
+        description: "SHA-256 checksum for the reusable Compose definition."
+      onclave_rabbitmq_image:
+        type: str
+        required: true
+        description: "Digest-pinned RabbitMQ management image."
+      onclave_core_image_repository:
+        type: str
+        required: true
+        description: "Onclave core image repository without tag or digest."
+      onclave_core_image_tag:
+        type: str
+        required: true
+        description: "Immutable Onclave source commit tag."
+      onclave_core_image_digest:
+        type: str
+        required: true
+        description: "Onclave core image digest in sha256 form."
+      onclave_rabbitmq_default_user:
+        type: str
+        required: true
+        description: "RabbitMQ application user from private values."
+      onclave_rabbitmq_default_pass:
+        type: str
+        required: true
+        description: "RabbitMQ application password from private values."
+      onclave_onramp_base_dir:
+        type: str
+        required: false
+        description: "Deployment directory (default: {{ onramp_host_deploy_dir }}/onclave)."
+      onclave_onramp_compose_provider_command:
+        type: str
+        required: false
+        description: "Compose CLI used by the rootless user service."
+      onclave_onramp_core_port:
+        type: int
+        required: false
+        description: "Loopback host port for Onclave core (default: 8080)."
+      onclave_onramp_management_port:
+        type: int
+        required: false
+        description: "Loopback host port for RabbitMQ management (default: 15672)."
+      onclave_onramp_amqp_port:
+        type: int
+        required: false
+        description: "LAN-published RabbitMQ AMQP port (default: 5672)."
+      onclave_onramp_amqp_allowed_cidrs:
+        type: list
+        required: false
+        description: "Source CIDRs allowed to reach AMQP."
+      onclave_onramp_required_packages:
+        type: list
+        required: false
+        description: "Additional host packages (default: [])."

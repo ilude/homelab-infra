@@ -84,3 +84,37 @@ managed_service_state_catalog:
         owner: root
         group: root
         recurse: false
+  onclave_onramp:
+    group: onramp_host
+    description: Onclave app definition, private env, and persistent broker/core data on the onramp host.
+    services:
+      - caddy
+    user_services:
+      - onclave-onramp.service
+    user_service_owner: "{{ onramp_host_deploy_user }}"
+    paths:
+      - path: "{{ onramp_host_deploy_dir }}/onclave"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: true
+      - path: /etc/caddy/sites.d/onclave.caddy
+        owner: root
+        group: root
+        recurse: false
+  menos_onramp:
+    group: onramp_host
+    description: Menos app definition, private env, authorized keys, and persistent service data on the onramp host.
+    services:
+      - caddy
+    user_services:
+      - menos-onramp.service
+    user_service_owner: "{{ onramp_host_deploy_user }}"
+    paths:
+      - path: "{{ onramp_host_deploy_dir }}/menos"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: true
+      - path: /etc/caddy/sites.d/menos.caddy
+        owner: root
+        group: root
+        recurse: false

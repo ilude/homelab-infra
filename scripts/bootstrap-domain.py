@@ -234,6 +234,8 @@ def update_dns_records(
     infisical_ip: str,
     hermes_ip: str,
     searxng_ip: str,
+    onclave_ip: str = "",
+    menos_ip: str = "",
 ) -> None:
     if not path.exists():
         return
@@ -248,6 +250,9 @@ def update_dns_records(
         "infisical.example.internal",
         "hermes.example.internal",
         "searxng.apps.example.net",
+        "onclave.example.internal",
+        "rabbitmq.example.internal",
+        "menos.example.internal",
     ):
         records.pop(placeholder, None)
     records[f"dns.{domain}"] = technitium_ip
@@ -260,6 +265,11 @@ def update_dns_records(
         records.pop(infisical_record, None)
     records[f"hermes.{domain}"] = hermes_ip
     records[f"searxng.apps.{domain}"] = searxng_ip
+    if onclave_ip:
+        records[f"onclave.{domain}"] = onclave_ip
+        records[f"rabbitmq.{domain}"] = onclave_ip
+    if menos_ip:
+        records[f"menos.{domain}"] = menos_ip
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
@@ -370,13 +380,26 @@ def run(args: argparse.Namespace) -> int:
     inventory_text = inventory_text.replace("infisical.example.internal", f"infisical.{domain}")
     inventory_text = inventory_text.replace("hermes.example.internal", f"hermes.{domain}")
     inventory_text = inventory_text.replace("searxng.apps.example.net", f"searxng.apps.{domain}")
+    inventory_text = inventory_text.replace("onclave.example.internal", f"onclave.{domain}")
+    inventory_text = inventory_text.replace("rabbitmq.example.internal", f"rabbitmq.{domain}")
+    inventory_text = inventory_text.replace("menos.example.internal", f"menos.{domain}")
     inventory_path.write_text(inventory_text, encoding="utf-8")
     infisical_ip = infisical_dns_target(
         services,
         legacy_infisical_ip,
         ip_without_cidr(tfvar_value(tfvars_path, "onramp_host_ipv4_address")),
     )
-    update_dns_records(dns_records_path, domain, technitium_ip, forgejo_ip, infisical_ip, hermes_ip, searxng_ip)
+    update_dns_records(
+        dns_records_path,
+        domain,
+        technitium_ip,
+        forgejo_ip,
+        infisical_ip,
+        hermes_ip,
+        searxng_ip,
+        searxng_ip if "onclave_onramp" in services else "",
+        searxng_ip if "menos_onramp" in services else "",
+    )
 
     print("Updated domain-derived values:")
     print(f"  TECHNITIUM_API_URL=http://{technitium_ip}:5380/api")

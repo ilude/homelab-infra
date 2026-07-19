@@ -1,0 +1,257 @@
+---
+- name: Validate Menos onramp required variables
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version | int >= 13
+      - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_host_deploy_user != 'root'
+      - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
+      - menos_server_name is match('^[A-Za-z0-9.-]+$')
+      - menos_source_git_sha is match('^[0-9a-f]{40}$')
+      - menos_app_definition_url is match('^https://raw.githubusercontent.com/[^/]+/[^/]+/[0-9a-f]{40}/')
+      - menos_app_definition_sha256 is match('^[0-9a-f]{64}$')
+      - menos_api_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - menos_surrealdb_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - menos_minio_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - menos_ollama_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - menos_searxng_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - menos_docling_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - menos_authorized_keys | length > 0
+      - menos_authorized_keys | select('match', '^ssh-ed25519 [A-Za-z0-9+/=]+(?: .*)?$') | list | length == menos_authorized_keys | length
+      - menos_surrealdb_password | length >= 24
+      - menos_s3_access_key | length >= 16
+      - menos_s3_secret_key | length >= 24
+      - menos_searxng_secret | length >= 24
+      - menos_webshare_proxy_username | length > 0
+      - menos_webshare_proxy_password | length > 0
+      - menos_youtube_api_key | length > 0
+      - menos_openrouter_api_key | length > 0
+      - menos_anthropic_api_key | length > 0
+      - menos_onramp_api_port | int > 0
+      - menos_onramp_api_port | int < 65536
+    fail_msg: >-
+      Menos onramp requires the Debian 13 onramp host, immutable app and image
+      pins, authorized public keys, private runtime credentials, and an HTTPS
+      server name.
+  no_log: true
+
+- name: Install Menos onramp OS dependencies
+  ansible.builtin.apt:
+    name: "{{ menos_onramp_required_packages }}"
+    state: present
+    update_cache: true
+  when: menos_onramp_required_packages | length > 0
+
+- name: Ensure Menos deployment directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ menos_onramp_base_dir }}"
+      mode: "0750"
+    - path: "{{ menos_onramp_base_dir }}/data"
+      mode: "0750"
+    - path: "{{ menos_onramp_base_dir }}/data/surrealdb"
+      mode: "0750"
+    - path: "{{ menos_onramp_base_dir }}/data/minio"
+      mode: "0750"
+    - path: "{{ menos_onramp_base_dir }}/data/ollama"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
+      mode: "0750"
+
+- name: Download pinned Menos app definition
+  ansible.builtin.get_url:
+    url: "{{ menos_app_definition_url }}"
+    dest: "{{ menos_onramp_base_dir }}/compose.upstream.yaml"
+    checksum: "sha256:{{ menos_app_definition_sha256 }}"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+
+- name: Read pinned Menos app definition
+  ansible.builtin.slurp:
+    src: "{{ menos_onramp_base_dir }}/compose.upstream.yaml"
+  register: menos_onramp_upstream_compose
+
+- name: Validate Menos app definition consumer seams
+  vars:
+    menos_onramp_upstream_text: "{{ menos_onramp_upstream_compose.content | b64decode }}"
+  ansible.builtin.assert:
+    that:
+      - "'- \"8080:8000\"' in menos_onramp_upstream_text"
+      - "'- \"9000:9000\"' in menos_onramp_upstream_text"
+      - "'- \"9001:9001\"' in menos_onramp_upstream_text"
+      - "'- \"11434:11434\"' in menos_onramp_upstream_text"
+      - "'- \"8888:8080\"' in menos_onramp_upstream_text"
+      - "'- \"5001:5001\"' in menos_onramp_upstream_text"
+      - "'- \"8000:8000\"' in menos_onramp_upstream_text"
+      - "'- surrealdb-data:/data' in menos_onramp_upstream_text"
+      - "'- minio-data:/data' in menos_onramp_upstream_text"
+      - "'- ollama-data:/root/.ollama' in menos_onramp_upstream_text"
+    fail_msg: The pinned Menos app definition changed its consumer-owned networking or storage seams.
+
+- name: Render Menos app definition for the onramp host
+  ansible.builtin.set_fact:
+    menos_onramp_compose_content: >-
+      {{ menos_onramp_upstream_compose.content | b64decode
+         | replace('    ports:\n      - "8080:8000"\n', '')
+         | replace('    ports:\n      - "9000:9000"\n      - "9001:9001"\n', '')
+         | replace('    ports:\n      - "11434:11434"\n', '')
+         | replace('    ports:\n      - "8888:8080"\n', '')
+         | replace('    ports:\n      - "5001:5001"\n', '')
+         | replace('- "8000:8000"', '- "127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000"')
+         | replace('- surrealdb-data:/data', '- ./data/surrealdb:/data:Z,U')
+         | replace('- minio-data:/data', '- ./data/minio:/data:Z,U')
+         | replace('- ollama-data:/root/.ollama', '- ./data/ollama:/root/.ollama:Z,U') }}
+
+- name: Install Menos compose file
+  ansible.builtin.copy:
+    content: "{{ menos_onramp_compose_content }}"
+    dest: "{{ menos_onramp_base_dir }}/compose.yaml"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  notify: Restart menos onramp
+
+- name: Install Menos environment contract
+  ansible.builtin.template:
+    src: menos.env.j2
+    dest: "{{ menos_onramp_base_dir }}/.env"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart menos onramp
+
+- name: Install Menos authorized public keys
+  ansible.builtin.template:
+    src: authorized_keys.j2
+    dest: "{{ menos_onramp_base_dir }}/authorized_keys"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart menos onramp
+
+- name: Resolve Menos deploy user UID
+  ansible.builtin.command:
+    argv:
+      - id
+      - -u
+      - "{{ onramp_host_deploy_user }}"
+  register: menos_onramp_deploy_user_uid
+  changed_when: false
+
+- name: Install Menos rootless systemd unit
+  ansible.builtin.template:
+    src: menos-onramp.service.j2
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/menos-onramp.service"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  notify: Restart menos onramp
+
+- name: Enable Menos rootless systemd unit
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: menos-onramp.service
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ menos_onramp_deploy_user_uid.stdout | trim }}"
+
+- name: Install Menos Caddy site snippet
+  ansible.builtin.template:
+    src: menos.caddy.j2
+    dest: /etc/caddy/sites.d/menos.caddy
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart caddy
+
+- name: Validate Menos Caddy config
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
+  changed_when: false
+
+- name: Flush Menos service restarts before health checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify Menos rootless service is active
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - is-active
+      - menos-onramp.service
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ menos_onramp_deploy_user_uid.stdout | trim }}"
+  changed_when: false
+  register: menos_onramp_service_active
+  retries: 12
+  delay: 10
+  until: menos_onramp_service_active.rc == 0
+
+- name: Verify Menos health and source revision
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ menos_onramp_api_port }}/health"
+    status_code: 200
+    return_content: true
+  register: menos_onramp_health
+  retries: 60
+  delay: 10
+  until:
+    - menos_onramp_health.status == 200
+    - menos_onramp_health.json.status | default('') == 'ok'
+    - menos_onramp_health.json.git_sha | default('') == menos_source_git_sha
+
+- name: Verify Menos dependency readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ menos_onramp_api_port }}/ready"
+    status_code: 200
+    return_content: true
+  register: menos_onramp_ready
+  retries: 60
+  delay: 10
+  until:
+    - menos_onramp_ready.status == 200
+    - menos_onramp_ready.json.status | default('') == 'ready'
+    - menos_onramp_ready.json.checks.surrealdb | default('') == 'ok'
+    - menos_onramp_ready.json.checks.s3 | default('') == 'ok'
+    - menos_onramp_ready.json.checks.ollama | default('') == 'ok'
+
+- name: Verify Menos HTTPS route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ menos_server_name }}:443:127.0.0.1"
+      - "https://{{ menos_server_name }}/health"
+  changed_when: false
+  register: menos_onramp_https_check
+  retries: 24
+  delay: 5
+  until: menos_onramp_https_check.rc == 0

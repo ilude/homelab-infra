@@ -1,0 +1,19 @@
+{{ onclave_server_name }} {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:{{ onclave_onramp_core_port }}
+
+    tls {
+        dns cloudflare {env.CF_DNS_API_TOKEN}
+        resolvers 1.1.1.1
+    }
+}
+
+{{ onclave_rabbitmq_server_name }} {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:{{ onclave_onramp_management_port }}
+
+    tls {
+        dns cloudflare {env.CF_DNS_API_TOKEN}
+        resolvers 1.1.1.1
+    }
+}

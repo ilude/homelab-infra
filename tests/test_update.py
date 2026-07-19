@@ -353,8 +353,8 @@ class UpdateTests(unittest.TestCase):
             )
             now = datetime(2026, 7, 10, tzinfo=timezone.utc)
             releases = [
-                self.technitium_release("15.3.0", now - timedelta(hours=167), 2),
-                self.technitium_release("15.2.0", now - timedelta(days=30), 1),
+                self.technitium_release("15.4.0", now - timedelta(hours=167), 2),
+                self.technitium_release("15.3.0", now - timedelta(days=30), 1),
             ]
 
             result = update_script.process_discovery_target(
@@ -362,8 +362,8 @@ class UpdateTests(unittest.TestCase):
             )
 
             self.assertEqual(result.status, "current")
-            self.assertIn("15.3.0 remains inside", result.detail)
-            self.assertEqual(inventory.read_text(encoding="utf-8").count("15.2.0"), 1)
+            self.assertIn("15.4.0 remains inside", result.detail)
+            self.assertEqual(inventory.read_text(encoding="utf-8").count("15.3.0"), 1)
 
     def test_technitium_updates_at_exact_hold_boundary_and_re_resolves(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -378,7 +378,7 @@ class UpdateTests(unittest.TestCase):
                 encoding="utf-8",
             )
             now = datetime(2026, 7, 12, tzinfo=timezone.utc)
-            release = self.technitium_release("15.3.0", now - timedelta(hours=168), 349170811)
+            release = self.technitium_release("15.4.0", now - timedelta(hours=168), 349170811)
             checksum = "b" * 64
             commit = "c" * 40
             calls = {"release": 0, "checksum": 0, "tag": 0}
@@ -400,7 +400,7 @@ class UpdateTests(unittest.TestCase):
             self.assertIn("release id 349170811", result.detail)
             self.assertIn(commit, result.detail)
             text = inventory.read_text(encoding="utf-8")
-            self.assertIn('technitium_discovery_version: "15.3.0"', text)
+            self.assertIn('technitium_discovery_version: "15.4.0"', text)
             self.assertIn(checksum, text)
             self.assertIn(target.managed_artifact_path, text)
 

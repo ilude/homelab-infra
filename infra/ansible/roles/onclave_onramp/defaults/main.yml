@@ -1,0 +1,13 @@
+---
+onclave_onramp_base_dir: "{{ onramp_host_deploy_dir }}/onclave"
+onclave_onramp_compose_provider_command: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
+onclave_onramp_core_port: 8080
+onclave_onramp_management_port: 15672
+onclave_onramp_amqp_port: 5672
+onclave_onramp_amqp_allowed_cidrs: "{{ onramp_host_allowed_ssh_cidrs }}"
+onclave_onramp_required_packages: []
+onclave_onramp_queue_ttl_ms: 604800000
+onclave_onramp_queue_max_length: 1000
+onclave_onramp_heartbeat_stale_ms: 90000
+onclave_onramp_max_exchanges: 16
+onclave_onramp_max_total_tokens: 200000

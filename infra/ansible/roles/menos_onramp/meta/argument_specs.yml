@@ -1,0 +1,105 @@
+---
+argument_specs:
+  main:
+    short_description: "Deploy the Menos app definition on the shared onramp host."
+    options:
+      onramp_host_deploy_user:
+        type: str
+        required: true
+      onramp_host_deploy_dir:
+        type: str
+        required: true
+      menos_server_name:
+        type: str
+        required: true
+      menos_source_git_sha:
+        type: str
+        required: true
+      menos_app_definition_url:
+        type: str
+        required: true
+      menos_app_definition_sha256:
+        type: str
+        required: true
+      menos_api_image:
+        type: str
+        required: true
+      menos_surrealdb_image:
+        type: str
+        required: true
+      menos_minio_image:
+        type: str
+        required: true
+      menos_ollama_image:
+        type: str
+        required: true
+      menos_searxng_image:
+        type: str
+        required: true
+      menos_docling_image:
+        type: str
+        required: true
+      menos_authorized_keys:
+        type: list
+        elements: str
+        required: true
+      menos_surrealdb_password:
+        type: str
+        required: true
+      menos_s3_access_key:
+        type: str
+        required: true
+      menos_s3_secret_key:
+        type: str
+        required: true
+      menos_searxng_secret:
+        type: str
+        required: true
+      menos_webshare_proxy_username:
+        type: str
+        required: true
+      menos_webshare_proxy_password:
+        type: str
+        required: true
+      menos_youtube_api_key:
+        type: str
+        required: true
+      menos_openrouter_api_key:
+        type: str
+        required: true
+      menos_anthropic_api_key:
+        type: str
+        required: true
+      menos_onramp_base_dir:
+        type: str
+        required: false
+      menos_onramp_compose_provider_command:
+        type: str
+        required: false
+      menos_onramp_api_port:
+        type: int
+        required: false
+      menos_onramp_required_packages:
+        type: list
+        required: false
+      menos_onramp_surrealdb_namespace:
+        type: str
+        required: false
+      menos_onramp_surrealdb_database:
+        type: str
+        required: false
+      menos_onramp_s3_bucket:
+        type: str
+        required: false
+      menos_onramp_s3_region:
+        type: str
+        required: false
+      menos_onramp_openai_api_key:
+        type: str
+        required: false
+      menos_onramp_callback_url:
+        type: str
+        required: false
+      menos_onramp_callback_secret:
+        type: str
+        required: false

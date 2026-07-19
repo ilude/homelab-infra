@@ -10,6 +10,8 @@
     "infisical_onramp",
     "hermes",
     "onramp_host",
-    "searxng_onramp"
+    "searxng_onramp",
+    "onclave_onramp",
+    "menos_onramp"
   ]
 }

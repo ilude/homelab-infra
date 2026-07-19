@@ -1,0 +1,12 @@
+---
+menos_onramp_base_dir: "{{ onramp_host_deploy_dir }}/menos"
+menos_onramp_compose_provider_command: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
+menos_onramp_api_port: 8000
+menos_onramp_required_packages: []
+menos_onramp_surrealdb_namespace: menos
+menos_onramp_surrealdb_database: menos
+menos_onramp_s3_bucket: menos
+menos_onramp_s3_region: us-east-1
+menos_onramp_openai_api_key: ""
+menos_onramp_callback_url: ""
+menos_onramp_callback_secret: ""

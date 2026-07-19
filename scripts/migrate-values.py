@@ -42,6 +42,17 @@ SECRET_KEYS = {
     "HERMES_DASHBOARD_BASIC_AUTH_SECRET",
     "HERMES_WEB_SEARXNG_URL",
     "SEARXNG_SECRET_KEY",
+    "RABBITMQ_DEFAULT_PASS",
+    "MENOS_SURREALDB_PASSWORD",
+    "MENOS_S3_ACCESS_KEY",
+    "MENOS_S3_SECRET_KEY",
+    "MENOS_SEARXNG_SECRET",
+    "MENOS_WEBSHARE_PROXY_PASSWORD",
+    "MENOS_YOUTUBE_API_KEY",
+    "MENOS_OPENROUTER_API_KEY",
+    "MENOS_ANTHROPIC_API_KEY",
+    "MENOS_OPENAI_API_KEY",
+    "MENOS_CALLBACK_SECRET",
 }
 
 ENV_TO_INVENTORY = {
@@ -93,6 +104,20 @@ MIGRATION_ENV_KEYS = {
     "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
     "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH",
     "HERMES_WEB_SEARXNG_URL",
+    "RABBITMQ_DEFAULT_USER",
+    "RABBITMQ_DEFAULT_PASS",
+    "MENOS_SURREALDB_PASSWORD",
+    "MENOS_S3_ACCESS_KEY",
+    "MENOS_S3_SECRET_KEY",
+    "MENOS_SEARXNG_SECRET",
+    "MENOS_WEBSHARE_PROXY_USERNAME",
+    "MENOS_WEBSHARE_PROXY_PASSWORD",
+    "MENOS_YOUTUBE_API_KEY",
+    "MENOS_OPENROUTER_API_KEY",
+    "MENOS_ANTHROPIC_API_KEY",
+    "MENOS_OPENAI_API_KEY",
+    "MENOS_CALLBACK_URL",
+    "MENOS_CALLBACK_SECRET",
     *ENV_TO_INVENTORY,
     *HISTORICAL_ENV_KEYS,
 }
@@ -118,6 +143,27 @@ OCI_PIN_DEFAULTS = {
     "infisical_redis_image": "    infisical_redis_image: docker.io/library/redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
 }
 
+ONCLAVE_PIN_DEFAULTS = {
+    "onclave_app_definition_url": "    onclave_app_definition_url: https://raw.githubusercontent.com/traefikturkey/onclave/0db510370c02c6deaf34c5b22d0d769216e94c68/deploy/app/onclave/compose.yaml",
+    "onclave_app_definition_sha256": "    onclave_app_definition_sha256: dd217c172fdd626ee5746be9fb52a71c6c23a4ac2be7781b68117ccb96d41530",
+    "onclave_rabbitmq_image": "    onclave_rabbitmq_image: docker.io/library/rabbitmq:4-management@sha256:c1e33461287f4c53049ce525575f0df77b2a00a88e2593776afbb6c1489bdb81",
+    "onclave_core_image_repository": "    onclave_core_image_repository: ghcr.io/traefikturkey/onclave-core",
+    "onclave_core_image_tag": "    onclave_core_image_tag: 0db510370c02c6deaf34c5b22d0d769216e94c68",
+    "onclave_core_image_digest": "    onclave_core_image_digest: sha256:307ca8627385fe06636a8a6619cf36e637bf352a787c6beee4bb2042438f0de5",
+}
+
+MENOS_PIN_DEFAULTS = {
+    "menos_source_git_sha": "    menos_source_git_sha: 0db510370c02c6deaf34c5b22d0d769216e94c68",
+    "menos_app_definition_url": "    menos_app_definition_url: https://raw.githubusercontent.com/traefikturkey/onclave/0db510370c02c6deaf34c5b22d0d769216e94c68/deploy/app/menos/compose.yaml",
+    "menos_app_definition_sha256": "    menos_app_definition_sha256: 73d5463b1a98647adb28122c81a2079ea38301eae761d10eed77a6c7a6af4297",
+    "menos_api_image": "    menos_api_image: ghcr.io/traefikturkey/menos-api:0db510370c02c6deaf34c5b22d0d769216e94c68@sha256:e0245ea70b0ea9a8e74299992c3ea17a73bb22f0a3a7b8c1e0eda4826bbde545",
+    "menos_surrealdb_image": "    menos_surrealdb_image: docker.io/surrealdb/surrealdb:v2.6.1@sha256:f04031f5d3762e3b9c793e357485e20b389c258a7b09e6fc91ecfd6876bd039a",
+    "menos_minio_image": "    menos_minio_image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+    "menos_ollama_image": "    menos_ollama_image: docker.io/ollama/ollama:0.32.1@sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0",
+    "menos_searxng_image": "    menos_searxng_image: ghcr.io/searxng/searxng:2026.7.19-6da6eee26@sha256:b8ca38ba06eea544d7555e88321e212ddc0d5c3c7de055419cfb2e5c6bf30812",
+    "menos_docling_image": "    menos_docling_image: quay.io/docling-project/docling-serve-cpu:v1.15.0@sha256:fdfa8d8aff086c342ea2d3159ad5a1e65bcd6a2b435d243f9f47fdd332f189b5",
+}
+
 HERMES_ARTIFACT_SOURCE_DEFAULTS = {
     "hermes_artifact_source": "    hermes_artifact_source: official_pypi",
     "hermes_custom_tag_prefix": "    hermes_custom_tag_prefix: homelab-v",
@@ -141,8 +187,8 @@ TAILSCALE_PIN_DEFAULTS = {
 }
 
 TECHNITIUM_DISCOVERY_PIN_DEFAULTS = {
-    "technitium_discovery_version": '    technitium_discovery_version: "15.2.0"',
-    "technitium_portable_sha256": "    technitium_portable_sha256: 2e39fb8d0718475790cc025e083a1bcfd837a5e79e4a1d0ed775881bd90287ef",
+    "technitium_discovery_version": '    technitium_discovery_version: "15.3.0"',
+    "technitium_portable_sha256": "    technitium_portable_sha256: 8e372b70f63daba41bf7cfb35652c32c15e8e6d4db5f3127411d5772ae088eb5",
     "technitium_artifact_path": "    technitium_artifact_path: values/artifacts/technitium/",
 }
 
@@ -556,7 +602,14 @@ def ensure_optional_service_tfvars(tfvars_lines: list[str], optional_services: s
     domain = service_domain(tfvars_lines)
     bridge = tfvars_scalar_value(tfvars_lines, "forgejo_container_bridge") or tfvars_scalar_value(tfvars_lines, "technitium_container_bridge") or "vmbr0"
     dns_servers = tfvars_raw_value(tfvars_lines, "forgejo_container_dns_servers") or tfvars_raw_value(tfvars_lines, "technitium_container_dns_servers") or '["1.1.1.1", "9.9.9.9"]'
-    defaults: dict[str, str] = {}
+    defaults: dict[str, str] = {
+        "technitium_cluster_enabled": "false",
+        "technitium_cluster_domain": hcl_quote(f"dns-cluster.{domain}"),
+        "technitium_virtual_ipv4_address": hcl_quote(
+            tfvars_scalar_value(tfvars_lines, "technitium_container_ipv4_address")
+            or "192.0.2.53/24"
+        ),
+    }
     if "infisical" in optional_services:
         defaults.update({
             "infisical_container_vmid": "110",
@@ -791,6 +844,8 @@ def ensure_dns_records(
     infisical_ip: str,
     hermes_ip: str,
     searxng_ip: str = "",
+    onclave_ip: str = "",
+    menos_ip: str = "",
     *,
     remove_infisical_when_absent: bool = False,
 ) -> list[str]:
@@ -812,6 +867,11 @@ def ensure_dns_records(
     desired = {f"hermes.{domain}": hermes_ip}
     if searxng_ip:
         desired[f"searxng.apps.{domain}"] = searxng_ip
+    if onclave_ip:
+        desired[f"onclave.{domain}"] = onclave_ip
+        desired[f"rabbitmq.{domain}"] = onclave_ip
+    if menos_ip:
+        desired[f"menos.{domain}"] = menos_ip
     for name, address in desired.items():
         if not address or records.get(name) == address:
             continue
@@ -849,7 +909,7 @@ def enabled_optional_services(values_dir: Path) -> set[str]:
         return set()
     return {
         service
-        for service in ("infisical", "infisical_onramp", "hermes", "onramp_host", "searxng_onramp")
+        for service in ("infisical", "infisical_onramp", "hermes", "onramp_host", "searxng_onramp", "onclave_onramp", "menos_onramp")
         if service in services
     }
 
@@ -896,6 +956,16 @@ def migrate(values_dir: Path) -> list[str]:
     oci_pin_changes: list[str] = []
     if not legacy_infisical_pin:
         inventory_text, oci_pin_changes = ensure_pin_inventory_vars(inventory_text, OCI_PIN_DEFAULTS, "OCI")
+    onclave_pin_changes: list[str] = []
+    if "onclave_onramp" in optional_services:
+        inventory_text, onclave_pin_changes = ensure_pin_inventory_vars(
+            inventory_text, ONCLAVE_PIN_DEFAULTS, "Onclave app"
+        )
+    menos_pin_changes: list[str] = []
+    if "menos_onramp" in optional_services:
+        inventory_text, menos_pin_changes = ensure_pin_inventory_vars(
+            inventory_text, MENOS_PIN_DEFAULTS, "Menos app"
+        )
     inventory_text, hermes_artifact_source_changes = ensure_inventory_defaults(
         inventory_text, HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"
     )
@@ -917,6 +987,8 @@ def migrate(values_dir: Path) -> list[str]:
         + searxng_image_changes
         + mutable_image_changes
         + oci_pin_changes
+        + onclave_pin_changes
+        + menos_pin_changes
         + hermes_artifact_source_changes
         + hermes_discovery_changes
         + hermes_node_changes
@@ -931,10 +1003,61 @@ def migrate(values_dir: Path) -> list[str]:
             if key not in env_entries:
                 set_env(env_lines, env_entries, key, generator())
                 changes.append(f"generated {key}")
+        if "onclave_onramp" in optional_services:
+            if "RABBITMQ_DEFAULT_USER" not in env_entries:
+                set_env(env_lines, env_entries, "RABBITMQ_DEFAULT_USER", "onclave")
+                changes.append("added RABBITMQ_DEFAULT_USER for Onclave")
+            if "RABBITMQ_DEFAULT_PASS" not in env_entries:
+                set_env(env_lines, env_entries, "RABBITMQ_DEFAULT_PASS", secrets.token_urlsafe(32))
+                changes.append("generated RABBITMQ_DEFAULT_PASS")
+        if "menos_onramp" in optional_services:
+            for key, generator in {
+                "MENOS_SURREALDB_PASSWORD": lambda: secrets.token_urlsafe(32),
+                "MENOS_S3_ACCESS_KEY": lambda: secrets.token_hex(16),
+                "MENOS_S3_SECRET_KEY": lambda: secrets.token_urlsafe(32),
+                "MENOS_SEARXNG_SECRET": lambda: secrets.token_urlsafe(32),
+            }.items():
+                if key not in env_entries:
+                    set_env(env_lines, env_entries, key, generator())
+                    changes.append(f"generated {key}")
 
         domain = service_domain(tfvars_lines)
         inventory_text, inventory_changes = ensure_inventory_vars(inventory_path, inventory_text, domain)
         changes.extend(inventory_changes)
+        if "onclave_onramp" in optional_services:
+            inventory_text, onclave_inventory_changes = ensure_inventory_defaults(
+                inventory_text,
+                {
+                    "onclave_server_name": f"    onclave_server_name: onclave.{domain}",
+                    "onclave_rabbitmq_server_name": f"    onclave_rabbitmq_server_name: rabbitmq.{domain}",
+                    "onclave_rabbitmq_default_user": "    onclave_rabbitmq_default_user: \"{{ lookup('env', 'RABBITMQ_DEFAULT_USER') }}\"",
+                    "onclave_rabbitmq_default_pass": "    onclave_rabbitmq_default_pass: \"{{ lookup('env', 'RABBITMQ_DEFAULT_PASS') }}\"",
+                },
+                "Onclave inventory",
+            )
+            changes.extend(onclave_inventory_changes)
+        if "menos_onramp" in optional_services:
+            inventory_text, menos_inventory_changes = ensure_inventory_defaults(
+                inventory_text,
+                {
+                    "menos_server_name": f"    menos_server_name: menos.{domain}",
+                    "menos_authorized_keys": "    menos_authorized_keys: []",
+                    "menos_surrealdb_password": "    menos_surrealdb_password: \"{{ lookup('env', 'MENOS_SURREALDB_PASSWORD') }}\"",
+                    "menos_s3_access_key": "    menos_s3_access_key: \"{{ lookup('env', 'MENOS_S3_ACCESS_KEY') }}\"",
+                    "menos_s3_secret_key": "    menos_s3_secret_key: \"{{ lookup('env', 'MENOS_S3_SECRET_KEY') }}\"",
+                    "menos_searxng_secret": "    menos_searxng_secret: \"{{ lookup('env', 'MENOS_SEARXNG_SECRET') }}\"",
+                    "menos_webshare_proxy_username": "    menos_webshare_proxy_username: \"{{ lookup('env', 'MENOS_WEBSHARE_PROXY_USERNAME') }}\"",
+                    "menos_webshare_proxy_password": "    menos_webshare_proxy_password: \"{{ lookup('env', 'MENOS_WEBSHARE_PROXY_PASSWORD') }}\"",
+                    "menos_youtube_api_key": "    menos_youtube_api_key: \"{{ lookup('env', 'MENOS_YOUTUBE_API_KEY') }}\"",
+                    "menos_openrouter_api_key": "    menos_openrouter_api_key: \"{{ lookup('env', 'MENOS_OPENROUTER_API_KEY') }}\"",
+                    "menos_anthropic_api_key": "    menos_anthropic_api_key: \"{{ lookup('env', 'MENOS_ANTHROPIC_API_KEY') }}\"",
+                    "menos_onramp_openai_api_key": "    menos_onramp_openai_api_key: \"{{ lookup('env', 'MENOS_OPENAI_API_KEY') }}\"",
+                    "menos_onramp_callback_url": "    menos_onramp_callback_url: \"{{ lookup('env', 'MENOS_CALLBACK_URL') }}\"",
+                    "menos_onramp_callback_secret": "    menos_onramp_callback_secret: \"{{ lookup('env', 'MENOS_CALLBACK_SECRET') }}\"",
+                },
+                "Menos inventory",
+            )
+            changes.extend(menos_inventory_changes)
         if "searxng_onramp" in optional_services and "HERMES_WEB_SEARXNG_URL" not in env_entries:
             set_env(env_lines, env_entries, "HERMES_WEB_SEARXNG_URL", f"https://searxng.apps.{domain}")
             changes.append("added HERMES_WEB_SEARXNG_URL for SearXNG onramp")
@@ -950,6 +1073,12 @@ def migrate(values_dir: Path) -> list[str]:
                 tfvars_scalar_value(tfvars_lines, "hermes_lan_ip"),
                 tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0]
                 if "searxng_onramp" in optional_services
+                else "",
+                tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0]
+                if "onclave_onramp" in optional_services
+                else "",
+                tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0]
+                if "menos_onramp" in optional_services
                 else "",
                 remove_infisical_when_absent=True,
             )

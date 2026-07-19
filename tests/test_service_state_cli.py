@@ -112,6 +112,8 @@ class ServiceStateCliTests(unittest.TestCase):
                 "  onramp_host",
                 "  infisical_onramp",
                 "  searxng_onramp",
+                "  onclave_onramp",
+                "  menos_onramp",
             ],
         )
 

@@ -258,6 +258,59 @@
         }
       },
       "terraform_module": "onramp_host"
+    },
+    "onclave_onramp": {
+      "state_capable": true,
+      "state_order": 7,
+      "execution_resource": "onramp_host",
+      "playbooks": [
+        "infra/ansible/playbooks/onclave-onramp.yml"
+      ],
+      "dependencies": [
+        "onramp_host"
+      ],
+      "inventory": {
+        "host": "onramp_host_vm",
+        "group": "onramp_host",
+        "vmid_var": "onramp_host_vmid",
+        "tf_vmid": "onramp_host_vmid",
+        "tf_host": "onramp_host_ipv4_address",
+        "domain_var": "onramp_host_hostname",
+        "tf_domain": "onramp_host_hostname",
+        "user_var": "onramp_host_deploy_user",
+        "tf_user": "onramp_host_deploy_user",
+        "extra_play_vars": {
+          "onramp_host_deploy_dir": "onramp_host_deploy_dir",
+          "onclave_onramp_amqp_allowed_cidrs": "onramp_host_allowed_ssh_cidrs"
+        }
+      },
+      "terraform_module": "onramp_host"
+    },
+    "menos_onramp": {
+      "state_capable": true,
+      "state_order": 8,
+      "execution_resource": "onramp_host",
+      "playbooks": [
+        "infra/ansible/playbooks/menos-onramp.yml"
+      ],
+      "dependencies": [
+        "onramp_host"
+      ],
+      "inventory": {
+        "host": "onramp_host_vm",
+        "group": "onramp_host",
+        "vmid_var": "onramp_host_vmid",
+        "tf_vmid": "onramp_host_vmid",
+        "tf_host": "onramp_host_ipv4_address",
+        "domain_var": "onramp_host_hostname",
+        "tf_domain": "onramp_host_hostname",
+        "user_var": "onramp_host_deploy_user",
+        "tf_user": "onramp_host_deploy_user",
+        "extra_play_vars": {
+          "onramp_host_deploy_dir": "onramp_host_deploy_dir"
+        }
+      },
+      "terraform_module": "onramp_host"
     }
   }
 }

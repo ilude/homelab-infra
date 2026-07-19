@@ -155,13 +155,17 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("A-Za-z0-9+/", str(validate_keys))
         self.assertIn("/tmp/homelab-infra/ansible/known_hosts", source)
         self.assertNotIn("/workspace/values/ansible/known_hosts", source)
+        reset_trust = by_name["Reset the ephemeral controller known_hosts file"]
         trust_file = by_name["Ensure the managed controller known_hosts file has restrictive permissions"]
         trust_directory = by_name["Ensure the managed controller known_hosts directory exists"]
         self.assertEqual(trust_directory.get("delegate_to"), "localhost")
         self.assertEqual(trust_directory["ansible.builtin.file"].get("mode"), "0700")
+        self.assertEqual(reset_trust.get("delegate_to"), "localhost")
+        self.assertEqual(reset_trust["ansible.builtin.file"].get("state"), "absent")
         self.assertEqual(trust_file.get("delegate_to"), "localhost")
         self.assertEqual(trust_file["ansible.builtin.file"].get("state"), "touch")
         self.assertEqual(trust_file["ansible.builtin.file"].get("mode"), "0600")
+        self.assertLess(names.index(str(reset_trust["name"])), names.index(str(trust_file["name"])))
         self.assertLess(names.index(str(trust_file["name"])), names.index(str(remove_stale["name"])))
         self.assertLess(names.index(str(remove_stale["name"])), names.index(str(install_keys["name"])))
         self.assertIn("inventory_hostname", str(remove_stale))

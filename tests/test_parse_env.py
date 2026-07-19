@@ -69,6 +69,29 @@ class ParseEnvTests(unittest.TestCase):
             path.unlink()
         self.assertEqual(values["TAILSCALE_AUTH_KEY"], "tskey-example-placeholder")
 
+    def test_onclave_rabbitmq_keys_are_allowed(self) -> None:
+        path = self.write_env("RABBITMQ_DEFAULT_USER=onclave\nRABBITMQ_DEFAULT_PASS=placeholder-secret\n")
+        try:
+            values = parse_env_script.parse_env(path)
+        finally:
+            path.unlink()
+        self.assertEqual(values["RABBITMQ_DEFAULT_USER"], "onclave")
+        self.assertEqual(values["RABBITMQ_DEFAULT_PASS"], "placeholder-secret")
+
+    def test_menos_keys_are_allowed(self) -> None:
+        path = self.write_env(
+            "MENOS_SURREALDB_PASSWORD=db-secret\n"  # public-safety: allow-secret
+            "MENOS_S3_ACCESS_KEY=access-key\n"
+            "MENOS_S3_SECRET_KEY=storage-secret\n"  # public-safety: allow-secret
+            "MENOS_YOUTUBE_API_KEY=youtube-key\n"  # public-safety: allow-secret
+        )
+        try:
+            values = parse_env_script.parse_env(path)
+        finally:
+            path.unlink()
+        self.assertEqual(values["MENOS_SURREALDB_PASSWORD"], "db-secret")
+        self.assertEqual(values["MENOS_S3_ACCESS_KEY"], "access-key")
+
     def test_keys_mode_prints_only_keys(self) -> None:
         path = self.write_env("PVE_HOST=proxmox.example.internal\n")
         try:

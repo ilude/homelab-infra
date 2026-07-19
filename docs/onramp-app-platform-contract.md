@@ -10,7 +10,7 @@ The selected default direction is option 3: `homelab-infra remains the durable i
 
 `homelab-infra` owns durable infrastructure resources and first-class services: Proxmox resources, service LAN addressing, static infrastructure DNS, service-local Caddy for first-class services, Ansible roles, and OpenTofu state.
 
-`onramp-vNext` owns Docker app services by default. That includes application catalog entries, Compose or Podman workload definitions, app lifecycle, app-level health checks, and app-specific configuration that does not require infrastructure resource ownership.
+`onramp-vNext` owns Docker app services by default. That includes application catalog entries, Compose or Podman workload definitions, app lifecycle, app-level health checks, and app-specific configuration that does not require infrastructure resource ownership. Onclave and Menos are app workloads under this ownership model, not first-class infrastructure services.
 
 Hermes is the operator cockpit. It may summarize status, run approved validation and planning commands, and guide the operator through approval gates. Hermes must not become a third source of truth for infrastructure or app deployment state.
 
@@ -25,6 +25,8 @@ Specific app DNS records can be promoted into `homelab-infra` only when a separa
 First-class infrastructure services in this repository continue to use service-local Caddy by default. Technitium must not become a general ingress proxy for unrelated app services.
 
 Onramp owns Caddy or reverse-proxy configuration for Onramp app services by default. The temporary `searxng_onramp` exception installs Caddy on `onramp_host` from this repo and proxies only to the loopback-bound SearXNG container. The Onramp service `port` field means the container/service port reachable on the Compose network; it must not be reinterpreted as a host-published port unless a later contract explicitly changes that convention.
+
+Onclave is an explicit protocol exception to loopback-only HTTP publishing: AMQP is a TCP service, so its broker port may be published on the LAN with a Technitium A or CNAME record. Onclave health, RabbitMQ management, and Menos API surfaces are HTTP services and should use the onramp host's shared Caddy instance rather than direct LAN port publication.
 
 ## Secrets Contract
 
@@ -55,6 +57,16 @@ Podman-in-LXC is experimental. It may be tested for lightweight workloads, but i
 SearXNG is classified as an Onramp app-platform service by default. It is useful beyond Hermes, is naturally packaged as an app workload, and should not force this repository to add a first-class LXC for every plugin backend.
 
 Current exception: `homelab-infra` temporarily owns the `searxng_onramp` service. It depends on `onramp_host`, deploys SearXNG with rootless Podman, binds the app only on loopback, publishes HTTPS through Caddy on the onramp host, adds Technitium DNS input, and renders `HERMES_WEB_SEARXNG_URL` for Hermes. This exception should be removed or migrated when Onramp takes over the app definition.
+
+## App Workload Decisions
+
+Onclave and Menos deploy as app workloads on the homelab-managed `onramp_host`. Their source repository owns the host-agnostic app definitions and image contracts; this repository owns the selected host, private DNS inputs, secret delivery, and the role that consumes those definitions. The consumption path must use digest-pinned images and the app definition's declared environment contract.
+
+The Onclave source repository publishes reusable app definitions and immutable image contracts for Onclave and Menos. `onclave_onramp` and `menos_onramp` verify and consume those definitions, apply consumer-owned networking and storage bindings, and keep source and image references digest-pinned. Do not replace these paths with mutable images, local source builds, or duplicate Compose definitions.
+
+Menos exposes only its API through the onramp host's shared Caddy instance. SurrealDB, MinIO, Ollama, SearXNG, and Docling remain internal to the workload network. Menos persistent database, object, and model data plus authorized public keys live below its managed deployment directory so service-state backup and restore cover the complete consumer-owned state boundary.
+
+Hermes remains a first-class service in this repository while it serves as the cross-platform operator cockpit. Reconsider its placement only when it can join the Onclave fabric as an agent without losing its managed artifact and state controls. SearXNG remains an Onramp handoff candidate. Infisical, Technitium, Forgejo, Tailscale, Forgejo Runner, and `onramp_host` remain infrastructure substrate.
 
 ## Future Provisioning Gate
 

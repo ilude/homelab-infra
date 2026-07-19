@@ -57,13 +57,15 @@ archive; restore does not automatically roll back.
 
 Current service-state targets are:
 
-- `hermes` — runtime user's `.hermes` directory, including memory/soul files,
+- `hermes` -- runtime user's `.hermes` directory, including memory/soul files,
   config, history, logs, and Hermes-managed backups.
-- `forgejo` — `/etc/forgejo` and `/var/lib/forgejo`.
-- `technitium` — `/etc/dns`.
-- `onramp_host` — `/etc/caddy` and the configured onramp deployment directory.
-- `infisical_onramp` — Infisical onramp deployment directory and Caddy snippet.
-- `searxng_onramp` — SearXNG onramp deployment directory and Caddy snippet.
+- `forgejo` -- `/etc/forgejo` and `/var/lib/forgejo`.
+- `technitium` -- `/etc/dns`.
+- `onramp_host` -- `/etc/caddy` and the configured onramp deployment directory.
+- `infisical_onramp` -- Infisical onramp deployment directory and Caddy snippet.
+- `searxng_onramp` -- SearXNG onramp deployment directory and Caddy snippet.
+- `onclave_onramp` -- Onclave app definition, private env, persistent broker/core data, and Caddy snippet.
+- `menos_onramp` -- Menos app definition, private env, authorized keys, persistent database/object/model data, and Caddy snippet.
 
 The managed paths live in `infra/ansible/vars/service-state.yml`. Every path
 explicitly declares its owner, group, and whether ownership repair is recursive.

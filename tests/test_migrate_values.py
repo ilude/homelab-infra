@@ -229,6 +229,43 @@ class MigrateValuesTests(unittest.TestCase):
             self.assertEqual(changes, ["added optional service DNS record"])
             self.assertIn('"infisical.lab.example": "192.0.2.72"', dns_path.read_text(encoding="utf-8"))
 
+    def test_onclave_dns_migration_adds_broker_and_http_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            dns_path = Path(temp) / "dns-records.local.json"
+            dns_path.write_text('{"a_records":{}}\n', encoding="utf-8")
+
+            changes = migrate_values.ensure_dns_records(
+                dns_path,
+                "lab.example",
+                "",
+                "",
+                onclave_ip="192.0.2.72",
+            )
+
+            self.assertEqual(changes, ["added optional service DNS record"] * 2)
+            dns_text = dns_path.read_text(encoding="utf-8")
+            self.assertIn('"onclave.lab.example": "192.0.2.72"', dns_text)
+            self.assertIn('"rabbitmq.lab.example": "192.0.2.72"', dns_text)
+
+    def test_menos_dns_migration_adds_api_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            dns_path = Path(temp) / "dns-records.local.json"
+            dns_path.write_text('{"a_records":{}}\n', encoding="utf-8")
+
+            changes = migrate_values.ensure_dns_records(
+                dns_path,
+                "lab.example",
+                "",
+                "",
+                menos_ip="192.0.2.72",
+            )
+
+            self.assertEqual(changes, ["added optional service DNS record"])
+            self.assertIn(
+                '"menos.lab.example": "192.0.2.72"',
+                dns_path.read_text(encoding="utf-8"),
+            )
+
     def test_infisical_dns_migration_removes_disabled_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             dns_path = Path(temp) / "dns-records.local.json"

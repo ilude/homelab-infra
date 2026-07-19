@@ -1,0 +1,7 @@
+---
+- name: Deploy Onclave on the Podman onramp host
+  hosts: onramp_host
+  gather_facts: true
+  become: true
+  roles:
+    - onclave_onramp

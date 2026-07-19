@@ -6,11 +6,11 @@ This directory is a public-safe template for `values/`, the nested private Git r
 
 ## Files
 
-- `.env` — local credentials and bootstrap environment variables, including Hermes Agent dashboard auth secrets.
-- `terraform.tfvars` — site-specific Proxmox/LXC/OpenTofu variables, including optional per-container VLAN tags and the optional disabled-by-default Tailscale client LXC.
-- Optional private artifact cache — stage Technitium archives as `artifacts/technitium/<version>/DnsServerPortable.tar.gz`; keep them in ignored private storage outside tracked `scaffold/`.
-- `dns-records.local.json` — site-specific Technitium DNS zones and records.
-- `ansible/inventory/local.yml` — site-specific Ansible role variables. Do not duplicate the Proxmox host here: dynamic inventory derives the single `pve` target from `PVE_HOST`, uses `root`, and derives its node identity from `proxmox_node_name` in `terraform.tfvars`. The Technitium Caddy proxy uses `caddy_server_names` for DNS UI aliases such as `dns.example.internal` and `technitium.example.internal`.
+- `.env` -- local credentials and bootstrap environment variables, including Hermes Agent dashboard auth secrets.
+- `terraform.tfvars` -- site-specific Proxmox/LXC/OpenTofu variables, including optional per-container VLAN tags and the optional disabled-by-default Tailscale client LXC.
+- Optional private artifact cache -- stage Technitium archives as `artifacts/technitium/<version>/DnsServerPortable.tar.gz`; keep them in ignored private storage outside tracked `scaffold/`.
+- `dns-records.local.json` -- site-specific Technitium DNS zones and records.
+- `ansible/inventory/local.yml` -- site-specific Ansible role variables. Do not duplicate the Proxmox host here: dynamic inventory derives the single `pve` target from `PVE_HOST`, uses `root`, and derives its node identity from `proxmox_node_name` in `terraform.tfvars`. The Technitium Caddy proxy uses `caddy_server_names` for DNS UI aliases such as `dns.example.internal` and `technitium.example.internal`.
 
 ## Initialize
 
@@ -46,6 +46,12 @@ Proxmox bridge should tag that container interface.
 Hermes and the optional onramp host use `anvil` as their non-root runtime/deploy user by default. Add real public SSH keys to `lxc_ssh_public_keys`; the onramp cloud-init keys fall back to that list when `onramp_host_ssh_public_keys` is empty. The Hermes runtime user receives full passwordless sudo inside its LXC, so its SSH keys and dashboard credentials are root-equivalent for that service host. Hermes version, tag, commit, and wheel SHA-256 form one managed pin group. `official_pypi` is the default artifact source. An operator-selected `custom_github_release` uses a configured fork and tag prefix; `just update` writes its verified wheel URL and checksum-specific private locks. Node.js version and architecture checksums form a separate managed compatibility pin group. Apply uses Debian 13 amd64/Python 3.13 hash locks, includes dashboard messaging dependencies, installs verified Node.js before dashboard startup, disables runtime self-bootstrap and lazy installs, and preserves `/home/anvil/.hermes` across versioned venv activation and rollback. On a fresh Hermes host with absent or empty state, the newest customized full-state archive under `service-backups/hermes/` is validated and restored before startup; existing live state is never replaced automatically.
 
 Technitium updates use the private version/checksum pin group in `ansible/inventory/local.yml`. Apply prefers a matching cached archive when present and otherwise uses the official versioned URL; both paths verify the private SHA-256 before extraction. Keep live cached tarballs and checksums out of tracked source.
+
+## App workload naming
+
+Onclave and Menos are app workloads intended for `onramp_host`, not separate OpenTofu resources. The template maps `rabbitmq.example.internal` and `onclave.example.internal` to the placeholder onramp-host address. Use `menos.example.internal` when its app definition is ready. Enable each workload only with its digest-pinned images and final environment contract.
+
+AMQP uses a LAN-published TCP port. Route Onclave health, RabbitMQ management, and the Menos API through the shared Caddy instance on `onramp_host`. Keep Menos dependency ports internal, provide authorized public keys in private inventory, and keep all six image references pinned by digest.
 
 After editing the copied files, run the normal validation entry point:
 

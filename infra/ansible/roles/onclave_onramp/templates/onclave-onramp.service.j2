@@ -1,0 +1,16 @@
+[Unit]
+Description=Onclave rootless Podman workload
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ onclave_onramp_base_dir }}
+ExecStart={{ onclave_onramp_compose_provider_command }} -f {{ onclave_onramp_base_dir }}/compose.yaml up -d
+ExecStop={{ onclave_onramp_compose_provider_command }} -f {{ onclave_onramp_base_dir }}/compose.yaml down
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target

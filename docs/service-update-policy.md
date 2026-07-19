@@ -44,13 +44,13 @@ The updater considers only the bounded version series documented in its resolver
 
 ## Managed Technitium portable releases
 
-Technitium uses the private pin group `technitium_discovery_version`, `technitium_portable_sha256`, and `technitium_artifact_path`. The historical `discovery` variable name is retained for values-repo compatibility, but the pin now controls the runtime installation. The managed default is version `15.2.0` with its reviewed SHA-256.
+Technitium uses the private pin group `technitium_discovery_version`, `technitium_portable_sha256`, and `technitium_artifact_path`. The historical `discovery` variable name is retained for values-repo compatibility, but the pin now controls the runtime installation. The managed default is version `15.3.0` with its reviewed SHA-256.
 
 `just update` lists stable GitHub releases, requires `published_at`, and chooses the newest release satisfying an exact 168-hour hold even when a newer release is still held. It reads the checksum from the official versioned `.sha256` URL, resolves the release tag commit, re-resolves all metadata before writing, and leaves any custom or partial operator pin group unchanged.
 
 During apply, the role checks for `values/artifacts/technitium/<version>/DnsServerPortable.tar.gz` when the optional cache root is configured. If the file is absent, it downloads the official versioned archive. In either case it verifies the private SHA-256, rejects unsafe archive paths or an unexpected layout, stages a versioned release, and only stops `dns.service` for activation. `/etc/dns` remains outside application releases. The previous application and a pre-activation state snapshot are retained; a failed service, UI, or DNS health check restores both before reporting failure. The installed-version marker is written only after health checks pass, so the first managed conversion stages the pinned archive even when an upstream-installed service already exists.
 
-The versioned archive is preferable to the mutable unversioned URL, but upstream does not state that it is immutable. Its published checksum is unsigned and served from the same origin. The reviewed private SHA-256—and an optional privately retained archive—is therefore the durable integrity boundary. Do not rerun the upstream installer as an update mechanism.
+The versioned archive is preferable to the mutable unversioned URL, but upstream does not state that it is immutable. Its published checksum is unsigned and served from the same origin. The reviewed private SHA-256 -- and an optional privately retained archive -- is therefore the durable integrity boundary. Do not rerun the upstream installer as an update mechanism.
 
 ## Managed Hermes Agent wheels
 

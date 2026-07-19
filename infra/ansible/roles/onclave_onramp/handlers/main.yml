@@ -1,0 +1,17 @@
+---
+- name: Restart onclave onramp
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: onclave-onramp.service
+    scope: user
+    state: restarted
+    daemon_reload: true
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+
+- name: Restart caddy
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: restarted
+    daemon_reload: true

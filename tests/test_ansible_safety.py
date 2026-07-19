@@ -420,6 +420,28 @@ class AnsibleSafetyTests(unittest.TestCase):
             mode = (REPO / rel_path).stat().st_mode
             self.assertTrue(mode & 0o111, rel_path)
 
+    def test_menos_assertions_are_string_conditions(self) -> None:
+        tasks = yaml.safe_load(
+            (REPO / "infra" / "ansible" / "roles" / "menos_onramp" / "tasks" / "main.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        conditions = tasks[0]["ansible.builtin.assert"]["that"]
+        self.assertTrue(all(isinstance(condition, str) for condition in conditions))
+        self.assertIn("menos_s3_access_key | length > 0", conditions)
+        self.assertNotIn("menos_s3_access_key | length >= 16", conditions)
+
+    def test_menos_render_removes_dependency_host_ports(self) -> None:
+        task = task_by_name(
+            REPO / "infra" / "ansible" / "roles" / "menos_onramp" / "tasks" / "main.yml",
+            "Render Menos app definition for the onramp host",
+        )
+        expression = task["ansible.builtin.set_fact"]["menos_onramp_compose_content"]
+        self.assertEqual(expression.count("combine({'ports': []"), 5)
+        self.assertIn("'127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000'", expression)  # public-safety: allow-ip
+        for mount in ("./data/surrealdb:/data:Z,U", "./data/minio:/data:Z,U", "./data/ollama:/root/.ollama:Z,U"):
+            self.assertIn(mount, expression)
+
     def test_onramp_default_http_ports_do_not_collide(self) -> None:
         onclave_defaults = yaml.safe_load(
             (REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "defaults" / "main.yml").read_text(

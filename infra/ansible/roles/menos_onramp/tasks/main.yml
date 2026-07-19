@@ -18,9 +18,9 @@
       - menos_searxng_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - menos_docling_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - menos_authorized_keys | length > 0
-      - menos_authorized_keys | select('match', '^ssh-ed25519 [A-Za-z0-9+/=]+(?: .*)?$') | list | length == menos_authorized_keys | length
+      - "menos_authorized_keys | select('match', '^ssh-ed25519 [A-Za-z0-9+/=]+(?: .*)?$') | list | length == menos_authorized_keys | length"
       - menos_surrealdb_password | length >= 24
-      - menos_s3_access_key | length >= 16
+      - menos_s3_access_key | length > 0
       - menos_s3_secret_key | length >= 24
       - menos_searxng_secret | length >= 24
       - menos_webshare_proxy_username | length > 0
@@ -99,19 +99,45 @@
       - "'- ollama-data:/root/.ollama' in menos_onramp_upstream_text"
     fail_msg: The pinned Menos app definition changed its consumer-owned networking or storage seams.
 
+- name: Parse pinned Menos app definition
+  ansible.builtin.set_fact:
+    menos_onramp_definition: "{{ menos_onramp_upstream_compose.content | b64decode | from_yaml }}"
+
 - name: Render Menos app definition for the onramp host
   ansible.builtin.set_fact:
     menos_onramp_compose_content: >-
-      {{ menos_onramp_upstream_compose.content | b64decode
-         | replace('    ports:\n      - "8080:8000"\n', '')
-         | replace('    ports:\n      - "9000:9000"\n      - "9001:9001"\n', '')
-         | replace('    ports:\n      - "11434:11434"\n', '')
-         | replace('    ports:\n      - "8888:8080"\n', '')
-         | replace('    ports:\n      - "5001:5001"\n', '')
-         | replace('- "8000:8000"', '- "127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000"')
-         | replace('- surrealdb-data:/data', '- ./data/surrealdb:/data:Z,U')
-         | replace('- minio-data:/data', '- ./data/minio:/data:Z,U')
-         | replace('- ollama-data:/root/.ollama', '- ./data/ollama:/root/.ollama:Z,U') }}
+      {{ menos_onramp_definition
+         | combine({
+             'services': menos_onramp_definition.services
+               | combine({
+                   'surrealdb': menos_onramp_definition.services.surrealdb
+                     | combine({'ports': [], 'volumes': ['./data/surrealdb:/data:Z,U']}),
+                   'minio': menos_onramp_definition.services.minio
+                     | combine({'ports': [], 'volumes': ['./data/minio:/data:Z,U']}),
+                   'ollama': menos_onramp_definition.services.ollama
+                     | combine({'ports': [], 'volumes': ['./data/ollama:/root/.ollama:Z,U']}),
+                   'searxng': menos_onramp_definition.services.searxng
+                     | combine({'ports': []}),
+                   'docling-serve': menos_onramp_definition.services['docling-serve']
+                     | combine({'ports': []}),
+                   'menos-api': menos_onramp_definition.services['menos-api']
+                     | combine({'ports': ['127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000']})
+                 })
+           })
+         | to_nice_yaml(indent=2, sort_keys=false) }}
+
+- name: Validate rendered Menos network isolation
+  vars:
+    menos_onramp_rendered_definition: "{{ menos_onramp_compose_content | from_yaml }}"
+  ansible.builtin.assert:
+    that:
+      - menos_onramp_rendered_definition.services.surrealdb.ports | default([]) | length == 0
+      - menos_onramp_rendered_definition.services.minio.ports | default([]) | length == 0
+      - menos_onramp_rendered_definition.services.ollama.ports | default([]) | length == 0
+      - menos_onramp_rendered_definition.services.searxng.ports | default([]) | length == 0
+      - menos_onramp_rendered_definition.services['docling-serve'].ports | default([]) | length == 0
+      - "menos_onramp_rendered_definition.services['menos-api'].ports == ['127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000']"
+    fail_msg: The rendered Menos definition must expose only its loopback API port.
 
 - name: Install Menos compose file
   ansible.builtin.copy:

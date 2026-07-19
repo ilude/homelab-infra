@@ -846,8 +846,6 @@ def ensure_dns_records(
     searxng_ip: str = "",
     onclave_ip: str = "",
     menos_ip: str = "",
-    *,
-    remove_infisical_when_absent: bool = False,
 ) -> list[str]:
     if not path.exists():
         return []
@@ -861,9 +859,6 @@ def ensure_dns_records(
         if records.get(infisical_record) != infisical_ip:
             records[infisical_record] = infisical_ip
             changes.append("added optional service DNS record")
-    elif remove_infisical_when_absent and infisical_record in records:
-        del records[infisical_record]
-        changes.append("removed optional service DNS record")
     desired = {f"hermes.{domain}": hermes_ip}
     if searxng_ip:
         desired[f"searxng.apps.{domain}"] = searxng_ip
@@ -1080,7 +1075,6 @@ def migrate(values_dir: Path) -> list[str]:
                 tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0]
                 if "menos_onramp" in optional_services
                 else "",
-                remove_infisical_when_absent=True,
             )
         )
 

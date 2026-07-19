@@ -266,21 +266,21 @@ class MigrateValuesTests(unittest.TestCase):
                 dns_path.read_text(encoding="utf-8"),
             )
 
-    def test_infisical_dns_migration_removes_disabled_record(self) -> None:
+    def test_infisical_dns_migration_preserves_disabled_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             dns_path = Path(temp) / "dns-records.local.json"
-            dns_path.write_text('{"a_records":{"infisical.lab.example":"192.0.2.70"}}\n', encoding="utf-8")
+            original = '{"a_records":{"infisical.lab.example":"192.0.2.70"}}\n'
+            dns_path.write_text(original, encoding="utf-8")
 
             changes = migrate_values.ensure_dns_records(
                 dns_path,
                 "lab.example",
                 "",
                 "",
-                remove_infisical_when_absent=True,
             )
 
-            self.assertEqual(changes, ["removed optional service DNS record"])
-            self.assertNotIn("infisical.lab.example", dns_path.read_text(encoding="utf-8"))
+            self.assertEqual(changes, [])
+            self.assertEqual(dns_path.read_text(encoding="utf-8"), original)
 
     def test_replaces_only_mutable_oci_defaults_and_preserves_custom_pins(self) -> None:
         temp, values = self.make_values()

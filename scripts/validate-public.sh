@@ -40,5 +40,17 @@ ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/invent
   infra/ansible/playbooks/hermes-state-backup.yml \
   infra/ansible/playbooks/hermes-state-restore.yml \
   "${playbooks[@]}"
-ansible-lint infra/ansible
+# Ansible-lint starts a syntax-check subprocess for each playbook. Copy its inputs
+# off the Windows bind mount so those repeated filesystem reads stay fast.
+ansible_lint_dir="$(mktemp -d)"
+cleanup_ansible_lint() {
+  rm -rf -- "${ansible_lint_dir}"
+}
+trap cleanup_ansible_lint EXIT HUP INT TERM
+cp -a .ansible-lint ansible.cfg settings.example.json infra scaffold scripts "${ansible_lint_dir}/"
+(
+  cd "${ansible_lint_dir}"
+  export ANSIBLE_CONFIG="${ansible_lint_dir}/ansible.cfg"
+  ansible-lint infra/ansible
+)
 '

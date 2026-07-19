@@ -1,0 +1,165 @@
+---
+- name: Import a verified legacy Menos snapshot into the onramp stack
+  hosts: onramp_host
+  gather_facts: true
+  become: true
+  vars:
+    menos_migration_base_dir: /srv/onramp/menos
+    menos_migration_staging_dir: /workspace/values/migration-staging/menos
+    menos_migration_local_archive: >-
+      {{ menos_migration_staging_dir }}/{{ menos_migration_stamp }}/{{ menos_migration_stamp }}.tar.gz
+    menos_migration_local_checksum: "{{ menos_migration_local_archive }}.sha256"
+  tasks:
+    - name: Validate required migration inputs
+      ansible.builtin.assert:
+        that:
+          - menos_migration_stamp is defined
+          - menos_migration_stamp is match('^[0-9]{8}T[0-9]{6}Z$')
+          - menos_migration_rollback_archive is defined
+          - menos_migration_rollback_archive is match('^/workspace/values/service-backups/menos_onramp/menos_onramp-state-[0-9]{8}T[0-9]{6}Z\\.tar\\.gz$')
+        fail_msg: A UTC migration stamp and exact empty-baseline rollback archive are required.
+
+    - name: Inspect controller migration and rollback artifacts
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+      loop:
+        - "{{ menos_migration_local_archive }}"
+        - "{{ menos_migration_local_checksum }}"
+        - "{{ menos_migration_rollback_archive }}"
+        - "{{ menos_migration_rollback_archive }}.sha256"
+      delegate_to: localhost
+      become: false
+      register: menos_migration_local_artifacts
+
+    - name: Require controller migration and rollback artifacts
+      ansible.builtin.assert:
+        that:
+          - menos_migration_local_artifacts.results | map(attribute='stat.exists') | min
+        fail_msg: Migration archive/checksum and empty-baseline archive/checksum are required.
+
+    - name: Validate private C1 archive contents and checksums
+      ansible.builtin.command:
+        argv:
+          - python
+          - scripts/validate-menos-migration.py
+          - --archive
+          - "{{ menos_migration_local_archive }}"
+          - --checksum
+          - "{{ menos_migration_local_checksum }}"
+          - --stamp
+          - "{{ menos_migration_stamp }}"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Verify empty-baseline rollback checksum
+      ansible.builtin.assert:
+        that:
+          - menos_migration_local_artifacts.results[2].stat.checksum == (lookup('file', menos_migration_rollback_archive + '.sha256').split() | first)
+        fail_msg: Empty-baseline rollback archive checksum does not match.
+
+    - name: Set verified migration archive checksum
+      ansible.builtin.set_fact:
+        menos_migration_archive_sha256: "{{ menos_migration_local_artifacts.results[0].stat.checksum }}"
+
+    - name: Create managed Menos migration directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - path: "{{ menos_migration_base_dir }}/migration/incoming"
+          mode: "0700"
+        - path: "{{ menos_migration_base_dir }}/migration/bin"
+          mode: "0750"
+
+    - name: Transfer verified migration archive
+      ansible.builtin.copy:
+        src: "{{ menos_migration_local_archive }}"
+        dest: "{{ menos_migration_base_dir }}/migration/incoming/{{ menos_migration_stamp }}.tar.gz"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        mode: "0600"
+
+    - name: Install S3 migration helper
+      ansible.builtin.copy:
+        src: /workspace/infra/ansible/files/menos-migration/migrate-s3.py
+        dest: "{{ menos_migration_base_dir }}/migration/bin/migrate-s3.py"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        mode: "0750"
+
+    - name: Install Menos state migration helper
+      ansible.builtin.copy:
+        src: /workspace/infra/ansible/files/menos-migration/migrate-state.sh
+        dest: "{{ menos_migration_base_dir }}/migration/bin/migrate-state.sh"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        mode: "0750"
+
+    - name: Resolve onramp deploy user UID
+      ansible.builtin.command:
+        argv:
+          - id
+          - -u
+          - "{{ onramp_host_deploy_user }}"
+      changed_when: false
+      register: menos_migration_deploy_uid
+
+    - name: Import and verify Menos state
+      block:
+        - name: Run managed Menos state import
+          become: true
+          become_user: "{{ onramp_host_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - "{{ menos_migration_base_dir }}/migration/bin/migrate-state.sh"
+              - "{{ menos_migration_base_dir }}/migration/incoming/{{ menos_migration_stamp }}.tar.gz"
+              - "{{ menos_migration_stamp }}"
+              - "{{ menos_migration_archive_sha256 }}"
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ menos_migration_deploy_uid.stdout | trim }}"
+          async: 10800
+          poll: 15
+          register: menos_migration_result
+      rescue:
+        - name: Stop for empty-baseline rollback
+          ansible.builtin.fail:
+            msg: >-
+              C2 import failed with the new API stopped. Keep consumers on legacy
+              and restore the verified empty baseline with:
+              scripts/service-state.sh restore menos_onramp
+              {{ menos_migration_rollback_archive }}
+
+    - name: Verify Menos health after migration
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8000/health
+        status_code: 200
+        return_content: true
+      register: menos_migration_health
+      failed_when: >-
+        menos_migration_health.status != 200 or
+        menos_migration_health.json.status | default('') != 'ok' or
+        menos_migration_health.json.git_sha | default('') != menos_source_git_sha
+
+    - name: Verify Menos readiness after migration
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8000/ready
+        status_code: 200
+        return_content: true
+      register: menos_migration_ready
+      failed_when: >-
+        menos_migration_ready.status != 200 or
+        menos_migration_ready.json.status | default('') != 'ready' or
+        menos_migration_ready.json.checks.surrealdb | default('') != 'ok' or
+        menos_migration_ready.json.checks.s3 | default('') != 'ok' or
+        menos_migration_ready.json.checks.ollama | default('') != 'ok'
+
+- name: Back up imported Menos state
+  ansible.builtin.import_playbook: service-state-backup.yml
+  vars:
+    service_state_service: menos_onramp
+    service_state_hosts: onramp_host

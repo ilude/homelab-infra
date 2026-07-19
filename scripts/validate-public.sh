@@ -39,6 +39,7 @@ ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/invent
   infra/ansible/playbooks/service-state-restore.yml \
   infra/ansible/playbooks/hermes-state-backup.yml \
   infra/ansible/playbooks/hermes-state-restore.yml \
+  infra/ansible/playbooks/migrate-menos-onramp.yml \
   "${playbooks[@]}"
 # Ansible-lint starts a syntax-check subprocess for each playbook. Copy its inputs
 # off the Windows bind mount so those repeated filesystem reads stay fast.

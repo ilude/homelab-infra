@@ -44,7 +44,7 @@
       ansible.builtin.command:
         argv:
           - python
-          - scripts/validate-menos-migration.py
+          - /workspace/scripts/validate-menos-migration.py
           - --archive
           - "{{ menos_migration_local_archive }}"
           - --checksum

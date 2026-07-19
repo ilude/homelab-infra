@@ -9,15 +9,17 @@
     menos_migration_local_archive: >-
       {{ menos_migration_staging_dir }}/{{ menos_migration_stamp }}/{{ menos_migration_stamp }}.tar.gz
     menos_migration_local_checksum: "{{ menos_migration_local_archive }}.sha256"
+    menos_migration_rollback_archive: >-
+      /workspace/values/service-backups/menos_onramp/menos_onramp-state-{{ menos_migration_rollback_stamp }}.tar.gz
   tasks:
     - name: Validate required migration inputs
       ansible.builtin.assert:
         that:
           - menos_migration_stamp is defined
           - menos_migration_stamp is match('^[0-9]{8}T[0-9]{6}Z$')
-          - menos_migration_rollback_archive is defined
-          - menos_migration_rollback_archive is match('^/workspace/values/service-backups/menos_onramp/menos_onramp-state-[0-9]{8}T[0-9]{6}Z\\.tar\\.gz$')
-        fail_msg: A UTC migration stamp and exact empty-baseline rollback archive are required.
+          - menos_migration_rollback_stamp is defined
+          - menos_migration_rollback_stamp is match('^[0-9]{8}T[0-9]{6}Z$')
+        fail_msg: Migration and empty-baseline UTC stamps are required.
 
     - name: Inspect controller migration and rollback artifacts
       ansible.builtin.stat:

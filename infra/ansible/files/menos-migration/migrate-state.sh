@@ -131,6 +131,22 @@ for path in runtime_path.iterdir():
     path.chmod(0o600)
 PY
 
+expected_relationships="$(
+    python3 - "${snapshot}/migration-manifest.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(manifest["record_counts"]["content_entity"])
+PY
+)"
+python3 "${base_dir}/migration/bin/normalize-surreal-export.py" \
+    "${snapshot}/database.surql" \
+    "${runtime_dir}/database.surql" \
+    --expected-relationships "${expected_relationships}"
+chmod 0600 "${runtime_dir}/database.surql"
+
 authorized_keys_sha256="$(sha256sum "${base_dir}/authorized_keys" | awk '{print $1}')"
 authorized_key_count="$(grep -Ec '^ssh-ed25519 [A-Za-z0-9+/=]+( .*)?$' "${base_dir}/authorized_keys")"
 [[ "${authorized_key_count}" -eq 1 ]] || {
@@ -141,7 +157,7 @@ authorized_key_count="$(grep -Ec '^ssh-ed25519 [A-Za-z0-9+/=]+( .*)?$' "${base_d
 "${compose[@]}" stop menos-api
 api_stopped=true
 
-podman cp "${snapshot}/database.surql" menos_surrealdb_1:/tmp/migration.surql
+podman cp "${runtime_dir}/database.surql" menos_surrealdb_1:/tmp/migration.surql
 podman exec --env-file "${runtime_dir}/surreal.env" menos_surrealdb_1 \
     /surreal import --endpoint http://localhost:8000 /tmp/migration.surql
 

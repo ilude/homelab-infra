@@ -86,13 +86,16 @@
         group: "{{ onramp_host_deploy_user }}"
         mode: "0600"
 
-    - name: Install S3 migration helper
+    - name: Install migration data helpers
       ansible.builtin.copy:
-        src: /workspace/infra/ansible/files/menos-migration/migrate-s3.py
-        dest: "{{ menos_migration_base_dir }}/migration/bin/migrate-s3.py"
+        src: "/workspace/infra/ansible/files/menos-migration/{{ item }}"
+        dest: "{{ menos_migration_base_dir }}/migration/bin/{{ item }}"
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"
         mode: "0750"
+      loop:
+        - migrate-s3.py
+        - normalize-surreal-export.py
 
     - name: Install Menos state migration helper
       ansible.builtin.copy:

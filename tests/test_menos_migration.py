@@ -80,6 +80,7 @@ class MenosMigrationTests(unittest.TestCase):
         self.assertEqual(
             counts,
             {
+                "schema_definitions_removed": 1,
                 "legacy_migrations_sections": 1,
                 "content_id": 1,
                 "entity_id": 1,
@@ -92,6 +93,7 @@ class MenosMigrationTests(unittest.TestCase):
         self.assertIn("entity_id:  entity:def-2 ", normalized)
         self.assertIn("created_at:d'2026-02-02T02:28:19.239202Z'", normalized)
         self.assertNotIn("_migrations", normalized)
+        self.assertNotIn("DEFINE ", normalized)
 
     def test_normalizer_rejects_unexpected_relationship_count(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -99,6 +101,7 @@ class MenosMigrationTests(unittest.TestCase):
             destination = Path(temp_dir) / "normalized.surql"
             source.write_text(
                 "-- TABLE: _migrations\n"
+                "DEFINE TABLE _migrations TYPE NORMAL SCHEMAFULL;\n"
                 "-- TABLE: content_entity\n"
                 "-- TABLE DATA: content_entity\n"
                 "-- TABLE: entity\n",

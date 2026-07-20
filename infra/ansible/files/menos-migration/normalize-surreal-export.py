@@ -19,6 +19,12 @@ REFERENCE_PATTERNS = {
 CREATED_AT_PATTERN = re.compile(
     rb"\bcreated_at: '(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)'"
 )
+SCHEMA_PATTERN = re.compile(rb"(?m)^DEFINE [^\r\n]*;\r?$")
+
+
+def blank_non_newline(data: mmap.mmap, start: int, end: int) -> None:
+    section = data[start:end]
+    data[start:end] = bytes(byte if byte in (10, 13) else 32 for byte in section)
 
 
 def normalize(source: Path, destination: Path, expected_relationships: int) -> dict[str, int]:
@@ -32,6 +38,13 @@ def normalize(source: Path, destination: Path, expected_relationships: int) -> d
     counts: dict[str, int] = {}
     with destination.open("r+b") as output:
         with mmap.mmap(output.fileno(), 0, access=mmap.ACCESS_WRITE) as data:
+            schema_matches = list(SCHEMA_PATTERN.finditer(data))
+            if not schema_matches:
+                raise ValueError("Surreal export contains no schema definitions")
+            for match in schema_matches:
+                blank_non_newline(data, match.start(), match.end())
+            counts["schema_definitions_removed"] = len(schema_matches)
+
             migrations_start = data.find(LEGACY_MIGRATIONS_MARKER)
             if migrations_start < 0:
                 raise ValueError("legacy _migrations table section is missing")
@@ -41,10 +54,7 @@ def normalize(source: Path, destination: Path, expected_relationships: int) -> d
             )
             if migrations_end < 0:
                 raise ValueError("legacy _migrations table is not followed by another table")
-            migrations_section = data[migrations_start:migrations_end]
-            data[migrations_start:migrations_end] = bytes(
-                byte if byte in (10, 13) else 32 for byte in migrations_section
-            )
+            blank_non_newline(data, migrations_start, migrations_end)
             counts["legacy_migrations_sections"] = 1
 
             section_start = data.find(CONTENT_ENTITY_DATA_MARKER)
@@ -95,7 +105,8 @@ def main() -> None:
         "normalized_surreal_relationships="
         f"content_id:{counts['content_id']},entity_id:{counts['entity_id']},"
         f"created_at:{counts['created_at']},"
-        f"legacy_migrations_sections:{counts['legacy_migrations_sections']}"
+        f"legacy_migrations_sections:{counts['legacy_migrations_sections']},"
+        f"schema_definitions_removed:{counts['schema_definitions_removed']}"
     )
 
 

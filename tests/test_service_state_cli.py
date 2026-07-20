@@ -54,7 +54,9 @@ class ServiceStateCliTests(unittest.TestCase):
         (scripts / "python.sh").write_text("#!/usr/bin/env bash\nexec python \"$@\"\n", encoding="utf-8")
         (scripts / "settings.py").write_text("print('eligible ineligible')\n", encoding="utf-8")
         (scripts / "run-infra.sh").write_text(
-            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"${CAPTURE_FILE}\"\n",
+            "#!/usr/bin/env bash\n"
+            "printf 'MSYS2_ENV_CONV_EXCL=%s\\n' \"${MSYS2_ENV_CONV_EXCL:-}\" >> \"${CAPTURE_FILE}\"\n"
+            "printf '%s\\n' \"$*\" >> \"${CAPTURE_FILE}\"\n",
             encoding="utf-8",
         )
         for script in scripts.iterdir():
@@ -82,6 +84,31 @@ class ServiceStateCliTests(unittest.TestCase):
             self.assertEqual(2, rejected.returncode)
             self.assertIn("Unsupported service-state target: ineligible", rejected.stderr)
 
+    def test_restore_excludes_container_paths_from_msys_conversion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = self.make_registry_fixture(root)
+            archive = root / "values/service-backups/eligible/state.tar.gz"
+            archive.parent.mkdir(parents=True)
+            archive.touch()
+            capture = root / "run-infra.txt"
+
+            result = run_script(
+                script,
+                "restore",
+                "eligible",
+                str(archive),
+                cwd=root,
+                env={"CAPTURE_FILE": str(capture), "MSYS2_ENV_CONV_EXCL": "KEEP"},
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            output = capture.read_text(encoding="utf-8")
+            self.assertIn(
+                "MSYS2_ENV_CONV_EXCL=KEEP;SERVICE_STATE_BACKUP_ROOT;SERVICE_STATE_RESTORE_FILE",
+                output,
+            )
+
     def test_windows_backup_acl_hardening_is_fail_closed(self) -> None:
         script = SERVICE_SCRIPT.read_text(encoding="utf-8")
         compose = (REPO / "compose.yaml").read_text(encoding="utf-8")
@@ -90,6 +117,10 @@ class ServiceStateCliTests(unittest.TestCase):
         )
 
         self.assertIn("MSYS2_ARG_CONV_EXCL='*' icacls.exe", script)
+        self.assertIn(
+            'msys_env_conv_excl+="SERVICE_STATE_BACKUP_ROOT;SERVICE_STATE_RESTORE_FILE"',
+            script,
+        )
         self.assertIn("/inheritance:r", script)
         self.assertIn("*S-1-5-18:(OI)(CI)F", script)
         self.assertIn("*S-1-5-32-544:(OI)(CI)F", script)

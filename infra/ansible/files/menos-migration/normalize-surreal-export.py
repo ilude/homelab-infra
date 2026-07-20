@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 
 CONTENT_ENTITY_DATA_MARKER = b"-- TABLE DATA: content_entity"
+LEGACY_MIGRATIONS_MARKER = b"-- TABLE: _migrations"
 NEXT_TABLE_MARKER = b"-- TABLE:"
 REFERENCE_PATTERNS = {
     "content_id": re.compile(rb"\bcontent_id: '(content:[A-Za-z0-9_-]+)'"),
@@ -31,6 +32,21 @@ def normalize(source: Path, destination: Path, expected_relationships: int) -> d
     counts: dict[str, int] = {}
     with destination.open("r+b") as output:
         with mmap.mmap(output.fileno(), 0, access=mmap.ACCESS_WRITE) as data:
+            migrations_start = data.find(LEGACY_MIGRATIONS_MARKER)
+            if migrations_start < 0:
+                raise ValueError("legacy _migrations table section is missing")
+            migrations_end = data.find(
+                NEXT_TABLE_MARKER,
+                migrations_start + len(LEGACY_MIGRATIONS_MARKER),
+            )
+            if migrations_end < 0:
+                raise ValueError("legacy _migrations table is not followed by another table")
+            migrations_section = data[migrations_start:migrations_end]
+            data[migrations_start:migrations_end] = bytes(
+                byte if byte in (10, 13) else 32 for byte in migrations_section
+            )
+            counts["legacy_migrations_sections"] = 1
+
             section_start = data.find(CONTENT_ENTITY_DATA_MARKER)
             if section_start < 0:
                 raise ValueError("content_entity data section is missing")
@@ -78,7 +94,8 @@ def main() -> None:
     print(
         "normalized_surreal_relationships="
         f"content_id:{counts['content_id']},entity_id:{counts['entity_id']},"
-        f"created_at:{counts['created_at']}"
+        f"created_at:{counts['created_at']},"
+        f"legacy_migrations_sections:{counts['legacy_migrations_sections']}"
     )
 
 

@@ -60,6 +60,9 @@ class MenosMigrationTests(unittest.TestCase):
 
     def test_normalizes_legacy_relationship_references_without_changing_source(self) -> None:
         source_text = (
+            "-- TABLE: _migrations\n"
+            "DEFINE TABLE _migrations TYPE NORMAL SCHEMAFULL;\n"
+            "-- TABLE: content_entity\n"
             "-- TABLE DATA: content_entity\n"
             "INSERT [{ content_id: 'content:abc_1', "
             "created_at: '2026-02-02T02:28:19.239202Z', "
@@ -75,20 +78,30 @@ class MenosMigrationTests(unittest.TestCase):
             source_after = source.read_text(encoding="utf-8")
 
         self.assertEqual(
-            counts, {"content_id": 1, "entity_id": 1, "created_at": 1}
+            counts,
+            {
+                "legacy_migrations_sections": 1,
+                "content_id": 1,
+                "entity_id": 1,
+                "created_at": 1,
+            },
         )
         self.assertEqual(source_text, source_after)
         self.assertEqual(len(normalized), len(source_text))
         self.assertIn("content_id:  content:abc_1 ", normalized)
         self.assertIn("entity_id:  entity:def-2 ", normalized)
         self.assertIn("created_at:d'2026-02-02T02:28:19.239202Z'", normalized)
+        self.assertNotIn("_migrations", normalized)
 
     def test_normalizer_rejects_unexpected_relationship_count(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "source.surql"
             destination = Path(temp_dir) / "normalized.surql"
             source.write_text(
-                "-- TABLE DATA: content_entity\n-- TABLE: entity\n",
+                "-- TABLE: _migrations\n"
+                "-- TABLE: content_entity\n"
+                "-- TABLE DATA: content_entity\n"
+                "-- TABLE: entity\n",
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "does not match"):

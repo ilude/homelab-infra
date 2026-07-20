@@ -9,10 +9,15 @@ import re
 import shutil
 from pathlib import Path
 
+CONTENT_ENTITY_DATA_MARKER = b"-- TABLE DATA: content_entity"
+NEXT_TABLE_MARKER = b"-- TABLE:"
 REFERENCE_PATTERNS = {
     "content_id": re.compile(rb"\bcontent_id: '(content:[A-Za-z0-9_-]+)'"),
     "entity_id": re.compile(rb"\bentity_id: '(entity:[A-Za-z0-9_-]+)'"),
 }
+CREATED_AT_PATTERN = re.compile(
+    rb"\bcreated_at: '(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)'"
+)
 
 
 def normalize(source: Path, destination: Path, expected_relationships: int) -> dict[str, int]:
@@ -26,8 +31,15 @@ def normalize(source: Path, destination: Path, expected_relationships: int) -> d
     counts: dict[str, int] = {}
     with destination.open("r+b") as output:
         with mmap.mmap(output.fileno(), 0, access=mmap.ACCESS_WRITE) as data:
+            section_start = data.find(CONTENT_ENTITY_DATA_MARKER)
+            if section_start < 0:
+                raise ValueError("content_entity data section is missing")
+            section_end = data.find(NEXT_TABLE_MARKER, section_start + len(CONTENT_ENTITY_DATA_MARKER))
+            if section_end < 0:
+                section_end = len(data)
+
             for field, pattern in REFERENCE_PATTERNS.items():
-                matches = list(pattern.finditer(data))
+                matches = list(pattern.finditer(data, section_start, section_end))
                 counts[field] = len(matches)
                 if len(matches) != expected_relationships:
                     raise ValueError(
@@ -39,6 +51,18 @@ def normalize(source: Path, destination: Path, expected_relationships: int) -> d
                     closing_quote = match.end(1)
                     data[opening_quote] = ord(" ")
                     data[closing_quote] = ord(" ")
+
+            created_at_matches = list(
+                CREATED_AT_PATTERN.finditer(data, section_start, section_end)
+            )
+            counts["created_at"] = len(created_at_matches)
+            if len(created_at_matches) != expected_relationships:
+                raise ValueError(
+                    f"created_at legacy value count {len(created_at_matches)} does not match "
+                    f"expected content_entity count {expected_relationships}"
+                )
+            for match in created_at_matches:
+                data[match.start(1) - 2] = ord("d")
             data.flush()
     return counts
 
@@ -53,7 +77,8 @@ def main() -> None:
     counts = normalize(args.source, args.destination, args.expected_relationships)
     print(
         "normalized_surreal_relationships="
-        f"content_id:{counts['content_id']},entity_id:{counts['entity_id']}"
+        f"content_id:{counts['content_id']},entity_id:{counts['entity_id']},"
+        f"created_at:{counts['created_at']}"
     )
 
 

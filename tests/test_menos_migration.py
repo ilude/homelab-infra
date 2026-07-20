@@ -55,21 +55,32 @@ class MenosMigrationTests(unittest.TestCase):
         plays = yaml.safe_load(PLAYBOOK.read_text(encoding="utf-8"))
         tasks = plays[0]["tasks"]
         names = [task["name"] for task in tasks]
-        validate_index = names.index("Validate private C1 archive contents and checksums")
+        validate_index = names.index(
+            "Validate private C1 archive contents and checksums"
+        )
         import_index = names.index("Import and verify Menos state")
         self.assertLess(validate_index, import_index)
         import_block = tasks[import_index]["block"]
-        import_task = next(task for task in import_block if task["name"] == "Run managed Menos state import")
+        import_task = next(
+            task
+            for task in import_block
+            if task["name"] == "Run managed Menos state import"
+        )
         self.assertEqual(import_task["become_user"], "{{ onramp_host_deploy_user }}")
         self.assertEqual(import_task["async"], 10800)
         self.assertEqual(import_task["poll"], 15)
-        self.assertIn("scripts/service-state.sh restore menos_onramp", str(tasks[import_index]["rescue"]))
+        self.assertIn(
+            "scripts/service-state.sh restore menos_onramp",
+            str(tasks[import_index]["rescue"]),
+        )
 
     def test_playbook_verifies_source_revision_and_creates_backup(self) -> None:
         plays = yaml.safe_load(PLAYBOOK.read_text(encoding="utf-8"))
         text = PLAYBOOK.read_text(encoding="utf-8")
         self.assertIn("menos_migration_health.json.git_sha", text)
-        self.assertEqual(plays[1]["ansible.builtin.import_playbook"], "service-state-backup.yml")
+        self.assertEqual(
+            plays[1]["ansible.builtin.import_playbook"], "service-state-backup.yml"
+        )
         self.assertEqual(plays[1]["vars"]["service_state_service"], "menos_onramp")
 
 

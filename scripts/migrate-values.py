@@ -669,7 +669,7 @@ def ensure_optional_service_tfvars(tfvars_lines: list[str], optional_services: s
             "onramp_host_vlan_id": "null",
             "onramp_host_cores": "2",
             "onramp_host_memory_mb": "4096",
-            "onramp_host_disk_gb": "32",
+            "onramp_host_disk_gb": "128",
             "onramp_host_cloud_init_user": hcl_quote("onramp"),
             "onramp_host_ssh_public_keys": "[]",
             "onramp_host_password_authentication": "false",

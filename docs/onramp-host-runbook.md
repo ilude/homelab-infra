@@ -22,7 +22,9 @@ Removing `onramp_host` can cause OpenTofu to plan VM changes or destroy actions.
 - static IPv4/CIDR, gateway, DNS servers, search domain, bridge, optional VLAN
 - cloud-init/bootstrap user, SSH public keys, deploy user, deploy directory, SSH policy, and firewall source CIDRs. New scaffold values use `anvil` for both the cloud-init and deploy user, and the cloud-init keys fall back to `lxc_ssh_public_keys` when `onramp_host_ssh_public_keys` is empty.
 
-Tracked scaffold values use only placeholders such as `onramp-host.example.internal`, `searxng.apps.example.net`, and `192.0.2.0/24`. The onramp-host VM must be built from a clean cloud image; do not point it at a mutable VM template with existing cloud-init state.
+Tracked scaffold values use only placeholders such as `onramp-host.example.internal`, `searxng.apps.example.net`, and `192.0.2.0/24`. The scaffold reserves 128 GB because a state import and the restore workflow's pre-restore snapshot can coexist temporarily. The onramp-host VM must be built from a clean cloud image; do not point it at a mutable VM template with existing cloud-init state.
+
+After increasing an existing VM disk, verify both the block device and mounted filesystem with `lsblk` and `df`. Proxmox expands the virtual disk but does not guarantee that the guest partition and filesystem grow. For the scaffold's ext4 root on `/dev/sda1`, reviewed maintenance can use `growpart /dev/sda 1` followed by `resize2fs /dev/sda1`; verify the actual root device before running either command.
 
 Onramp services use the shared system Caddy instance from `onramp_host`. The base Caddyfile imports `/etc/caddy/sites.d/*.caddy`; each app role owns only its own snippet and must not overwrite `/etc/caddy/Caddyfile`.
 

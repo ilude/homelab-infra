@@ -170,7 +170,7 @@ onramp_host_vlan_id                  = null
 
 onramp_host_cores     = 2
 onramp_host_memory_mb = 4096
-onramp_host_disk_gb   = 32
+onramp_host_disk_gb   = 128
 
 onramp_host_cloud_init_user = "anvil"
 # Defaults to lxc_ssh_public_keys when empty.

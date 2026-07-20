@@ -560,6 +560,7 @@ class MigrateValuesTests(unittest.TestCase):
 
             tfvars_text = (values / "terraform.tfvars").read_text(encoding="utf-8")
             self.assertIn("onramp_host_vmid = 112", tfvars_text)
+            self.assertIn("onramp_host_disk_gb = 128", tfvars_text)
             self.assertIn('onramp_host_hostname = "onramp-host"', tfvars_text)
             self.assertIn(f'onramp_host_image_url = "{migrate_values.ONRAMP_HOST_IMAGE_URL}"', tfvars_text)
             self.assertIn(f'onramp_host_image_file_name = "{migrate_values.ONRAMP_HOST_IMAGE_FILE_NAME}"', tfvars_text)

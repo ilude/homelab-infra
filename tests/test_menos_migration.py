@@ -64,9 +64,10 @@ class MenosMigrationTests(unittest.TestCase):
             "DEFINE TABLE _migrations TYPE NORMAL SCHEMAFULL;\n"
             "-- TABLE: content_entity\n"
             "-- TABLE DATA: content_entity\n"
-            "INSERT [{ content_id: 'content:abc_1', "
-            "created_at: '2026-02-02T02:28:19.239202Z', "
-            "entity_id: 'entity:def-2' }] INTO content_entity;\n"
+            "INSERT [{ confidence: 0.8f, content_id: 'content:abc_1', "
+            "created_at: '2026-02-02T02:28:19.239202Z', edge_type: 'mentions', "
+            "entity_id: 'entity:def-2', id: content_entity:one }] "
+            "INTO content_entity;\n"
             "-- TABLE: entity\n"
         )
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -77,16 +78,13 @@ class MenosMigrationTests(unittest.TestCase):
             normalized = destination.read_text(encoding="utf-8")
             source_after = source.read_text(encoding="utf-8")
 
-        self.assertEqual(
-            counts,
-            {
-                "schema_definitions_removed": 1,
-                "legacy_migrations_sections": 1,
-                "content_id": 1,
-                "entity_id": 1,
-                "created_at": 1,
-            },
-        )
+        self.assertEqual(counts["schema_definitions_removed"], 1)
+        self.assertEqual(counts["legacy_migrations_sections"], 1)
+        self.assertEqual(counts["content_id"], 1)
+        self.assertEqual(counts["entity_id"], 1)
+        self.assertEqual(counts["created_at"], 1)
+        self.assertEqual(counts["content_entity_unique"], 1)
+        self.assertEqual(counts["content_entity_dropped"], 0)
         self.assertEqual(source_text, source_after)
         self.assertEqual(len(normalized), len(source_text))
         self.assertIn("content_id:  content:abc_1 ", normalized)
@@ -94,6 +92,33 @@ class MenosMigrationTests(unittest.TestCase):
         self.assertIn("created_at:d'2026-02-02T02:28:19.239202Z'", normalized)
         self.assertNotIn("_migrations", normalized)
         self.assertNotIn("DEFINE ", normalized)
+
+    def test_deduplicates_relationships_by_confidence(self) -> None:
+        source_text = (
+            "-- TABLE: _migrations\n"
+            "DEFINE TABLE _migrations TYPE NORMAL SCHEMAFULL;\n"
+            "-- TABLE: content_entity\n"
+            "-- TABLE DATA: content_entity\n"
+            "INSERT [{ confidence: 0.7f, content_id: 'content:abc', "
+            "created_at: '2026-01-01T00:00:00Z', edge_type: 'mentions', "
+            "entity_id: 'entity:def', id: content_entity:older }, "
+            "{ confidence: 0.9f, content_id: 'content:abc', "
+            "created_at: '2026-02-01T00:00:00Z', edge_type: 'mentions', "
+            "entity_id: 'entity:def', id: content_entity:stronger }] "
+            "INTO content_entity;\n"
+            "-- TABLE: entity\n"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source.surql"
+            destination = Path(temp_dir) / "normalized.surql"
+            source.write_text(source_text, encoding="utf-8")
+            counts = normalize_surreal.normalize(source, destination, 2)
+            normalized = destination.read_text(encoding="utf-8")
+
+        self.assertEqual(counts["content_entity_unique"], 1)
+        self.assertEqual(counts["content_entity_dropped"], 1)
+        self.assertNotIn("content_entity:older", normalized)
+        self.assertIn("content_entity:stronger", normalized)
 
     def test_normalizer_rejects_unexpected_relationship_count(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -118,6 +143,8 @@ class MenosMigrationTests(unittest.TestCase):
         self.assertNotIn("--secret-key", text)
         self.assertIn("authorized_keys_unchanged=true", text)
         self.assertIn("surreal_mtree_verified=true", text)
+        self.assertIn('--report "${runtime_dir}/normalization-report.json"', text)
+        self.assertIn('expected["content_entity"] = normalization', text)
 
     def test_playbook_verifies_archive_before_state_mutation(self) -> None:
         plays = yaml.safe_load(PLAYBOOK.read_text(encoding="utf-8"))

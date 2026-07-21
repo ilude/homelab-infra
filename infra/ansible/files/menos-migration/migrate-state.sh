@@ -144,8 +144,11 @@ PY
 python3 "${base_dir}/migration/bin/normalize-surreal-export.py" \
     "${snapshot}/database.surql" \
     "${runtime_dir}/database.surql" \
-    --expected-relationships "${expected_relationships}"
-chmod 0600 "${runtime_dir}/database.surql"
+    --expected-relationships "${expected_relationships}" \
+    --report "${runtime_dir}/normalization-report.json"
+chmod 0600 "${runtime_dir}/database.surql" "${runtime_dir}/normalization-report.json"
+cp "${runtime_dir}/normalization-report.json" "${snapshot}/normalization-report.json"
+chmod 0600 "${snapshot}/normalization-report.json"
 
 authorized_keys_sha256="$(sha256sum "${base_dir}/authorized_keys" | awk '{print $1}')"
 authorized_key_count="$(grep -Ec '^ssh-ed25519 [A-Za-z0-9+/=]+( .*)?$' "${base_dir}/authorized_keys")"
@@ -190,13 +193,15 @@ counts_json="$(
         podman exec -i --env-file "${runtime_dir}/surreal.env" menos_surrealdb_1 \
             /surreal sql --endpoint http://localhost:8000 --json --hide-welcome
 )"
-python3 - "${snapshot}/migration-manifest.json" "${counts_json}" <<'PY'
+python3 - "${snapshot}/migration-manifest.json" "${snapshot}/normalization-report.json" "${counts_json}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 expected = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["record_counts"]
-actual = json.loads(sys.argv[2])[0]
+normalization = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+expected["content_entity"] = normalization["content_entity"]["unique_count"]
+actual = json.loads(sys.argv[3])[0]
 if actual != expected:
     raise SystemExit(f"record count mismatch: {actual} != {expected}")
 print("surreal_record_counts_verified=true")

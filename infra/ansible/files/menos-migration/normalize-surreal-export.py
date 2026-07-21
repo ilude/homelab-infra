@@ -12,6 +12,8 @@ from pathlib import Path
 
 CONTENT_ENTITY_DATA_MARKER = b"-- TABLE DATA: content_entity"
 LEGACY_MIGRATIONS_MARKER = b"-- TABLE: _migrations"
+LEGACY_TEST_TABLE_MARKER = b"-- TABLE: test_table"
+LEGACY_PRICING_DATA_MARKER = b"-- TABLE DATA: llm_pricing_snapshot"
 NEXT_TABLE_MARKER = b"-- TABLE:"
 REFERENCE_PATTERNS = {
     "content_id": re.compile(rb"\bcontent_id: '(content:[A-Za-z0-9_-]+)'"),
@@ -107,7 +109,19 @@ def blank_array_object(data: mmap.mmap, start: int, end: int, section_end: int) 
     blank_non_newline(data, preceding, end)
 
 
-def normalize(source: Path, destination: Path, expected_relationships: int) -> dict[str, object]:
+def blank_section_through_next_table(data: mmap.mmap, marker: bytes) -> None:
+    start = data.find(marker)
+    if start < 0:
+        raise ValueError(f"required export section is missing: {marker.decode()}")
+    end = data.find(NEXT_TABLE_MARKER, start + len(marker))
+    if end < 0:
+        end = len(data)
+    blank_non_newline(data, start, end)
+
+
+def normalize(
+    source: Path, destination: Path, expected_relationships: int
+) -> dict[str, object]:
     if source.resolve() == destination.resolve():
         raise ValueError("source and destination must differ")
     if expected_relationships < 0:
@@ -125,26 +139,25 @@ def normalize(source: Path, destination: Path, expected_relationships: int) -> d
                 blank_non_newline(data, match.start(), match.end())
             counts["schema_definitions_removed"] = len(schema_matches)
 
-            migrations_start = data.find(LEGACY_MIGRATIONS_MARKER)
-            if migrations_start < 0:
-                raise ValueError("legacy _migrations table section is missing")
-            migrations_end = data.find(
-                NEXT_TABLE_MARKER,
-                migrations_start + len(LEGACY_MIGRATIONS_MARKER),
-            )
-            if migrations_end < 0:
-                raise ValueError("legacy _migrations table is not followed by another table")
-            blank_non_newline(data, migrations_start, migrations_end)
+            blank_section_through_next_table(data, LEGACY_MIGRATIONS_MARKER)
+            blank_section_through_next_table(data, LEGACY_TEST_TABLE_MARKER)
+            blank_section_through_next_table(data, LEGACY_PRICING_DATA_MARKER)
             counts["legacy_migrations_sections"] = 1
+            counts["legacy_test_tables_removed"] = 1
+            counts["managed_pricing_records_preserved"] = 1
 
             section_start = data.find(CONTENT_ENTITY_DATA_MARKER)
             if section_start < 0:
                 raise ValueError("content_entity data section is missing")
-            section_end = data.find(NEXT_TABLE_MARKER, section_start + len(CONTENT_ENTITY_DATA_MARKER))
+            section_end = data.find(
+                NEXT_TABLE_MARKER, section_start + len(CONTENT_ENTITY_DATA_MARKER)
+            )
             if section_end < 0:
                 section_end = len(data)
 
-            relationship_rows = parse_relationship_rows(data, section_start, section_end)
+            relationship_rows = parse_relationship_rows(
+                data, section_start, section_end
+            )
             if len(relationship_rows) != expected_relationships:
                 raise ValueError(
                     f"content_entity row count {len(relationship_rows)} does not match "
@@ -211,6 +224,10 @@ def main() -> None:
         },
         "schema_definitions_removed": counts["schema_definitions_removed"],
         "legacy_migrations_sections_removed": counts["legacy_migrations_sections"],
+        "legacy_test_tables_removed": counts["legacy_test_tables_removed"],
+        "managed_pricing_records_preserved": counts[
+            "managed_pricing_records_preserved"
+        ],
     }
     args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     args.report.chmod(0o600)
@@ -221,7 +238,9 @@ def main() -> None:
         f"legacy_migrations_sections:{counts['legacy_migrations_sections']},"
         f"schema_definitions_removed:{counts['schema_definitions_removed']},"
         f"content_entity_unique:{counts['content_entity_unique']},"
-        f"content_entity_dropped:{counts['content_entity_dropped']}"
+        f"content_entity_dropped:{counts['content_entity_dropped']},"
+        f"legacy_test_tables_removed:{counts['legacy_test_tables_removed']},"
+        f"managed_pricing_records_preserved:{counts['managed_pricing_records_preserved']}"
     )
 
 

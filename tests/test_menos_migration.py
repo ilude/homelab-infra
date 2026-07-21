@@ -58,10 +58,15 @@ class MenosMigrationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "byte count mismatch"):
                 migrate_s3.verify_expected(items)
 
-    def test_normalizes_legacy_relationship_references_without_changing_source(self) -> None:
+    def test_normalizes_legacy_relationship_references_without_changing_source(
+        self,
+    ) -> None:
         source_text = (
             "-- TABLE: _migrations\n"
             "DEFINE TABLE _migrations TYPE NORMAL SCHEMAFULL;\n"
+            "-- TABLE: llm_pricing_snapshot\n"
+            "-- TABLE DATA: llm_pricing_snapshot\n"
+            "INSERT [{ id: llm_pricing_snapshot:active }] INTO llm_pricing_snapshot;\n"
             "-- TABLE: content_entity\n"
             "-- TABLE DATA: content_entity\n"
             "INSERT [{ confidence: 0.8f, content_id: 'content:abc_1', "
@@ -69,6 +74,8 @@ class MenosMigrationTests(unittest.TestCase):
             "entity_id: 'entity:def-2', id: content_entity:one }] "
             "INTO content_entity;\n"
             "-- TABLE: entity\n"
+            "-- TABLE: test_table\n"
+            "INSERT [{ id: test_table:stray }] INTO test_table;\n"
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "source.surql"
@@ -85,18 +92,25 @@ class MenosMigrationTests(unittest.TestCase):
         self.assertEqual(counts["created_at"], 1)
         self.assertEqual(counts["content_entity_unique"], 1)
         self.assertEqual(counts["content_entity_dropped"], 0)
+        self.assertEqual(counts["legacy_test_tables_removed"], 1)
+        self.assertEqual(counts["managed_pricing_records_preserved"], 1)
         self.assertEqual(source_text, source_after)
         self.assertEqual(len(normalized), len(source_text))
         self.assertIn("content_id:  content:abc_1 ", normalized)
         self.assertIn("entity_id:  entity:def-2 ", normalized)
         self.assertIn("created_at:d'2026-02-02T02:28:19.239202Z'", normalized)
         self.assertNotIn("_migrations", normalized)
+        self.assertNotIn("llm_pricing_snapshot:active", normalized)
+        self.assertNotIn("test_table", normalized)
         self.assertNotIn("DEFINE ", normalized)
 
     def test_deduplicates_relationships_by_confidence(self) -> None:
         source_text = (
             "-- TABLE: _migrations\n"
             "DEFINE TABLE _migrations TYPE NORMAL SCHEMAFULL;\n"
+            "-- TABLE: llm_pricing_snapshot\n"
+            "-- TABLE DATA: llm_pricing_snapshot\n"
+            "INSERT [{ id: llm_pricing_snapshot:active }] INTO llm_pricing_snapshot;\n"
             "-- TABLE: content_entity\n"
             "-- TABLE DATA: content_entity\n"
             "INSERT [{ confidence: 0.7f, content_id: 'content:abc', "
@@ -107,6 +121,8 @@ class MenosMigrationTests(unittest.TestCase):
             "entity_id: 'entity:def', id: content_entity:stronger }] "
             "INTO content_entity;\n"
             "-- TABLE: entity\n"
+            "-- TABLE: test_table\n"
+            "INSERT [{ id: test_table:stray }] INTO test_table;\n"
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "source.surql"
@@ -127,9 +143,14 @@ class MenosMigrationTests(unittest.TestCase):
             source.write_text(
                 "-- TABLE: _migrations\n"
                 "DEFINE TABLE _migrations TYPE NORMAL SCHEMAFULL;\n"
+                "-- TABLE: llm_pricing_snapshot\n"
+                "-- TABLE DATA: llm_pricing_snapshot\n"
+                "INSERT [{ id: llm_pricing_snapshot:active }] INTO llm_pricing_snapshot;\n"
                 "-- TABLE: content_entity\n"
                 "-- TABLE DATA: content_entity\n"
-                "-- TABLE: entity\n",
+                "-- TABLE: entity\n"
+                "-- TABLE: test_table\n"
+                "INSERT [{ id: test_table:stray }] INTO test_table;\n",
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "does not match"):

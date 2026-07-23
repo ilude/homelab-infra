@@ -139,6 +139,13 @@
     menos_onramp_definition: "{{ menos_onramp_upstream_compose.content | b64decode | from_yaml }}"
 
 - name: Render Menos app definition for the onramp host
+  vars:
+    menos_onramp_rootless_healthcheck_command: >-
+      python -c 'import urllib.request;
+      urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=5)'
+    menos_onramp_rootless_healthcheck: >-
+      {{ menos_onramp_definition.services['menos-api'].healthcheck
+         | combine({'test': ['CMD-SHELL', menos_onramp_rootless_healthcheck_command]}) }}
   ansible.builtin.set_fact:
     menos_onramp_compose_content: >-
       {{ menos_onramp_definition
@@ -164,7 +171,8 @@
                      | combine({
                          'ports': ['127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000'],
                          'configs': [],
-                         'volumes': ['./authorized_keys:/keys/authorized_keys:ro,Z']
+                         'volumes': ['./authorized_keys:/keys/authorized_keys:ro,Z'],
+                         'healthcheck': menos_onramp_rootless_healthcheck
                        })
                  })
            })
@@ -184,6 +192,9 @@
       - "menos_onramp_rendered_definition.services['menos-api'].ports == ['127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000']"
       - "menos_onramp_rendered_definition.services['menos-api'].configs | default([]) | length == 0"
       - "menos_onramp_rendered_definition.services['menos-api'].volumes == ['./authorized_keys:/keys/authorized_keys:ro,Z']"
+      - "menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[0] == 'CMD-SHELL'"
+      - "menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[1] is match('^python -c ')"
+      - "'urllib.request.urlopen' in menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[1]"
     fail_msg: The rendered Menos definition must expose only its loopback API port and bind its authorization file read-only.
 
 - name: Install Menos compose file

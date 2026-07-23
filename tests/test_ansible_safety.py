@@ -792,6 +792,13 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertIn(mount, expression)
         self.assertIn("'configs': []", expression)
         self.assertIn("'OLLAMA_KEEP_ALIVE': '-1'", expression)
+        self.assertIn("'healthcheck': menos_onramp_rootless_healthcheck", expression)
+        command = task["vars"]["menos_onramp_rootless_healthcheck_command"]
+        self.assertIn("python -c", command)
+        self.assertIn("urllib.request.urlopen", command)
+        healthcheck = task["vars"]["menos_onramp_rootless_healthcheck"]
+        self.assertIn("'CMD-SHELL'", healthcheck)
+        self.assertIn("menos_onramp_rootless_healthcheck_command", healthcheck)
 
     def test_menos_render_requires_read_only_authorization_bind_mount(self) -> None:
         task = task_by_name(
@@ -815,6 +822,18 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertIn(
             "menos_onramp_rendered_definition.services['menos-api'].volumes == ['./authorized_keys:/keys/authorized_keys:ro,Z']",
+            conditions,
+        )
+        self.assertIn(
+            "menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[0] == 'CMD-SHELL'",
+            conditions,
+        )
+        self.assertIn(
+            "menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[1] is match('^python -c ')",
+            conditions,
+        )
+        self.assertIn(
+            "'urllib.request.urlopen' in menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[1]",
             conditions,
         )
 

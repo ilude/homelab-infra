@@ -1,5 +1,10 @@
 ---
-- name: Import a verified legacy Menos snapshot into the onramp stack
+- name: Run verified direct access handoff for the onramp VM
+  ansible.builtin.import_playbook: vm-direct-access-ready.yml
+  vars:
+    direct_vm_access_target_group: onramp_host
+
+- name: Import a verified portable Menos snapshot into PostgreSQL and MinIO
   hosts: onramp_host
   gather_facts: true
   become: true
@@ -9,61 +14,36 @@
     menos_migration_local_archive: >-
       {{ menos_migration_staging_dir }}/{{ menos_migration_stamp }}/{{ menos_migration_stamp }}.tar.gz
     menos_migration_local_checksum: "{{ menos_migration_local_archive }}.sha256"
-    menos_migration_rollback_archive: >-
-      /workspace/values/service-backups/menos_onramp/menos_onramp-state-{{ menos_migration_rollback_stamp }}.tar.gz
+    menos_migration_remote_archive: >-
+      {{ menos_migration_base_dir }}/migration/incoming/{{ menos_migration_stamp }}.tar.gz
+    menos_migration_remote_checksum: "{{ menos_migration_remote_archive }}.sha256"
   tasks:
-    - name: Validate required migration inputs
+    - name: Validate required migration input
       ansible.builtin.assert:
         that:
           - menos_migration_stamp is defined
           - menos_migration_stamp is match('^[0-9]{8}T[0-9]{6}Z$')
-          - menos_migration_rollback_stamp is defined
-          - menos_migration_rollback_stamp is match('^[0-9]{8}T[0-9]{6}Z$')
-        fail_msg: Migration and empty-baseline UTC stamps are required.
+        fail_msg: A portable migration snapshot UTC stamp is required.
 
-    - name: Inspect controller migration and rollback artifacts
+    - name: Inspect controller migration artifacts
       ansible.builtin.stat:
         path: "{{ item }}"
         checksum_algorithm: sha256
       loop:
         - "{{ menos_migration_local_archive }}"
         - "{{ menos_migration_local_checksum }}"
-        - "{{ menos_migration_rollback_archive }}"
-        - "{{ menos_migration_rollback_archive }}.sha256"
       delegate_to: localhost
       become: false
       register: menos_migration_local_artifacts
 
-    - name: Require controller migration and rollback artifacts
+    - name: Require controller migration artifacts
       ansible.builtin.assert:
         that:
           - menos_migration_local_artifacts.results | map(attribute='stat.exists') | min
-        fail_msg: Migration archive/checksum and empty-baseline archive/checksum are required.
-
-    - name: Validate private C1 archive contents and checksums
-      ansible.builtin.command:
-        argv:
-          - python
-          - /workspace/scripts/validate-menos-migration.py
-          - --archive
-          - "{{ menos_migration_local_archive }}"
-          - --checksum
-          - "{{ menos_migration_local_checksum }}"
-          - --stamp
-          - "{{ menos_migration_stamp }}"
-      delegate_to: localhost
-      become: false
-      changed_when: false
-
-    - name: Verify empty-baseline rollback checksum
-      ansible.builtin.assert:
-        that:
-          - menos_migration_local_artifacts.results[2].stat.checksum == (lookup('file', menos_migration_rollback_archive + '.sha256').split() | first)
-        fail_msg: Empty-baseline rollback archive checksum does not match.
-
-    - name: Set verified migration archive checksum
-      ansible.builtin.set_fact:
-        menos_migration_archive_sha256: "{{ menos_migration_local_artifacts.results[0].stat.checksum }}"
+          - >-
+            menos_migration_local_artifacts.results[0].stat.checksum ==
+            (lookup('file', menos_migration_local_checksum).split() | first)
+        fail_msg: Portable migration archive or checksum is missing or invalid.
 
     - name: Create managed Menos migration directories
       ansible.builtin.file:
@@ -78,29 +58,26 @@
         - path: "{{ menos_migration_base_dir }}/migration/bin"
           mode: "0750"
 
-    - name: Transfer verified migration archive
+    - name: Transfer verified portable migration archive
       ansible.builtin.copy:
         src: "{{ menos_migration_local_archive }}"
-        dest: "{{ menos_migration_base_dir }}/migration/incoming/{{ menos_migration_stamp }}.tar.gz"
+        dest: "{{ menos_migration_remote_archive }}"
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"
         mode: "0600"
 
-    - name: Install migration data helpers
+    - name: Transfer verified portable migration archive checksum
       ansible.builtin.copy:
-        src: "/workspace/infra/ansible/files/menos-migration/{{ item }}"
-        dest: "{{ menos_migration_base_dir }}/migration/bin/{{ item }}"
+        src: "{{ menos_migration_local_checksum }}"
+        dest: "{{ menos_migration_remote_checksum }}"
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"
-        mode: "0750"
-      loop:
-        - migrate-s3.py
-        - normalize-surreal-export.py
+        mode: "0600"
 
-    - name: Install Menos state migration helper
+    - name: Install PostgreSQL migration importer
       ansible.builtin.copy:
-        src: /workspace/infra/ansible/files/menos-migration/migrate-state.sh
-        dest: "{{ menos_migration_base_dir }}/migration/bin/migrate-state.sh"
+        src: /workspace/infra/ansible/files/menos-migration/import-postgres.py
+        dest: "{{ menos_migration_base_dir }}/migration/bin/import-postgres.py"
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"
         mode: "0750"
@@ -114,30 +91,106 @@
       changed_when: false
       register: menos_migration_deploy_uid
 
+    - name: Inspect Menos PostgreSQL container network
+      become: true
+      become_user: "{{ onramp_host_deploy_user }}"
+      ansible.builtin.command:
+        argv:
+          - podman
+          - inspect
+          - menos_postgres_1
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ menos_migration_deploy_uid.stdout | trim }}"
+      changed_when: false
+      register: menos_migration_postgres_inspect
+
+    - name: Resolve Menos workload network
+      ansible.builtin.set_fact:
+        menos_migration_network: >-
+          {{
+            (
+              (menos_migration_postgres_inspect.stdout | from_json)[0]
+              .NetworkSettings.Networks.keys() | list | first
+            )
+          }}
+
     - name: Import and verify Menos state
       block:
-        - name: Run managed Menos state import
+        - name: Stop Menos API before import
           become: true
           become_user: "{{ onramp_host_deploy_user }}"
           ansible.builtin.command:
             argv:
-              - "{{ menos_migration_base_dir }}/migration/bin/migrate-state.sh"
-              - "{{ menos_migration_base_dir }}/migration/incoming/{{ menos_migration_stamp }}.tar.gz"
-              - "{{ menos_migration_stamp }}"
-              - "{{ menos_migration_archive_sha256 }}"
+              - podman-compose
+              - -f
+              - "{{ menos_migration_base_dir }}/compose.yaml"
+              - stop
+              - menos-api
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ menos_migration_deploy_uid.stdout | trim }}"
+          changed_when: true
+
+        - name: Run transactional PostgreSQL and MinIO importer
+          become: true
+          become_user: "{{ onramp_host_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - podman
+              - --cgroup-manager=cgroupfs
+              - run
+              - --rm
+              - --network
+              - "{{ menos_migration_network }}"
+              - --env-file
+              - "{{ menos_migration_base_dir }}/.env"
+              - --env
+              - POSTGRES_HOST=postgres
+              - --env
+              - POSTGRES_PORT=5432
+              - --env
+              - DEST_S3_ENDPOINT=minio:9000
+              - --env
+              - DEST_S3_SECURE=false
+              - --volume
+              - "{{ menos_migration_remote_archive }}:/migration/{{ menos_migration_stamp }}.tar.gz:ro,Z"
+              - --volume
+              - "{{ menos_migration_remote_checksum }}:/migration/{{ menos_migration_stamp }}.tar.gz.sha256:ro,Z"
+              - --volume
+              - "{{ menos_migration_base_dir }}/migration/bin/import-postgres.py:/migration/import-postgres.py:ro,Z"
+              - --entrypoint
+              - /app/.venv/bin/python
+              - "{{ menos_api_image }}"
+              - /migration/import-postgres.py
+              - --snapshot
+              - "/migration/{{ menos_migration_stamp }}.tar.gz"
           environment:
             XDG_RUNTIME_DIR: "/run/user/{{ menos_migration_deploy_uid.stdout | trim }}"
           async: 10800
           poll: 15
           register: menos_migration_result
+
+        - name: Start Menos API after successful import
+          become: true
+          become_user: "{{ onramp_host_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - podman-compose
+              - -f
+              - "{{ menos_migration_base_dir }}/compose.yaml"
+              - start
+              - menos-api
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ menos_migration_deploy_uid.stdout | trim }}"
+          changed_when: true
       rescue:
-        - name: Stop for empty-baseline rollback
+        - name: Stop after failed PostgreSQL import
           ansible.builtin.fail:
             msg: >-
-              C2 import failed with the new API stopped. Keep consumers on legacy
-              and restore the verified empty baseline with:
-              scripts/service-state.sh restore menos_onramp
-              {{ menos_migration_rollback_archive }}
+              Menos import failed with the new API stopped. Keep consumers on legacy
+              and preserve diagnostics. Recreate PostgreSQL and MinIO only if the
+              failure mutated target state or left the mutation boundary unknown;
+              a failure proven to occur before target connection needs only the
+              targeted correction and clean-target verification before retry.
 
     - name: Verify Menos health after migration
       ansible.builtin.uri:
@@ -145,10 +198,12 @@
         status_code: 200
         return_content: true
       register: menos_migration_health
-      failed_when: >-
-        menos_migration_health.status != 200 or
-        menos_migration_health.json.status | default('') != 'ok' or
-        menos_migration_health.json.git_sha | default('') != menos_source_git_sha
+      retries: 30
+      delay: 5
+      until:
+        - menos_migration_health.status == 200
+        - menos_migration_health.json.status | default('') == 'ok'
+        - menos_migration_health.json.git_sha | default('') == menos_source_git_sha
 
     - name: Verify Menos readiness after migration
       ansible.builtin.uri:
@@ -156,14 +211,118 @@
         status_code: 200
         return_content: true
       register: menos_migration_ready
-      failed_when: >-
-        menos_migration_ready.status != 200 or
-        menos_migration_ready.json.status | default('') != 'ready' or
-        menos_migration_ready.json.checks.surrealdb | default('') != 'ok' or
-        menos_migration_ready.json.checks.s3 | default('') != 'ok' or
-        menos_migration_ready.json.checks.ollama | default('') != 'ok'
+      retries: 30
+      delay: 5
+      until:
+        - menos_migration_ready.status == 200
+        - menos_migration_ready.json.status | default('') == 'ready'
+        - menos_migration_ready.json.checks.postgres | default('') == 'ok'
+        - menos_migration_ready.json.checks.s3 | default('') == 'ok'
+        - menos_migration_ready.json.checks.ollama | default('') == 'ok'
 
-- name: Back up imported Menos state
+    - name: Resolve running Menos PostgreSQL container ID
+      become: true
+      become_user: "{{ onramp_host_deploy_user }}"
+      ansible.builtin.command:
+        argv:
+          - podman
+          - ps
+          - --quiet
+          - --filter
+          - label=io.podman.compose.project=menos
+          - --filter
+          - label=com.docker.compose.service=postgres
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ menos_migration_deploy_uid.stdout | trim }}"
+      register: menos_migration_postgres_container_ids
+      changed_when: false
+      no_log: true
+
+    - name: Fail closed without exactly one running Menos PostgreSQL container
+      ansible.builtin.assert:
+        that:
+          - menos_migration_postgres_container_ids.stdout_lines | length == 1
+        quiet: true
+      no_log: true
+
+    - name: Resolve Menos PostgreSQL container PID
+      become: true
+      become_user: "{{ onramp_host_deploy_user }}"
+      ansible.builtin.command:
+        argv:
+          - podman
+          - inspect
+          - --format
+          - "{% raw %}{{.State.Pid}}{% endraw %}"
+          - "{{ menos_migration_postgres_container_ids.stdout_lines[0] }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ menos_migration_deploy_uid.stdout | trim }}"
+      register: menos_migration_postgres_pid
+      changed_when: false
+      no_log: true
+
+    - name: Select post-import PostgreSQL backup stamp
+      ansible.builtin.set_fact:
+        menos_migration_backup_stamp: "{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}"
+
+    - name: Select post-import PostgreSQL backup path
+      ansible.builtin.set_fact:
+        menos_migration_backup_dump: >-
+          {{ menos_migration_base_dir }}/backups/postgres/menos-postgres-{{ menos_migration_backup_stamp }}.dump
+
+    - name: Create custom-format post-import PostgreSQL backup
+      ansible.builtin.shell:
+        cmd: >-
+          set -euo pipefail;
+          umask 077;
+          nsenter --target {{ menos_migration_postgres_pid.stdout | trim | quote }}
+          --user --mount --uts --ipc --net --pid --
+          /usr/bin/pg_dump
+          --username={{ menos_postgres_user | quote }}
+          --dbname={{ menos_postgres_database | quote }}
+          --format=custom --no-owner --no-privileges
+          > {{ menos_migration_backup_dump | quote }}
+        executable: /bin/bash
+      changed_when: true
+      no_log: true
+
+    - name: Secure post-import PostgreSQL backup ownership
+      ansible.builtin.file:
+        path: "{{ menos_migration_backup_dump }}"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        mode: "0600"
+
+    - name: Calculate post-import PostgreSQL backup checksum
+      ansible.builtin.command:
+        argv:
+          - sha256sum
+          - "{{ menos_migration_backup_dump }}"
+      register: menos_migration_backup_sha256
+      changed_when: false
+
+    - name: Write post-import PostgreSQL backup checksum
+      ansible.builtin.copy:
+        dest: "{{ menos_migration_backup_dump }}.sha256"
+        content: >-
+          {{ menos_migration_backup_sha256.stdout.split() | first }}  {{ menos_migration_backup_dump }}
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        mode: "0600"
+
+    - name: Write post-import PostgreSQL backup manifest
+      ansible.builtin.copy:
+        dest: "{{ menos_migration_backup_dump }}.manifest.json"
+        content: >-
+          {{ {'format': 'pg_dump-custom-v1',
+              'dump': menos_migration_backup_dump | basename,
+              'sha256': menos_migration_backup_sha256.stdout.split() | first,
+              'created_at': menos_migration_backup_stamp} | to_nice_json }}
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        mode: "0600"
+
+- name: Back up imported Menos configuration state
   ansible.builtin.import_playbook: service-state-backup.yml
   vars:
     service_state_service: menos_onramp

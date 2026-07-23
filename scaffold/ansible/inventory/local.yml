@@ -107,18 +107,22 @@ all:
     onclave_rabbitmq_default_user: "{{ lookup('env', 'RABBITMQ_DEFAULT_USER') }}"
     onclave_rabbitmq_default_pass: "{{ lookup('env', 'RABBITMQ_DEFAULT_PASS') }}"
     menos_server_name: menos.example.internal
-    menos_source_git_sha: 0db510370c02c6deaf34c5b22d0d769216e94c68
-    menos_app_definition_url: https://raw.githubusercontent.com/traefikturkey/onclave/0db510370c02c6deaf34c5b22d0d769216e94c68/deploy/app/menos/compose.yaml
-    menos_app_definition_sha256: 73d5463b1a98647adb28122c81a2079ea38301eae761d10eed77a6c7a6af4297
-    menos_api_image: ghcr.io/traefikturkey/menos-api:0db510370c02c6deaf34c5b22d0d769216e94c68@sha256:e0245ea70b0ea9a8e74299992c3ea17a73bb22f0a3a7b8c1e0eda4826bbde545
-    menos_surrealdb_image: docker.io/surrealdb/surrealdb:v2.6.1@sha256:f04031f5d3762e3b9c793e357485e20b389c258a7b09e6fc91ecfd6876bd039a
+    menos_source_git_sha: 7c620a088755a3dab99741f7d8bde54bce8d85db
+    menos_app_definition_url: https://raw.githubusercontent.com/traefikturkey/onclave/7c620a088755a3dab99741f7d8bde54bce8d85db/deploy/app/menos/compose.yaml
+    menos_app_definition_sha256: ebb8d588fb34ceac38839a79bc9205ab9c6965df46984058d622eefc5b45612e
+    menos_backup_script_sha256: 536a318707e8215464d2e255bb0e22455b96656d9137f16773523c0ab36481c4
+    menos_restore_script_sha256: 740d20786548ffef8823cf83b457084b9ba2887c1834b1eb121bf475de33ab99
+    menos_api_image: ghcr.io/traefikturkey/menos-api:7c620a088755a3dab99741f7d8bde54bce8d85db@sha256:6cd6b97575e68165599c97d55c0b3ffd29b2968380cb6787b2e5e89e899df01b
+    menos_postgres_image: docker.io/pgvector/pgvector:pg17@sha256:d2ef61f42ef767baa5a1475393303cc235bcd92febd9d7014eddb48b41f3bad0
     menos_minio_image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     menos_ollama_image: docker.io/ollama/ollama:0.32.1@sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0
     menos_searxng_image: ghcr.io/searxng/searxng:2026.7.19-6da6eee26@sha256:b8ca38ba06eea544d7555e88321e212ddc0d5c3c7de055419cfb2e5c6bf30812
     menos_docling_image: quay.io/docling-project/docling-serve-cpu:v1.15.0@sha256:fdfa8d8aff086c342ea2d3159ad5a1e65bcd6a2b435d243f9f47fdd332f189b5
     menos_authorized_keys:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExamplePublicKeyMaterialOnly replace@example
-    menos_surrealdb_password: "{{ lookup('env', 'MENOS_SURREALDB_PASSWORD') }}"
+    menos_postgres_database: menos
+    menos_postgres_user: menos
+    menos_postgres_password: "{{ lookup('env', 'MENOS_POSTGRES_PASSWORD') }}"
     menos_s3_access_key: "{{ lookup('env', 'MENOS_S3_ACCESS_KEY') }}"
     menos_s3_secret_key: "{{ lookup('env', 'MENOS_S3_SECRET_KEY') }}"
     menos_searxng_secret: "{{ lookup('env', 'MENOS_SEARXNG_SECRET') }}"

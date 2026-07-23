@@ -103,17 +103,29 @@ managed_service_state_catalog:
         recurse: false
   menos_onramp:
     group: onramp_host
-    description: Menos app definition, private env, authorized keys, and persistent service data on the onramp host.
+    description: Menos app definition, private env, and authorized keys; PostgreSQL dumps and MinIO payloads are excluded.
     services:
       - caddy
     user_services:
       - menos-onramp.service
     user_service_owner: "{{ onramp_host_deploy_user }}"
     paths:
-      - path: "{{ onramp_host_deploy_dir }}/menos"
+      - path: "{{ onramp_host_deploy_dir }}/menos/compose.yaml"
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"
-        recurse: true
+        recurse: false
+      - path: "{{ onramp_host_deploy_dir }}/menos/compose.upstream.yaml"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
+      - path: "{{ onramp_host_deploy_dir }}/menos/.env"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
+      - path: "{{ onramp_host_deploy_dir }}/menos/authorized_keys"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
       - path: /etc/caddy/sites.d/menos.caddy
         owner: root
         group: root

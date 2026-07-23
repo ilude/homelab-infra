@@ -10,16 +10,21 @@
       - menos_server_name is match('^[A-Za-z0-9.-]+$')
       - menos_source_git_sha is match('^[0-9a-f]{40}$')
       - menos_app_definition_url is match('^https://raw.githubusercontent.com/[^/]+/[^/]+/[0-9a-f]{40}/')
+      - menos_source_git_sha in menos_app_definition_url
       - menos_app_definition_sha256 is match('^[0-9a-f]{64}$')
+      - menos_backup_script_sha256 is match('^[0-9a-f]{64}$')
+      - menos_restore_script_sha256 is match('^[0-9a-f]{64}$')
       - menos_api_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
-      - menos_surrealdb_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - menos_postgres_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - menos_minio_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - menos_ollama_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - menos_searxng_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - menos_docling_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - menos_authorized_keys | length > 0
       - "menos_authorized_keys | select('match', '^ssh-ed25519 [A-Za-z0-9+/=]+(?: .*)?$') | list | length == menos_authorized_keys | length"
-      - menos_surrealdb_password | length >= 24
+      - menos_postgres_database is match('^[A-Za-z_][A-Za-z0-9_-]{0,62}$')
+      - menos_postgres_user is match('^[A-Za-z_][A-Za-z0-9_-]{0,62}$')
+      - menos_postgres_password | length >= 24
       - menos_s3_access_key | length > 0
       - menos_s3_secret_key | length >= 24
       - menos_searxng_secret | length >= 24
@@ -53,13 +58,11 @@
   loop:
     - path: "{{ menos_onramp_base_dir }}"
       mode: "0750"
+    - path: "{{ menos_onramp_base_dir }}/bin"
+      mode: "0750"
     - path: "{{ menos_onramp_base_dir }}/data"
       mode: "0750"
-    - path: "{{ menos_onramp_base_dir }}/data/surrealdb"
-      mode: "0750"
-    - path: "{{ menos_onramp_base_dir }}/data/minio"
-      mode: "0750"
-    - path: "{{ menos_onramp_base_dir }}/data/ollama"
+    - path: "{{ menos_onramp_base_dir }}/backups/postgres"
       mode: "0750"
     - path: "/home/{{ onramp_host_deploy_user }}/.config"
       mode: "0750"
@@ -67,6 +70,25 @@
       mode: "0750"
     - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
       mode: "0750"
+
+- name: Inspect container-managed Menos state directories
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ menos_onramp_base_dir }}/data/postgres"
+    - "{{ menos_onramp_base_dir }}/data/minio"
+    - "{{ menos_onramp_base_dir }}/data/ollama"
+  register: menos_onramp_state_directories
+
+- name: Create missing Menos state directories once
+  ansible.builtin.file:
+    path: "{{ item.item }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0750"
+  loop: "{{ menos_onramp_state_directories.results }}"
+  when: not item.stat.exists
 
 - name: Download pinned Menos app definition
   ansible.builtin.get_url:
@@ -76,6 +98,20 @@
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
     mode: "0640"
+
+- name: Install pinned Menos PostgreSQL backup helpers
+  ansible.builtin.get_url:
+    url: "{{ menos_app_definition_url | regex_replace('compose\\.yaml$', item.name) }}"
+    dest: "{{ menos_onramp_base_dir }}/bin/{{ item.name }}"
+    checksum: "sha256:{{ item.sha256 }}"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0750"
+  loop:
+    - name: backup-postgres.sh
+      sha256: "{{ menos_backup_script_sha256 }}"
+    - name: restore-postgres.sh
+      sha256: "{{ menos_restore_script_sha256 }}"
 
 - name: Read pinned Menos app definition
   ansible.builtin.slurp:
@@ -87,14 +123,13 @@
     menos_onramp_upstream_text: "{{ menos_onramp_upstream_compose.content | b64decode }}"
   ansible.builtin.assert:
     that:
-      - "'- \"8080:8000\"' in menos_onramp_upstream_text"
       - "'- \"9000:9000\"' in menos_onramp_upstream_text"
       - "'- \"9001:9001\"' in menos_onramp_upstream_text"
       - "'- \"11434:11434\"' in menos_onramp_upstream_text"
       - "'- \"8888:8080\"' in menos_onramp_upstream_text"
       - "'- \"5001:5001\"' in menos_onramp_upstream_text"
       - "'- \"8000:8000\"' in menos_onramp_upstream_text"
-      - "'- surrealdb-data:/data' in menos_onramp_upstream_text"
+      - "'- postgres-data:/var/lib/postgresql/data' in menos_onramp_upstream_text"
       - "'- minio-data:/data' in menos_onramp_upstream_text"
       - "'- ollama-data:/root/.ollama' in menos_onramp_upstream_text"
     fail_msg: The pinned Menos app definition changed its consumer-owned networking or storage seams.
@@ -110,18 +145,27 @@
          | combine({
              'services': menos_onramp_definition.services
                | combine({
-                   'surrealdb': menos_onramp_definition.services.surrealdb
-                     | combine({'ports': [], 'volumes': ['./data/surrealdb:/data:Z,U']}),
+                   'postgres': menos_onramp_definition.services.postgres
+                     | combine({'ports': [], 'volumes': ['./data/postgres:/var/lib/postgresql/data:Z,U']}),
                    'minio': menos_onramp_definition.services.minio
                      | combine({'ports': [], 'volumes': ['./data/minio:/data:Z,U']}),
                    'ollama': menos_onramp_definition.services.ollama
-                     | combine({'ports': [], 'volumes': ['./data/ollama:/root/.ollama:Z,U']}),
+                     | combine({
+                         'ports': [],
+                         'volumes': ['./data/ollama:/root/.ollama:Z,U'],
+                         'environment': (menos_onramp_definition.services.ollama.environment | default({}))
+                           | combine({'OLLAMA_KEEP_ALIVE': '-1'})
+                       }),
                    'searxng': menos_onramp_definition.services.searxng
                      | combine({'ports': []}),
                    'docling-serve': menos_onramp_definition.services['docling-serve']
                      | combine({'ports': []}),
                    'menos-api': menos_onramp_definition.services['menos-api']
-                     | combine({'ports': ['127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000']})
+                     | combine({
+                         'ports': ['127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000'],
+                         'configs': [],
+                         'volumes': ['./authorized_keys:/keys/authorized_keys:ro,Z']
+                       })
                  })
            })
          | to_nice_yaml(indent=2, sort_keys=false) }}
@@ -131,13 +175,16 @@
     menos_onramp_rendered_definition: "{{ menos_onramp_compose_content | from_yaml }}"
   ansible.builtin.assert:
     that:
-      - menos_onramp_rendered_definition.services.surrealdb.ports | default([]) | length == 0
+      - menos_onramp_rendered_definition.services.postgres.ports | default([]) | length == 0
       - menos_onramp_rendered_definition.services.minio.ports | default([]) | length == 0
       - menos_onramp_rendered_definition.services.ollama.ports | default([]) | length == 0
+      - menos_onramp_rendered_definition.services.ollama.environment.OLLAMA_KEEP_ALIVE == '-1'
       - menos_onramp_rendered_definition.services.searxng.ports | default([]) | length == 0
       - menos_onramp_rendered_definition.services['docling-serve'].ports | default([]) | length == 0
       - "menos_onramp_rendered_definition.services['menos-api'].ports == ['127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000']"
-    fail_msg: The rendered Menos definition must expose only its loopback API port.
+      - "menos_onramp_rendered_definition.services['menos-api'].configs | default([]) | length == 0"
+      - "menos_onramp_rendered_definition.services['menos-api'].volumes == ['./authorized_keys:/keys/authorized_keys:ro,Z']"
+    fail_msg: The rendered Menos definition must expose only its loopback API port and bind its authorization file read-only.
 
 - name: Install Menos compose file
   ansible.builtin.copy:
@@ -235,6 +282,129 @@
   delay: 10
   until: menos_onramp_service_active.rc == 0
 
+- name: Resolve running Menos API container ID
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - ps
+      - --quiet
+      - --filter
+      - label=io.podman.compose.project=menos
+      - --filter
+      - label=com.docker.compose.service=menos-api
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ menos_onramp_deploy_user_uid.stdout | trim }}"
+  register: menos_onramp_api_container_ids
+  changed_when: false
+  no_log: true
+
+- name: Fail closed without exactly one running Menos API container
+  ansible.builtin.assert:
+    that:
+      - menos_onramp_api_container_ids.stdout_lines | length == 1
+    quiet: true
+  no_log: true
+
+- name: Resolve Menos API container PID
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - inspect
+      - --format
+      - "{% raw %}{{.State.Pid}}{% endraw %}"
+      - "{{ menos_onramp_api_container_ids.stdout_lines[0] }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ menos_onramp_deploy_user_uid.stdout | trim }}"
+  register: menos_onramp_api_pid
+  changed_when: false
+  no_log: true
+
+- name: Ensure Menos embedding model is available
+  ansible.builtin.command:
+    argv:
+      - nsenter
+      - --target
+      - "{{ menos_onramp_api_pid.stdout | trim }}"
+      - --user
+      - --mount
+      - --uts
+      - --ipc
+      - --net
+      - --pid
+      - --
+      - /app/.venv/bin/python
+      - -c
+      - >-
+        import json, os, sys;
+        sys.path.insert(0, '/app');
+        entries = open('/proc/1/environ', 'rb').read().split(b'\0');
+        [os.environ.__setitem__(key.decode(), value.decode())
+        for entry in entries if b'=' in entry
+        for key, value in [entry.split(b'=', 1)]];
+        import httpx;
+        from menos.config import settings;
+        base = settings.ollama_url.rstrip('/');
+        client = httpx.Client(timeout=None);
+        tags = client.get(base + '/api/tags');
+        tags.raise_for_status();
+        names = {model.get('name', '') for model in tags.json().get('models', [])};
+        present = settings.ollama_model in names or settings.ollama_model + ':latest' in names;
+        response = None if present else client.post(base + '/api/pull',
+        json={'name': settings.ollama_model, 'stream': False});
+        response.raise_for_status() if response is not None else None;
+        verified = client.get(base + '/api/tags');
+        verified.raise_for_status();
+        verified_names = {model.get('name', '') for model in verified.json().get('models', [])};
+        assert settings.ollama_model in verified_names or settings.ollama_model + ':latest' in verified_names;
+        warmup = client.post(base + '/api/embeddings',
+        json={'model': settings.ollama_model, 'prompt': 'deployment readiness'});
+        warmup.raise_for_status();
+        assert len(warmup.json().get('embedding', [])) == 1024;
+        client.close();
+        print(json.dumps({'downloaded': not present, 'warmed': True}))
+  register: menos_onramp_embedding_model
+  changed_when: "'\"downloaded\": true' in menos_onramp_embedding_model.stdout"
+  no_log: true
+
+- name: Ensure Menos managed MinIO bucket exists
+  ansible.builtin.command:
+    argv:
+      - nsenter
+      - --target
+      - "{{ menos_onramp_api_pid.stdout | trim }}"
+      - --user
+      - --mount
+      - --uts
+      - --ipc
+      - --net
+      - --pid
+      - --
+      - /app/.venv/bin/python
+      - -c
+      - >-
+        import json, os, sys;
+        sys.path.insert(0, '/app');
+        entries = open('/proc/1/environ', 'rb').read().split(b'\0');
+        [os.environ.__setitem__(key.decode(), value.decode())
+        for entry in entries if b'=' in entry
+        for key, value in [entry.split(b'=', 1)]];
+        from menos.config import settings;
+        from minio import Minio;
+        client = Minio(settings.s3_endpoint_url,
+        access_key=settings.s3_access_key,
+        secret_key=settings.s3_secret_key,
+        secure=settings.s3_secure, region=settings.s3_region);
+        created = not client.bucket_exists(settings.s3_bucket);
+        client.make_bucket(settings.s3_bucket) if created else None;
+        print(json.dumps({'created': created}))
+  register: menos_onramp_bucket_init
+  changed_when: "'\"created\": true' in menos_onramp_bucket_init.stdout"
+  no_log: true
+
 - name: Verify Menos health and source revision
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ menos_onramp_api_port }}/health"
@@ -259,7 +429,7 @@
   until:
     - menos_onramp_ready.status == 200
     - menos_onramp_ready.json.status | default('') == 'ready'
-    - menos_onramp_ready.json.checks.surrealdb | default('') == 'ok'
+    - menos_onramp_ready.json.checks.postgres | default('') == 'ok'
     - menos_onramp_ready.json.checks.s3 | default('') == 'ok'
     - menos_onramp_ready.json.checks.ollama | default('') == 'ok'
 

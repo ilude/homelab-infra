@@ -32,7 +32,9 @@ class MigrateValuesTests(unittest.TestCase):
         self.assertNotIn("    pve:", updated)
         self.assertIn("    monitoring:", updated)
         self.assertIn("    custom: retained", updated)
-        self.assertEqual(migrate_values.remove_legacy_pve_inventory_block(updated), (updated, []))
+        self.assertEqual(
+            migrate_values.remove_legacy_pve_inventory_block(updated), (updated, [])
+        )
 
     def test_removes_legacy_pve_inventory_block_with_environment_lookup(self) -> None:
         inventory = (
@@ -57,7 +59,9 @@ class MigrateValuesTests(unittest.TestCase):
             "  vars:\n    custom: retained\n"
         )
 
-        self.assertEqual(migrate_values.remove_legacy_pve_inventory_block(inventory), (inventory, []))
+        self.assertEqual(
+            migrate_values.remove_legacy_pve_inventory_block(inventory), (inventory, [])
+        )
 
     def test_infisical_encryption_key_generator_matches_current_format(self) -> None:
         value = migrate_values.GENERATED_SECRET_KEYS["INFISICAL_ENCRYPTION_KEY"]()
@@ -69,8 +73,16 @@ class MigrateValuesTests(unittest.TestCase):
 
         changes = migrate_values.migrate_infisical_secret_formats(lines, entries)
 
-        self.assertEqual(changes, ["normalized INFISICAL_ENCRYPTION_KEY to Infisical 16-byte hex format"])
-        self.assertEqual(migrate_values.envfile_parse_scalar(entries["INFISICAL_ENCRYPTION_KEY"].value), "a" * 32)
+        self.assertEqual(
+            changes,
+            ["normalized INFISICAL_ENCRYPTION_KEY to Infisical 16-byte hex format"],
+        )
+        self.assertEqual(
+            migrate_values.envfile_parse_scalar(
+                entries["INFISICAL_ENCRYPTION_KEY"].value
+            ),
+            "a" * 32,
+        )
 
     def make_values(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temp = tempfile.TemporaryDirectory()
@@ -82,7 +94,7 @@ class MigrateValuesTests(unittest.TestCase):
             "all:\n"
             "  vars:\n"
             "    forgejo_domain: git.example.internal\n"
-            "    forgejo_version: \"12.0.4\"\n"
+            '    forgejo_version: "12.0.4"\n'
             "    caddy_server_name: dns.example.internal\n",
             encoding="utf-8",
         )
@@ -121,17 +133,23 @@ class MigrateValuesTests(unittest.TestCase):
             migrate_values.DEBIAN_13_LXC_TEMPLATE_HTTP_URL,
         )
         self.assertEqual(
-            migrate_values.tfvars_scalar_value(lines, "debian_13_lxc_template_file_name"),
+            migrate_values.tfvars_scalar_value(
+                lines, "debian_13_lxc_template_file_name"
+            ),
             "debian-13-standard_13.1-2_amd64.tar.zst",
         )
         self.assertEqual(
-            migrate_values.tfvars_scalar_value(lines, "debian_13_lxc_template_checksum_algorithm"),
+            migrate_values.tfvars_scalar_value(
+                lines, "debian_13_lxc_template_checksum_algorithm"
+            ),
             "sha512",
         )
         self.assertEqual(migrate_values.migrate_debian_13_lxc_template_url(lines), [])
 
     def test_preserves_custom_debian_13_lxc_template_url(self) -> None:
-        lines = ['debian_13_lxc_template_url = "https://images.example.invalid/custom.tar.zst"']
+        lines = [
+            'debian_13_lxc_template_url = "https://images.example.invalid/custom.tar.zst"'
+        ]
         original = list(lines)
 
         self.assertEqual(migrate_values.migrate_debian_13_lxc_template_url(lines), [])
@@ -151,10 +169,10 @@ class MigrateValuesTests(unittest.TestCase):
             (values / "terraform.tfvars").write_text(
                 'container_root_password = "REPLACE_PASSWORD"\n'
                 'container_ssh_public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA_REPLACE_ME user@host"]\n'
-                'container_vmid = 106\n'
+                "container_vmid = 106\n"
                 'container_hostname = "technitium-dns"\n'
                 'container_ipv4_address = "192.0.2.53/24"\n'
-                'container_vlan_id = 42\n'
+                "container_vlan_id = 42\n"
                 'container_dns_servers = ["192.0.2.1"]\n'
                 'technitium_api_url = "http://192.0.2.53:5380/api"\n'
                 'dns_records_file = "../../values/dns-records.local.json"\n',
@@ -175,12 +193,21 @@ class MigrateValuesTests(unittest.TestCase):
             self.assertNotIn("FORGEJO_SERVER_NAME", env_text)
             self.assertNotIn("FORGEJO_UPSTREAM", env_text)
             self.assertIn('lxc_root_password = "REPLACE_PASSWORD"', tfvars_text)
-            self.assertIn('lxc_ssh_public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA_REPLACE_ME user@host"]', tfvars_text)
+            self.assertIn(
+                'lxc_ssh_public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA_REPLACE_ME user@host"]',
+                tfvars_text,
+            )
             self.assertIn("technitium_container_vmid = 106", tfvars_text)
-            self.assertIn('technitium_container_hostname = "technitium-dns"', tfvars_text)
-            self.assertIn('technitium_container_ipv4_address = "192.0.2.53/24"', tfvars_text)
+            self.assertIn(
+                'technitium_container_hostname = "technitium-dns"', tfvars_text
+            )
+            self.assertIn(
+                'technitium_container_ipv4_address = "192.0.2.53/24"', tfvars_text
+            )
             self.assertIn("technitium_container_vlan_id = 42", tfvars_text)
-            self.assertIn('technitium_container_dns_servers = ["192.0.2.1"]', tfvars_text)
+            self.assertIn(
+                'technitium_container_dns_servers = ["192.0.2.1"]', tfvars_text
+            )
             self.assertNotIn("container_root_password", tfvars_text)
             self.assertNotIn("container_ssh_public_keys", tfvars_text)
             self.assertNotRegex(tfvars_text, r"(?m)^container_vmid\\s*=")
@@ -204,30 +231,46 @@ class MigrateValuesTests(unittest.TestCase):
 
     def test_infisical_dns_target_uses_enabled_deployment_mode(self) -> None:
         self.assertEqual(
-            migrate_values.infisical_dns_target({"infisical"}, "192.0.2.70", "192.0.2.72"),
+            migrate_values.infisical_dns_target(
+                {"infisical"}, "192.0.2.70", "192.0.2.72"
+            ),
             "192.0.2.70",
         )
         self.assertEqual(
-            migrate_values.infisical_dns_target({"infisical_onramp"}, "192.0.2.70", "192.0.2.72"),
+            migrate_values.infisical_dns_target(
+                {"infisical_onramp"}, "192.0.2.70", "192.0.2.72"
+            ),
             "192.0.2.72",
         )
-        with self.assertRaisesRegex(migrate_values.MigrationError, "mutually exclusive"):
-            migrate_values.infisical_dns_target({"infisical", "infisical_onramp"}, "192.0.2.70", "192.0.2.72")
+        with self.assertRaisesRegex(
+            migrate_values.MigrationError, "mutually exclusive"
+        ):
+            migrate_values.infisical_dns_target(
+                {"infisical", "infisical_onramp"}, "192.0.2.70", "192.0.2.72"
+            )
 
     def test_infisical_dns_migration_replaces_legacy_target(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             dns_path = Path(temp) / "dns-records.local.json"
-            dns_path.write_text('{"a_records":{"infisical.lab.example":"192.0.2.70"}}\n', encoding="utf-8")
+            dns_path.write_text(
+                '{"a_records":{"infisical.lab.example":"192.0.2.70"}}\n',
+                encoding="utf-8",
+            )
 
             changes = migrate_values.ensure_dns_records(
                 dns_path,
                 "lab.example",
-                migrate_values.infisical_dns_target({"infisical_onramp"}, "192.0.2.70", "192.0.2.72"),
+                migrate_values.infisical_dns_target(
+                    {"infisical_onramp"}, "192.0.2.70", "192.0.2.72"
+                ),
                 "",
             )
 
             self.assertEqual(changes, ["added optional service DNS record"])
-            self.assertIn('"infisical.lab.example": "192.0.2.72"', dns_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                '"infisical.lab.example": "192.0.2.72"',
+                dns_path.read_text(encoding="utf-8"),
+            )
 
     def test_onclave_dns_migration_adds_broker_and_http_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -287,23 +330,36 @@ class MigrateValuesTests(unittest.TestCase):
         with temp:
             (values / ".env").write_text("", encoding="utf-8")
             inventory = values / "ansible" / "inventory" / "local.yml"
-            inventory.write_text("---\nall:\n  vars:\n    infisical_version: latest\n", encoding="utf-8")
-            (values / "terraform.tfvars").write_text('searxng_container_image = "docker.io/searxng/searxng:latest"\n', encoding="utf-8")
+            inventory.write_text(
+                "---\nall:\n  vars:\n    infisical_version: latest\n", encoding="utf-8"
+            )
+            (values / "terraform.tfvars").write_text(
+                'searxng_container_image = "docker.io/searxng/searxng:latest"\n',
+                encoding="utf-8",
+            )
 
             migrate_values.migrate(values)
 
             inventory_text = inventory.read_text(encoding="utf-8")
             tfvars_text = (values / "terraform.tfvars").read_text(encoding="utf-8")
             self.assertNotIn("infisical_version: latest", inventory_text)
-            self.assertIn("infisical_container_image: docker.io/infisical/infisical:v0.161.11@sha256:", inventory_text)
-            self.assertIn("searxng_container_image = \"docker.io/searxng/searxng:2026.7.2-67973783d@sha256:", tfvars_text)
+            self.assertIn(
+                "infisical_container_image: docker.io/infisical/infisical:v0.161.11@sha256:",
+                inventory_text,
+            )
+            self.assertIn(
+                'searxng_container_image = "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:',
+                tfvars_text,
+            )
             self.assertEqual(migrate_values.migrate(values), [])
 
     def test_adds_complete_official_hermes_source_defaults_idempotently(self) -> None:
         inventory = "---\nall:\n  vars:\n"
 
         updated, changes = migrate_values.ensure_inventory_defaults(
-            inventory, migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"
+            inventory,
+            migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS,
+            "Hermes artifact source",
         )
 
         self.assertEqual(
@@ -318,30 +374,43 @@ class MigrateValuesTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            migrate_values.ensure_inventory_defaults(updated, migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"),
+            migrate_values.ensure_inventory_defaults(
+                updated,
+                migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS,
+                "Hermes artifact source",
+            ),
             (updated, []),
         )
 
-    def test_adds_hermes_official_source_defaults_without_overwriting_custom_source(self) -> None:
-        inventory = "---\nall:\n  vars:\n    hermes_artifact_source: custom_github_release\n"
+    def test_adds_hermes_official_source_defaults_without_overwriting_custom_source(
+        self,
+    ) -> None:
+        inventory = (
+            "---\nall:\n  vars:\n    hermes_artifact_source: custom_github_release\n"
+        )
 
         updated, changes = migrate_values.ensure_inventory_defaults(
-            inventory, migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"
+            inventory,
+            migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS,
+            "Hermes artifact source",
         )
 
         self.assertIn("hermes_artifact_source: custom_github_release", updated)
         self.assertIn("hermes_custom_tag_prefix: homelab-v", updated)
-        self.assertEqual(changes, ["added Hermes artifact source default hermes_custom_tag_prefix"])
         self.assertEqual(
-            migrate_values.ensure_inventory_defaults(updated, migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS, "Hermes artifact source"),
+            changes, ["added Hermes artifact source default hermes_custom_tag_prefix"]
+        )
+        self.assertEqual(
+            migrate_values.ensure_inventory_defaults(
+                updated,
+                migrate_values.HERMES_ARTIFACT_SOURCE_DEFAULTS,
+                "Hermes artifact source",
+            ),
             (updated, []),
         )
 
     def test_preserves_partial_custom_hermes_pin_group(self) -> None:
-        inventory = (
-            "---\nall:\n  vars:\n"
-            '    hermes_discovery_version: "0.17.0"\n'
-        )
+        inventory = '---\nall:\n  vars:\n    hermes_discovery_version: "0.17.0"\n'
 
         updated, changes = migrate_values.ensure_pin_inventory_vars(
             inventory,
@@ -354,10 +423,7 @@ class MigrateValuesTests(unittest.TestCase):
         self.assertNotIn("hermes_discovery_wheel_sha256", updated)
 
     def test_preserves_partial_custom_hermes_node_pin_group(self) -> None:
-        inventory = (
-            "---\nall:\n  vars:\n"
-            '    hermes_node_version: "22.22.0"\n'
-        )
+        inventory = '---\nall:\n  vars:\n    hermes_node_version: "22.22.0"\n'
 
         updated, changes = migrate_values.ensure_pin_inventory_vars(
             inventory,
@@ -370,10 +436,7 @@ class MigrateValuesTests(unittest.TestCase):
         self.assertNotIn("hermes_node_sha256_amd64", updated)
 
     def test_preserves_partial_custom_technitium_pin_group(self) -> None:
-        inventory = (
-            "---\nall:\n  vars:\n"
-            '    technitium_discovery_version: "15.1.0"\n'
-        )
+        inventory = '---\nall:\n  vars:\n    technitium_discovery_version: "15.1.0"\n'
 
         updated, changes = migrate_values.ensure_pin_inventory_vars(
             inventory,
@@ -388,7 +451,9 @@ class MigrateValuesTests(unittest.TestCase):
     def test_preserves_partial_custom_pin_groups_without_filling_defaults(self) -> None:
         inventory = (
             "---\nall:\n  vars:\n"
-            "    infisical_container_image: docker.io/example/custom:v1@sha256:" + "a" * 64 + "\n"
+            "    infisical_container_image: docker.io/example/custom:v1@sha256:"
+            + "a" * 64
+            + "\n"
         )
 
         updated, changes = migrate_values.ensure_pin_inventory_vars(
@@ -411,16 +476,20 @@ class MigrateValuesTests(unittest.TestCase):
         )
 
         self.assertNotIn("searxng_container_image", updated)
-        self.assertEqual(migrate_values.tfvars_scalar_value(tfvars, "searxng_container_image"), custom)
-        self.assertEqual(changes, ["moved searxng_container_image ownership to terraform.tfvars"])
+        self.assertEqual(
+            migrate_values.tfvars_scalar_value(tfvars, "searxng_container_image"),
+            custom,
+        )
+        self.assertEqual(
+            changes, ["moved searxng_container_image ownership to terraform.tfvars"]
+        )
 
     def test_adds_missing_vlan_ids_for_existing_service_values(self) -> None:
         temp, values = self.make_values()
         with temp:
             (values / ".env").write_text("", encoding="utf-8")
             (values / "terraform.tfvars").write_text(
-                'technitium_container_vmid = 106\n'
-                'forgejo_container_bridge = "vmbr0"\n',
+                'technitium_container_vmid = 106\nforgejo_container_bridge = "vmbr0"\n',
                 encoding="utf-8",
             )
 
@@ -441,10 +510,10 @@ class MigrateValuesTests(unittest.TestCase):
                 'technitium_container_ipv4_address = "192.0.2.22/24"\n'
                 'technitium_container_ipv4_gateway = "192.0.2.1"\n'
                 'forgejo_container_ipv4_address = "dhcp"\n'
-                'forgejo_container_ipv4_gateway = null\n'
+                "forgejo_container_ipv4_gateway = null\n"
                 'forgejo_lan_ip = "192.0.2.23"\n'
                 'infisical_container_ipv4_address = "dhcp"\n'
-                'infisical_container_ipv4_gateway = null\n'
+                "infisical_container_ipv4_gateway = null\n"
                 'infisical_lan_ip = "192.0.2.26"\n',
                 encoding="utf-8",
             )
@@ -452,17 +521,24 @@ class MigrateValuesTests(unittest.TestCase):
             changes = migrate_values.migrate(values)
 
             tfvars_text = (values / "terraform.tfvars").read_text(encoding="utf-8")
-            self.assertIn('forgejo_container_ipv4_address = "192.0.2.23/24"', tfvars_text)
+            self.assertIn(
+                'forgejo_container_ipv4_address = "192.0.2.23/24"', tfvars_text
+            )
             self.assertIn('forgejo_container_ipv4_gateway = "192.0.2.1"', tfvars_text)
-            self.assertIn('infisical_container_ipv4_address = "192.0.2.26/24"', tfvars_text)
+            self.assertIn(
+                'infisical_container_ipv4_address = "192.0.2.26/24"', tfvars_text
+            )
             self.assertIn('infisical_container_ipv4_gateway = "192.0.2.1"', tfvars_text)
-            self.assertIn("set forgejo static IPv4 address from forgejo_lan_ip", changes)
+            self.assertIn(
+                "set forgejo static IPv4 address from forgejo_lan_ip", changes
+            )
 
     def test_hashes_legacy_hermes_dashboard_plaintext_password(self) -> None:
         temp, values = self.make_values()
         with temp:
             (values / ".env").write_text(
-                "export HERMES_DASHBOARD_BASIC_AUTH_PASS" "WORD='REPLACE_DASHBOARD_PASSWORD'\n",
+                "export HERMES_DASHBOARD_BASIC_AUTH_PASS"
+                "WORD='REPLACE_DASHBOARD_PASSWORD'\n",
                 encoding="utf-8",
             )
             (values / "terraform.tfvars").write_text("", encoding="utf-8")
@@ -470,9 +546,17 @@ class MigrateValuesTests(unittest.TestCase):
             changes = migrate_values.migrate(values)
 
             env_text = (values / ".env").read_text(encoding="utf-8")
-            self.assertIn("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH='scrypt$", env_text)
-            self.assertNotIn("HERMES_DASHBOARD_BASIC_AUTH_PASS" "WORD=", env_text)
-            self.assertIn("hashed HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "\n".join(changes))
+            self.assertIn(  # public-safety: allow-secret
+                "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH='scrypt$",  # public-safety: allow-secret
+                env_text,
+            )
+            self.assertNotIn(  # public-safety: allow-secret
+                "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=",  # public-safety: allow-secret
+                env_text,
+            )
+            self.assertIn(
+                "hashed HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "\n".join(changes)
+            )
 
     def test_rewrites_dns_named_technitium_api_url_to_direct_lxc_endpoint(self) -> None:
         temp, values = self.make_values()
@@ -490,9 +574,13 @@ class MigrateValuesTests(unittest.TestCase):
 
             env_text = (values / ".env").read_text(encoding="utf-8")
             self.assertIn("TECHNITIUM_API_URL=http://192.0.2.53:5380/api", env_text)
-            self.assertIn("set TECHNITIUM_API_URL to direct Technitium LXC API endpoint", changes)
+            self.assertIn(
+                "set TECHNITIUM_API_URL to direct Technitium LXC API endpoint", changes
+            )
 
-    def test_optional_service_migration_has_relative_and_absolute_path_parity(self) -> None:
+    def test_optional_service_migration_has_relative_and_absolute_path_parity(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             relative_values = root / "relative" / "values"
@@ -500,7 +588,9 @@ class MigrateValuesTests(unittest.TestCase):
             for values in (relative_values, absolute_values):
                 inventory = values / "ansible" / "inventory"
                 inventory.mkdir(parents=True)
-                (inventory / "local.yml").write_text("---\nall:\n  vars:\n", encoding="utf-8")
+                (inventory / "local.yml").write_text(
+                    "---\nall:\n  vars:\n", encoding="utf-8"
+                )
                 (values / ".env").write_text("", encoding="utf-8")
                 (values / "terraform.tfvars").write_text(
                     'technitium_container_ipv4_address = "192.0.2.53/24"\n'
@@ -523,7 +613,11 @@ class MigrateValuesTests(unittest.TestCase):
                 os.chdir(original_cwd)
 
             self.assertEqual(relative_changes, absolute_changes)
-            for relative_path in (".env", "terraform.tfvars", "ansible/inventory/local.yml"):
+            for relative_path in (
+                ".env",
+                "terraform.tfvars",
+                "ansible/inventory/local.yml",
+            ):
                 self.assertEqual(
                     (relative_values / relative_path).read_text(encoding="utf-8"),
                     (absolute_values / relative_path).read_text(encoding="utf-8"),
@@ -542,7 +636,9 @@ class MigrateValuesTests(unittest.TestCase):
                 encoding="utf-8",
             )
             settings = values.parent / "settings.local.json"
-            original = settings.read_text(encoding="utf-8") if settings.exists() else None
+            original = (
+                settings.read_text(encoding="utf-8") if settings.exists() else None
+            )
             settings.write_text('{"services":["onramp_host"]}\n', encoding="utf-8")
             original_cwd = Path.cwd()
             try:
@@ -560,17 +656,167 @@ class MigrateValuesTests(unittest.TestCase):
 
             tfvars_text = (values / "terraform.tfvars").read_text(encoding="utf-8")
             self.assertIn("onramp_host_vmid = 112", tfvars_text)
-            self.assertIn("onramp_host_disk_gb = 128", tfvars_text)
+            self.assertIn("onramp_host_disk_gb = 32", tfvars_text)
+            self.assertIn('onramp_host_data_datastore_id = "vmstorage"', tfvars_text)
+            self.assertIn(
+                'onramp_host_data_device = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1"',
+                tfvars_text,
+            )
+            self.assertIn("onramp_host_data_disk_gb = 512", tfvars_text)
+            self.assertIn("onramp_host_var_lv_gb = 96", tfvars_text)
+            self.assertIn("onramp_host_srv_lv_gb = 352", tfvars_text)
+            self.assertIn("onramp_host_vg_min_free_percent = 10", tfvars_text)
             self.assertIn('onramp_host_hostname = "onramp-host"', tfvars_text)
-            self.assertIn(f'onramp_host_image_url = "{migrate_values.ONRAMP_HOST_IMAGE_URL}"', tfvars_text)
-            self.assertIn(f'onramp_host_image_file_name = "{migrate_values.ONRAMP_HOST_IMAGE_FILE_NAME}"', tfvars_text)
-            self.assertIn(f'onramp_host_image_checksum_algorithm = "{migrate_values.ONRAMP_HOST_IMAGE_CHECKSUM_ALGORITHM}"', tfvars_text)
-            self.assertIn(f'onramp_host_image_checksum = "{migrate_values.ONRAMP_HOST_IMAGE_CHECKSUM}"', tfvars_text)
+            self.assertIn(
+                f'onramp_host_image_url = "{migrate_values.ONRAMP_HOST_IMAGE_URL}"',
+                tfvars_text,
+            )
+            self.assertIn(
+                f'onramp_host_image_file_name = "{migrate_values.ONRAMP_HOST_IMAGE_FILE_NAME}"',
+                tfvars_text,
+            )
+            self.assertIn(
+                f'onramp_host_image_checksum_algorithm = "{migrate_values.ONRAMP_HOST_IMAGE_CHECKSUM_ALGORITHM}"',
+                tfvars_text,
+            )
+            self.assertIn(
+                f'onramp_host_image_checksum = "{migrate_values.ONRAMP_HOST_IMAGE_CHECKSUM}"',
+                tfvars_text,
+            )
             self.assertIn('onramp_host_ipv4_address = "192.0.2.72/24"', tfvars_text)
             self.assertIn('onramp_host_deploy_user = "onramp"', tfvars_text)
             self.assertNotIn("onramp_host_template_vmid", tfvars_text)
             self.assertIn("added onramp_host_vmid", changes)
             self.assertEqual(second_changes, [])
+
+    def test_migrates_menos_database_contract_without_exposing_secret(self) -> None:
+        env_path = Path("values/.env")
+        env_lines = [  # public-safety: allow-secret
+            "export MENOS_SURREALDB_PASSWORD=placeholder-value"  # public-safety: allow-secret
+        ]
+        entries = migrate_values.parse_env_lines(env_lines, env_path)
+
+        changes = migrate_values.migrate_local_values(env_lines, entries, [], set())
+
+        self.assertIn(
+            "renamed MENOS_SURREALDB_PASSWORD to MENOS_POSTGRES_PASSWORD", changes
+        )
+        self.assertNotIn("MENOS_SURREALDB_PASSWORD", "\n".join(env_lines))
+        self.assertIn("MENOS_POSTGRES_PASSWORD", "\n".join(env_lines))
+        self.assertNotIn("placeholder-value", "\n".join(changes))
+
+        inventory, inventory_changes = migrate_values.migrate_menos_postgres_inventory(
+            "---\nall:\n  vars:\n"
+            "    menos_source_git_sha: old-source-revision\n"
+            "    menos_app_definition_url: https://example.invalid/old-compose.yaml\n"
+            "    menos_app_definition_sha256: old-compose-checksum\n"
+            "    menos_api_image: example.invalid/menos-api:old@sha256:old\n"
+            "    menos_surrealdb_image: docker.io/surrealdb/surrealdb:v2.6.1\n"
+            "    menos_surrealdb_password: \"{{ lookup('env', 'MENOS_SURREALDB_PASSWORD') }}\"\n"
+        )
+        self.assertTrue(inventory_changes)
+        self.assertIn(
+            "menos_postgres_image: docker.io/pgvector/pgvector:pg17@sha256:",
+            inventory,
+        )
+        self.assertIn("menos_postgres_password:", inventory)
+        self.assertIn("MENOS_POSTGRES_PASSWORD", inventory)
+        self.assertIn("7c620a088755a3dab99741f7d8bde54bce8d85db", inventory)
+        self.assertIn(
+            "sha256:6cd6b97575e68165599c97d55c0b3ffd29b2968380cb6787b2e5e89e899df01b",
+            inventory,
+        )
+        self.assertNotIn("surrealdb", inventory.lower())
+        self.assertNotIn("old-source-revision", inventory)
+
+    def test_upgrades_managed_menos_backup_helper_pins(self) -> None:
+        previous = "\n".join(migrate_values.MENOS_PREVIOUS_PIN_DEFAULTS.values()) + "\n"
+
+        inventory, changes = migrate_values.migrate_menos_postgres_inventory(previous)
+
+        self.assertTrue(changes)
+        self.assertIn("7c620a088755a3dab99741f7d8bde54bce8d85db", inventory)
+        self.assertIn(
+            "sha256:6cd6b97575e68165599c97d55c0b3ffd29b2968380cb6787b2e5e89e899df01b",
+            inventory,
+        )
+        self.assertNotIn("6641377f4ee173d92bb471a7c5e6ebf8876e6341", inventory)
+        self.assertIn("docker.io/pgvector/pgvector:pg17@sha256:", inventory)
+        self.assertNotIn("menos_postgres_image: pgvector/pgvector", inventory)
+
+    def test_migrates_temporary_onramp_storage_layout_once(self) -> None:
+        lines = [
+            "onramp_host_vmid = 112",
+            'onramp_host_datastore_id = "vmstorage"',
+            "onramp_host_disk_gb = 128",
+        ]
+
+        changes = migrate_values.migrate_onramp_host_storage_layout(lines)
+
+        self.assertIn("migrated temporary onramp_host_datastore_id", changes)
+        self.assertIn("migrated temporary onramp_host_disk_gb", changes)
+        self.assertIn("added onramp_host_rebuild_revision", changes)
+        self.assertEqual(
+            migrate_values.tfvars_scalar_value(lines, "onramp_host_datastore_id"),
+            "local-lvm",
+        )
+        self.assertEqual(
+            migrate_values.tfvars_scalar_value(lines, "onramp_host_disk_gb"), "32"
+        )
+        for key in (
+            "onramp_host_data_datastore_id",
+            "onramp_host_data_device",
+            "onramp_host_data_disk_gb",
+            "onramp_host_var_lv_gb",
+            "onramp_host_srv_lv_gb",
+            "onramp_host_vg_min_free_percent",
+            "onramp_host_rebuild_revision",
+        ):
+            self.assertTrue(migrate_values.tfvars_key_exists(lines, key))
+        self.assertEqual(migrate_values.migrate_onramp_host_storage_layout(lines), [])
+
+    def test_migrates_unstable_onramp_data_device_once(self) -> None:
+        lines = [
+            "onramp_host_vmid = 112",
+            'onramp_host_data_device = "/dev/sdb"',
+        ]
+
+        changes = migrate_values.migrate_onramp_host_storage_layout(lines)
+
+        self.assertIn("migrated unstable onramp_host_data_device", changes)
+        self.assertEqual(
+            migrate_values.tfvars_scalar_value(lines, "onramp_host_data_device"),
+            migrate_values.ONRAMP_HOST_DATA_DEVICE,
+        )
+        self.assertNotIn(
+            "migrated unstable onramp_host_data_device",
+            migrate_values.migrate_onramp_host_storage_layout(lines),
+        )
+
+    def test_preserves_custom_onramp_root_layout_while_adding_data_defaults(
+        self,
+    ) -> None:
+        lines = [
+            "onramp_host_vmid = 112",
+            'onramp_host_datastore_id = "custom-storage"',
+            "onramp_host_disk_gb = 64",
+        ]
+
+        migrate_values.migrate_onramp_host_storage_layout(lines)
+
+        self.assertEqual(
+            migrate_values.tfvars_scalar_value(lines, "onramp_host_datastore_id"),
+            "custom-storage",
+        )
+        self.assertEqual(
+            migrate_values.tfvars_scalar_value(lines, "onramp_host_disk_gb"), "64"
+        )
+        self.assertTrue(
+            migrate_values.tfvars_key_exists(lines, "onramp_host_data_disk_gb")
+        )
+        self.assertFalse(
+            migrate_values.tfvars_key_exists(lines, "onramp_host_rebuild_revision")
+        )
 
     def test_migrates_only_exact_mutable_onramp_image_pair(self) -> None:
         lines = [
@@ -591,7 +837,9 @@ class MigrateValuesTests(unittest.TestCase):
             migrate_values.ONRAMP_HOST_IMAGE_FILE_NAME,
         )
         self.assertEqual(
-            migrate_values.tfvars_scalar_value(lines, "onramp_host_image_checksum_algorithm"),
+            migrate_values.tfvars_scalar_value(
+                lines, "onramp_host_image_checksum_algorithm"
+            ),
             migrate_values.ONRAMP_HOST_IMAGE_CHECKSUM_ALGORITHM,
         )
         self.assertEqual(
@@ -620,7 +868,9 @@ class MigrateValuesTests(unittest.TestCase):
         self.assertEqual(migrate_values.migrate_onramp_host_image_pin(lines), [])
         self.assertEqual(lines, original)
 
-    def test_preserves_exact_mutable_onramp_pair_with_custom_checksum_group(self) -> None:
+    def test_preserves_exact_mutable_onramp_pair_with_custom_checksum_group(
+        self,
+    ) -> None:
         lines = [
             f'onramp_host_image_url = "{migrate_values.ONRAMP_HOST_MUTABLE_IMAGE_URL}"',
             f'onramp_host_image_file_name = "{migrate_values.ONRAMP_HOST_MUTABLE_IMAGE_FILE_NAME}"',
@@ -632,7 +882,9 @@ class MigrateValuesTests(unittest.TestCase):
         self.assertEqual(migrate_values.migrate_onramp_host_image_pin(lines), [])
         self.assertEqual(lines, original)
 
-    def test_preserves_exact_mutable_onramp_pair_with_partial_checksum_group(self) -> None:
+    def test_preserves_exact_mutable_onramp_pair_with_partial_checksum_group(
+        self,
+    ) -> None:
         base = [
             f'onramp_host_image_url = "{migrate_values.ONRAMP_HOST_MUTABLE_IMAGE_URL}"',
             f'onramp_host_image_file_name = "{migrate_values.ONRAMP_HOST_MUTABLE_IMAGE_FILE_NAME}"',
@@ -646,10 +898,14 @@ class MigrateValuesTests(unittest.TestCase):
             with self.subTest(partial_group=partial_group):
                 lines = base + partial_group
                 original = list(lines)
-                self.assertEqual(migrate_values.migrate_onramp_host_image_pin(lines), [])
+                self.assertEqual(
+                    migrate_values.migrate_onramp_host_image_pin(lines), []
+                )
                 self.assertEqual(lines, original)
 
-    def test_preserves_custom_onramp_image_pins_and_custom_integrity_group(self) -> None:
+    def test_preserves_custom_onramp_image_pins_and_custom_integrity_group(
+        self,
+    ) -> None:
         lines = [
             'onramp_host_image_url = "https://images.example.invalid/debian.qcow2"',
             'onramp_host_image_file_name = "debian.qcow2"',
@@ -657,19 +913,28 @@ class MigrateValuesTests(unittest.TestCase):
             'onramp_host_image_checksum = "' + "a" * 128 + '"',
         ]
         original = list(lines)
-        custom_integrity = "---\nall:\n  vars:\n    forgejo_sha256_amd64: " + "b" * 64 + "\n"
+        custom_integrity = (
+            "---\nall:\n  vars:\n    forgejo_sha256_amd64: " + "b" * 64 + "\n"
+        )
 
         self.assertEqual(migrate_values.migrate_onramp_host_image_pin(lines), [])
-        updated, changes = migrate_values.ensure_integrity_inventory_vars(custom_integrity)
+        updated, changes = migrate_values.ensure_integrity_inventory_vars(
+            custom_integrity
+        )
 
         self.assertEqual(lines, original)
         self.assertEqual(updated, custom_integrity)
         self.assertEqual(changes, [])
 
     def test_updates_only_complete_legacy_managed_caddy_go_pin_group(self) -> None:
-        inventory = "---\nall:\n  vars:\n" + "\n".join(
-            f"    {key}: {value}" for key, value in migrate_values.CADDY_GO_LEGACY_MANAGED_DEFAULTS.items()
-        ) + "\n"
+        inventory = (
+            "---\nall:\n  vars:\n"
+            + "\n".join(
+                f"    {key}: {value}"
+                for key, value in migrate_values.CADDY_GO_LEGACY_MANAGED_DEFAULTS.items()
+            )
+            + "\n"
+        )
 
         updated, changes = migrate_values.migrate_caddy_go_managed_defaults(inventory)
 
@@ -677,15 +942,24 @@ class MigrateValuesTests(unittest.TestCase):
         self.assertIn('caddy_build_go_version: "1.25.1"', updated)
         self.assertIn("caddy_build_go_sha256_amd64: 7716a0d940a0", updated)
         self.assertIn("caddy_build_go_sha256_arm64: 65a3e34fb212", updated)
-        self.assertEqual(migrate_values.migrate_caddy_go_managed_defaults(updated), (updated, []))
+        self.assertEqual(
+            migrate_values.migrate_caddy_go_managed_defaults(updated), (updated, [])
+        )
 
     def test_preserves_custom_caddy_go_pin_group(self) -> None:
-        inventory = "---\nall:\n  vars:\n" + "\n".join(
-            f"    {key}: {value}" for key, value in migrate_values.CADDY_GO_LEGACY_MANAGED_DEFAULTS.items()
-        ) + "\n"
+        inventory = (
+            "---\nall:\n  vars:\n"
+            + "\n".join(
+                f"    {key}: {value}"
+                for key, value in migrate_values.CADDY_GO_LEGACY_MANAGED_DEFAULTS.items()
+            )
+            + "\n"
+        )
         inventory = inventory.replace("1.24.4", "1.24.3")
 
-        self.assertEqual(migrate_values.migrate_caddy_go_managed_defaults(inventory), (inventory, []))
+        self.assertEqual(
+            migrate_values.migrate_caddy_go_managed_defaults(inventory), (inventory, [])
+        )
 
     def test_onramp_host_absent_does_not_add_onramp_host_values(self) -> None:
         temp, values = self.make_values()
@@ -695,7 +969,9 @@ class MigrateValuesTests(unittest.TestCase):
 
             changes = migrate_values.migrate(values)
 
-            self.assertNotIn("onramp_host", (values / "terraform.tfvars").read_text(encoding="utf-8"))
+            self.assertNotIn(
+                "onramp_host", (values / "terraform.tfvars").read_text(encoding="utf-8")
+            )
             self.assertFalse(any("onramp_host" in change for change in changes))
 
     def test_adds_searxng_onramp_values_without_printing_url(self) -> None:
@@ -710,10 +986,16 @@ class MigrateValuesTests(unittest.TestCase):
                 'technitium_container_dns_servers = ["192.0.2.1"]\n',
                 encoding="utf-8",
             )
-            (values / "dns-records.local.json").write_text('{"a_records":{}}\n', encoding="utf-8")
+            (values / "dns-records.local.json").write_text(
+                '{"a_records":{}}\n', encoding="utf-8"
+            )
             settings = values.parent / "settings.local.json"
-            original = settings.read_text(encoding="utf-8") if settings.exists() else None
-            settings.write_text('{"services":["onramp_host","searxng_onramp"]}\n', encoding="utf-8")
+            original = (
+                settings.read_text(encoding="utf-8") if settings.exists() else None
+            )
+            settings.write_text(
+                '{"services":["onramp_host","searxng_onramp"]}\n', encoding="utf-8"
+            )
             original_cwd = Path.cwd()
             try:
                 import os
@@ -731,9 +1013,16 @@ class MigrateValuesTests(unittest.TestCase):
             env_text = (values / ".env").read_text(encoding="utf-8")
             tfvars_text = (values / "terraform.tfvars").read_text(encoding="utf-8")
             dns_text = (values / "dns-records.local.json").read_text(encoding="utf-8")
-            self.assertIn("SEARXNG_SECRET_KEY=", env_text)  # public-safety: allow-secret
-            self.assertIn("HERMES_WEB_SEARXNG_URL=https://searxng.apps.lab.example", env_text)
-            self.assertIn('searxng_server_name = "searxng.apps.lab.example"', tfvars_text)
+            self.assertIn(  # public-safety: allow-secret
+                "SEARXNG_SECRET_KEY=",  # public-safety: allow-secret
+                env_text,
+            )
+            self.assertIn(
+                "HERMES_WEB_SEARXNG_URL=https://searxng.apps.lab.example", env_text
+            )
+            self.assertIn(
+                'searxng_server_name = "searxng.apps.lab.example"', tfvars_text
+            )
             self.assertIn('"searxng.apps.lab.example": "192.0.2.72"', dns_text)
             self.assertIn("added HERMES_WEB_SEARXNG_URL for SearXNG onramp", changes)
             self.assertNotIn("https://searxng.apps.lab.example", "\n".join(changes))

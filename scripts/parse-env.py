@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Parse values/.env as data and emit sanitized environment records."""
+
 from __future__ import annotations
 
 import argparse
@@ -73,7 +74,7 @@ ONCLAVE_KEYS = {
 }
 
 MENOS_KEYS = {
-    "MENOS_SURREALDB_PASSWORD",
+    "MENOS_POSTGRES_PASSWORD",
     "MENOS_S3_ACCESS_KEY",
     "MENOS_S3_SECRET_KEY",
     "MENOS_SEARXNG_SECRET",
@@ -132,7 +133,9 @@ def parse_env(path: Path) -> dict[str, str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--keys", action="store_true", help="print parsed keys, one per line")
+    parser.add_argument(
+        "--keys", action="store_true", help="print parsed keys, one per line"
+    )
     parser.add_argument(
         "--env-file",
         action="store_true",

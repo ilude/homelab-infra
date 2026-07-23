@@ -21,6 +21,7 @@ FETCH_HELPER_PATH = REPO / "infra/ansible/scripts/fetch-service-state.py"
 TECHNITIUM_ROLE_TASKS = REPO / "infra/ansible/roles/technitium/tasks/main.yml"
 FORGEJO_ROLE_TASKS = REPO / "infra/ansible/roles/forgejo/tasks/main.yml"
 TECHNITIUM_ROLE_DEFAULTS = REPO / "infra/ansible/roles/technitium/defaults/main.yml"
+SERVICE_STATE_SCRIPT = REPO / "scripts/service-state.sh"
 
 spec = importlib.util.spec_from_file_location("service_state_validator", VALIDATOR_PATH)
 assert spec and spec.loader
@@ -101,10 +102,18 @@ def make_archive(
 
 
 class ServiceStateCatalogTests(unittest.TestCase):
+    def test_state_wrapper_refreshes_lxc_and_vm_direct_access(self) -> None:
+        source = SERVICE_STATE_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("direct-access-ready.yml", source)
+        self.assertIn("vm-direct-access-ready.yml", source)
+        self.assertIn("direct_vm_access_target_group", source)
+
     def test_every_path_declares_valid_ownership_metadata(self) -> None:
         for target, definition in load_catalog().items():
             for item in definition["paths"]:
-                self.assertEqual({"path", "owner", "group", "recurse"}, set(item), target)
+                self.assertEqual(
+                    {"path", "owner", "group", "recurse"}, set(item), target
+                )
                 self.assertTrue(item["path"])
                 self.assertTrue(item["owner"])
                 self.assertTrue(item["group"])
@@ -123,8 +132,21 @@ class ServiceStateCatalogTests(unittest.TestCase):
             ["hermes-gateway", "hermes-dashboard"],
         )
 
+    def test_menos_service_state_excludes_bulk_database_and_object_payloads(
+        self,
+    ) -> None:
+        paths = [item["path"] for item in load_catalog()["menos_onramp"]["paths"]]
+        self.assertIn("/srv/onramp/menos/compose.yaml", paths)
+        self.assertIn("/srv/onramp/menos/.env", paths)
+        self.assertFalse(any("/data/postgres" in path for path in paths))
+        self.assertFalse(any("/data/minio" in path for path in paths))
+        self.assertNotIn("/srv/onramp/menos", paths)
+
     def test_forgejo_installs_state_backup_transport(self) -> None:
-        self.assertIn("openssh-server rsync sqlite3", FORGEJO_ROLE_TASKS.read_text(encoding="utf-8"))
+        self.assertIn(
+            "openssh-server rsync sqlite3",
+            FORGEJO_ROLE_TASKS.read_text(encoding="utf-8"),
+        )
 
     def test_technitium_restore_ownership_matches_managed_role(self) -> None:
         path = load_catalog()["technitium"]["paths"][0]
@@ -132,14 +154,17 @@ class ServiceStateCatalogTests(unittest.TestCase):
         ownership_task = next(
             task
             for task in role_tasks
-            if task.get("name") == "Ensure Technitium persistent and release directories exist"
+            if task.get("name")
+            == "Ensure Technitium persistent and release directories exist"
         )
         role_state = next(
             item
             for item in ownership_task["loop"]
             if item["path"] == "{{ technitium_state_directory }}"
         )
-        role_defaults = yaml.safe_load(TECHNITIUM_ROLE_DEFAULTS.read_text(encoding="utf-8"))
+        role_defaults = yaml.safe_load(
+            TECHNITIUM_ROLE_DEFAULTS.read_text(encoding="utf-8")
+        )
 
         self.assertEqual(path["path"], role_defaults["technitium_state_directory"])
         self.assertEqual(path["path"], "/etc/dns")
@@ -171,7 +196,9 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
         names = task_names(RESTORE_PATH)
         unarchive = names.index("Restore managed service-state archive")
         root_owner = names.index("Apply catalog ownership to restored path roots")
-        recursive_owner = names.index("Apply recursive catalog ownership to restored directories")
+        recursive_owner = names.index(
+            "Apply recursive catalog ownership to restored directories"
+        )
         user_restart = names.index("Restart managed user services after restore")
         system_restart = names.index("Restart managed system services after restore")
         self.assertLess(unarchive, root_owner)
@@ -186,7 +213,9 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
             "Apply catalog ownership to restored path roots",
             "Apply recursive catalog ownership to restored directories",
         ):
-            section = text.split(f"- name: {marker}", 1)[1].split("\n        - name:", 1)[0]
+            section = text.split(f"- name: {marker}", 1)[1].split(
+                "\n        - name:", 1
+            )[0]
             self.assertNotIn("mode:", section)
         self.assertTrue(plays)
 
@@ -205,18 +234,34 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
         self.assertIn("subprocess.run(command, stdout=output, check=True)", helper)
         self.assertIn("temporary.replace(args.output)", helper)
 
-    def test_pre_restore_archive_has_manifest_checksum_and_private_permissions(self) -> None:
+    def test_pre_restore_archive_has_manifest_checksum_and_private_permissions(
+        self,
+    ) -> None:
         text = RESTORE_PATH.read_text(encoding="utf-8")
         self.assertIn('"archive_kind": "pre_restore"', text)
         self.assertIn("Write local pre-restore service-state checksum", text)
-        self.assertIn("Restrict local pre-restore service-state archive permissions", text)
+        self.assertIn(
+            "Restrict local pre-restore service-state archive permissions", text
+        )
         self.assertGreaterEqual(text.count('mode: "0600"'), 4)
 
     def test_hermes_wrapper_contract_remains_compatible(self) -> None:
-        backup = yaml.safe_load((REPO / "infra/ansible/playbooks/hermes-state-backup.yml").read_text(encoding="utf-8"))
-        restore = yaml.safe_load((REPO / "infra/ansible/playbooks/hermes-state-restore.yml").read_text(encoding="utf-8"))
-        self.assertEqual(backup[0]["ansible.builtin.import_playbook"], "service-state-backup.yml")
-        self.assertEqual(restore[0]["ansible.builtin.import_playbook"], "service-state-restore.yml")
+        backup = yaml.safe_load(
+            (REPO / "infra/ansible/playbooks/hermes-state-backup.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        restore = yaml.safe_load(
+            (REPO / "infra/ansible/playbooks/hermes-state-restore.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            backup[0]["ansible.builtin.import_playbook"], "service-state-backup.yml"
+        )
+        self.assertEqual(
+            restore[0]["ansible.builtin.import_playbook"], "service-state-restore.yml"
+        )
         self.assertEqual(backup[0]["vars"]["service_state_service"], "hermes")
         self.assertEqual(restore[0]["vars"]["service_state_service"], "hermes")
 
@@ -228,12 +273,14 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
         restore_block = next(
             task["block"]
             for task in tasks
-            if task.get("name") == "Restore service state after successful preflight and stops"
+            if task.get("name")
+            == "Restore service state after successful preflight and stops"
         )
         find_task = next(
             task
             for task in restore_block
-            if task.get("name") == "Discover descendant symlinks in restored managed paths"
+            if task.get("name")
+            == "Discover descendant symlinks in restored managed paths"
         )
         symlink_owner_task = next(
             task
@@ -259,7 +306,9 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
                 archive = Path(temp) / "state.tar.gz"
                 make_archive(archive, link=link)
                 with self.assertRaises(validator.ArchiveValidationError):
-                    validator.validate_archive(str(archive), "hermes", ["/home/anvil/.hermes"])
+                    validator.validate_archive(
+                        str(archive), "hermes", ["/home/anvil/.hermes"]
+                    )
 
     def test_legacy_manifestless_hermes_archive_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -275,30 +324,44 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
             root_only = Path(temp) / "root-only.tar.gz"
             make_archive(root_only, manifest=False, include_state=False)
             for archive in (empty, root_only):
-                with self.subTest(archive=archive.name), self.assertRaises(validator.ArchiveValidationError):
-                    validator.validate_archive(str(archive), "hermes", ["/home/anvil/.hermes"])
+                with (
+                    self.subTest(archive=archive.name),
+                    self.assertRaises(validator.ArchiveValidationError),
+                ):
+                    validator.validate_archive(
+                        str(archive), "hermes", ["/home/anvil/.hermes"]
+                    )
 
     def test_manifestless_archive_without_managed_path_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             archive = Path(temp) / "manifestless-root-only.tar.gz"
             make_archive(archive, manifest=False, include_state=False)
             with self.assertRaises(validator.ArchiveValidationError):
-                validator.validate_archive(str(archive), "hermes", ["/home/anvil/.hermes"])
+                validator.validate_archive(
+                    str(archive), "hermes", ["/home/anvil/.hermes"]
+                )
 
     def test_empty_and_nonmatching_manifest_paths_are_rejected(self) -> None:
         for manifest_paths in ([], ["/home/anvil/.other"]):
-            with self.subTest(manifest_paths=manifest_paths), tempfile.TemporaryDirectory() as temp:
+            with (
+                self.subTest(manifest_paths=manifest_paths),
+                tempfile.TemporaryDirectory() as temp,
+            ):
                 archive = Path(temp) / "state.tar.gz"
                 make_archive(archive, manifest_paths=manifest_paths)
                 with self.assertRaises(validator.ArchiveValidationError):
-                    validator.validate_archive(str(archive), "hermes", ["/home/anvil/.hermes"])
+                    validator.validate_archive(
+                        str(archive), "hermes", ["/home/anvil/.hermes"]
+                    )
 
     def test_wrong_target_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             archive = Path(temp) / "state.tar.gz"
             make_archive(archive, target="forgejo")
             with self.assertRaises(validator.ArchiveValidationError):
-                validator.validate_archive(str(archive), "hermes", ["/home/anvil/.hermes"])
+                validator.validate_archive(
+                    str(archive), "hermes", ["/home/anvil/.hermes"]
+                )
 
 
 if __name__ == "__main__":

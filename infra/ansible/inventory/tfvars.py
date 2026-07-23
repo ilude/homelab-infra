@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Ansible dynamic inventory derived from OpenTofu tfvars."""
+
 from __future__ import annotations
 
 import argparse
@@ -35,6 +36,12 @@ DIRECT_LXC_SERVICES = frozenset(
     for name, config in settings.SERVICE_REGISTRY_DATA["services"].items()
     if config.get("execution_resource") == "direct_lxc_known_hosts"
 )
+DIRECT_VM_SERVICES = frozenset(
+    name
+    for name, config in settings.SERVICE_REGISTRY_DATA["services"].items()
+    if config.get("execution_resource") == "onramp_host"
+)
+DIRECT_ACCESS_SERVICES = DIRECT_LXC_SERVICES | DIRECT_VM_SERVICES
 PVE_HOST_RE = re.compile(
     r"^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9A-Fa-f:]+\])$"
 )
@@ -71,8 +78,12 @@ def env_list_var(name: str) -> list[str] | None:
         parsed = json.loads(raw_value)
     except json.JSONDecodeError:
         parsed = [raw_value]
-    if not isinstance(parsed, list) or not all(isinstance(item, str) for item in parsed):
-        raise InventoryError(f"{name} must be a JSON string list when used by dynamic inventory")
+    if not isinstance(parsed, list) or not all(
+        isinstance(item, str) for item in parsed
+    ):
+        raise InventoryError(
+            f"{name} must be a JSON string list when used by dynamic inventory"
+        )
     return parsed
 
 
@@ -108,13 +119,17 @@ def pve_target(raw_value: str | None) -> str:
             if ipaddress.ip_address(value[1:-1]).version != 6:
                 raise ValueError
         except ValueError as error:
-            raise InventoryError("PVE_HOST must be a host or legacy root@host value") from error
+            raise InventoryError(
+                "PVE_HOST must be a host or legacy root@host value"
+            ) from error
     elif re.fullmatch(r"[0-9.]+", value):
         try:
             if ipaddress.ip_address(value).version != 4:
                 raise ValueError
         except ValueError as error:
-            raise InventoryError("PVE_HOST must be a host or legacy root@host value") from error
+            raise InventoryError(
+                "PVE_HOST must be a host or legacy root@host value"
+            ) from error
     elif not PVE_HOST_RE.fullmatch(value):
         raise InventoryError("PVE_HOST must be a host or legacy root@host value")
     return value
@@ -122,9 +137,68 @@ def pve_target(raw_value: str | None) -> str:
 
 def proxmox_node_name(tfvars: dict[str, Any], key: str = "proxmox_node_name") -> str:
     value = str(tfvars.get(key, "")).strip()
-    if not value or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", value):
-        raise InventoryError(f"{key} must be a valid short hostname in terraform.tfvars")
+    if not value or not re.fullmatch(
+        r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", value
+    ):
+        raise InventoryError(
+            f"{key} must be a valid short hostname in terraform.tfvars"
+        )
     return value
+
+
+ONRAMP_STORAGE_KEYS = (
+    "onramp_host_data_device",
+    "onramp_host_data_disk_gb",
+    "onramp_host_var_lv_gb",
+    "onramp_host_srv_lv_gb",
+    "onramp_host_vg_min_free_percent",
+)
+
+
+def _is_onramp_data_device(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"/dev/[A-Za-z0-9._/-]+", value) is not None
+    )
+
+
+def _is_positive_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if not isinstance(value, (int, float)):
+        return False
+    return value > 0
+
+
+def validate_onramp_storage_layout(tfvars: dict[str, Any]) -> None:
+    missing = sorted(set(ONRAMP_STORAGE_KEYS).difference(tfvars))
+    if missing:
+        raise InventoryError(
+            "onramp_host storage layout is missing required values: "
+            + ", ".join(missing)
+        )
+
+    if not _is_onramp_data_device(tfvars["onramp_host_data_device"]):
+        raise InventoryError("onramp_host_data_device must be an absolute /dev path")
+
+    for key in ONRAMP_STORAGE_KEYS[1:]:
+        if not _is_positive_number(tfvars[key]):
+            raise InventoryError(f"{key} must be positive")
+
+    minimum_free = tfvars["onramp_host_vg_min_free_percent"]
+    if minimum_free >= 100:
+        raise InventoryError("onramp_host_vg_min_free_percent must be less than 100")
+    allocated = tfvars["onramp_host_var_lv_gb"] + tfvars["onramp_host_srv_lv_gb"]
+    capacity = tfvars["onramp_host_data_disk_gb"]
+    if allocated > capacity * (100 - minimum_free) / 100:
+        raise InventoryError(
+            "onramp_host guest LVs do not leave the configured minimum VG reserve"
+        )
+
+
+def validate_service_play_vars(service: str, tfvars: dict[str, Any]) -> None:
+    if service == "onramp_host":
+        validate_onramp_storage_layout(tfvars)
 
 
 def service_play_vars(service: str, tfvars: dict[str, Any]) -> dict[str, Any]:
@@ -132,6 +206,7 @@ def service_play_vars(service: str, tfvars: dict[str, Any]) -> dict[str, Any]:
     if config is None:
         return {}
     vars_for_play: dict[str, Any] = {}
+    validate_service_play_vars(service, tfvars)
     vmid = tfvars.get(config["tf_vmid"])
     if vmid is not None:
         vars_for_play[config["vmid_var"]] = vmid
@@ -152,7 +227,9 @@ def service_play_vars(service: str, tfvars: dict[str, Any]) -> dict[str, Any]:
     return vars_for_play
 
 
-def service_hostvars(service: str, tfvars: dict[str, Any]) -> tuple[str, str, dict[str, Any]] | None:
+def service_hostvars(
+    service: str, tfvars: dict[str, Any]
+) -> tuple[str, str, dict[str, Any]] | None:
     config = SERVICE_HOSTS.get(service)
     if config is None:
         return None
@@ -169,7 +246,7 @@ def service_hostvars(service: str, tfvars: dict[str, Any]) -> tuple[str, str, di
         hostvars["ansible_host"] = address
 
     hostvars.update(service_play_vars(service, tfvars))
-    if service in DIRECT_LXC_SERVICES:
+    if service in DIRECT_ACCESS_SERVICES:
         # The direct-access handoff consumes these inventory-derived values;
         # no VMID, address, or trust-store path is duplicated in private inventory.
         hostvars["direct_access_vmid"] = tfvars.get(config["tf_vmid"])
@@ -190,7 +267,7 @@ def build_inventory(
     hostvars = inventory["_meta"]["hostvars"]
     for group in sorted({config["group"] for config in SERVICE_HOSTS.values()}):
         inventory[group] = {"hosts": []}
-    direct_services = DIRECT_LXC_SERVICES.intersection(services)
+    direct_services = DIRECT_ACCESS_SERVICES.intersection(services)
     for service in sorted(direct_services):
         config = SERVICE_HOSTS[service]
         group = config.get("pve_group", "pve")
@@ -198,11 +275,17 @@ def build_inventory(
         host_env = config.get("pve_host_env", "PVE_HOST")
         node_key = config.get("tf_pve_node", "proxmox_node_name")
         node_name = proxmox_node_name(tfvars, node_key)
-        raw_target = pve_host if pve_host is not None and host_env == "PVE_HOST" else os.environ.get(host_env)
+        raw_target = (
+            pve_host
+            if pve_host is not None and host_env == "PVE_HOST"
+            else os.environ.get(host_env)
+        )
         target = pve_target(raw_target)
         existing_hosts = inventory.get(group, {}).get("hosts", [])
         if existing_hosts and existing_hosts != [host]:
-            raise InventoryError(f"conflicting Proxmox inventory hosts for group {group}")
+            raise InventoryError(
+                f"conflicting Proxmox inventory hosts for group {group}"
+            )
         inventory[group] = {"hosts": [host]}
         inventory["all"]["vars"][node_key] = node_name
         hostvars[host] = {
@@ -227,19 +310,33 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--host", default=None)
-    parser.add_argument("--tfvars", type=Path, default=Path(os.environ.get("ANSIBLE_TFVARS_FILE", DEFAULT_TFVARS)))
+    parser.add_argument(
+        "--tfvars",
+        type=Path,
+        default=Path(os.environ.get("ANSIBLE_TFVARS_FILE", DEFAULT_TFVARS)),
+    )
     parser.add_argument("--settings", type=Path, default=None)
     args = parser.parse_args(argv)
 
-    settings_path = args.settings or (Path(os.environ["INFRA_SETTINGS_FILE"]) if "INFRA_SETTINGS_FILE" in os.environ else None)
+    settings_path = args.settings or (
+        Path(os.environ["INFRA_SETTINGS_FILE"])
+        if "INFRA_SETTINGS_FILE" in os.environ
+        else None
+    )
     try:
-        inventory = build_inventory(load_tfvars(args.tfvars), enabled_services(settings_path))
+        inventory = build_inventory(
+            load_tfvars(args.tfvars), enabled_services(settings_path)
+        )
     except (InventoryError, settings.SettingsError) as error:
         print(error, file=sys.stderr)
         return 1
 
     if args.host:
-        print(json.dumps(inventory.get("_meta", {}).get("hostvars", {}).get(args.host, {})))
+        print(
+            json.dumps(
+                inventory.get("_meta", {}).get("hostvars", {}).get(args.host, {})
+            )
+        )
     else:
         print(json.dumps(inventory))
     return 0

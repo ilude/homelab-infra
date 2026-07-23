@@ -1,4 +1,8 @@
 ---
+- name: Run verified direct access handoff for the onramp VM
+  ansible.builtin.import_playbook: vm-direct-access-ready.yml
+  vars:
+    direct_vm_access_target_group: onramp_host
 - name: Deploy Onclave on the Podman onramp host
   hosts: onramp_host
   gather_facts: true

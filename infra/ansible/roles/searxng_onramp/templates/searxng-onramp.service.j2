@@ -2,6 +2,7 @@
 Description=Temporary SearXNG onramp Podman workload
 Wants=network-online.target
 After=network-online.target
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}
 
 [Service]
 Type=oneshot

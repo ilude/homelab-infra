@@ -7,6 +7,16 @@
       - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
       - onramp_host_deploy_user != 'root'
       - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
+      - onramp_host_data_device is match('^/dev/[A-Za-z0-9_./-]+$')
+      - onramp_host_data_disk_gb | int > 0
+      - onramp_host_var_lv_gb | int > 0
+      - onramp_host_srv_lv_gb | int > 0
+      - onramp_host_vg_min_free_percent | int > 0
+      - onramp_host_vg_min_free_percent | int < 100
+      - >-
+        (onramp_host_var_lv_gb | float) + (onramp_host_srv_lv_gb | float) <=
+        (onramp_host_data_disk_gb | float) *
+        (100 - (onramp_host_vg_min_free_percent | float)) / 100
       - onramp_host_password_authentication is defined
       - onramp_host_permit_root_login is defined
       - onramp_host_allowed_ssh_cidrs | length > 0
@@ -14,8 +24,11 @@
       - caddy_cloudflare_api_token is defined
     fail_msg: >-
       onramp_host requires Debian 13+, a non-root deploy user, deploy
-      directory, SSH policy, private SSH source CIDRs, and Caddy DNS-01
-      variables.
+      directory, valid data-disk layout with reserve, SSH policy, private SSH
+      source CIDRs, and Caddy DNS-01 variables.
+
+- name: Prepare onramp-host guest storage before application packages
+  ansible.builtin.include_tasks: storage.yml
 
 - name: Install Podman onramp-host packages
   ansible.builtin.apt:
@@ -67,6 +80,30 @@
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
     mode: "0750"
+
+- name: Ensure rootless Podman storage directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "/srv/podman/{{ onramp_host_deploy_user }}"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/containers"
+      mode: "0700"
+
+- name: Configure rootless Podman graphroot on srv
+  ansible.builtin.copy:
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/containers/storage.conf"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0600"
+    content: |
+      [storage]
+      driver = "overlay"
+      graphroot = "/srv/podman/{{ onramp_host_deploy_user }}"
 
 - name: Build pinned Caddy for onramp host
   ansible.builtin.include_role:
@@ -221,6 +258,14 @@
       - json
   register: onramp_host_podman_info
   changed_when: false
+
+- name: Verify rootless Podman graphroot
+  ansible.builtin.assert:
+    that:
+      - >-
+        (onramp_host_podman_info.stdout | from_json).store.graphRoot ==
+        '/srv/podman/' + onramp_host_deploy_user
+    fail_msg: "Rootless Podman graphroot is not on the managed /srv filesystem."
 
 - name: Verify Podman Compose provider as deploy user
   become: true

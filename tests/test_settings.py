@@ -27,12 +27,16 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings["services"], ["technitium", "forgejo"])
 
     def test_values_remote_is_loaded(self) -> None:
-        path = self.write_settings({"values_repo": {"remote": "git@example.invalid:repo.git"}})
+        path = self.write_settings(
+            {"values_repo": {"remote": "git@example.invalid:repo.git"}}
+        )
         try:
             settings = settings_script.load_settings(path)
         finally:
             path.unlink()
-        self.assertEqual(settings["values_repo"]["remote"], "git@example.invalid:repo.git")
+        self.assertEqual(
+            settings["values_repo"]["remote"], "git@example.invalid:repo.git"
+        )
 
     def test_unknown_service_fails(self) -> None:
         path = self.write_settings({"services": ["unknown"]})
@@ -50,16 +54,24 @@ class SettingsTests(unittest.TestCase):
             }
         )
         try:
-            self.assertTrue(settings_script.enable_service(path, "technitium_secondary"))
-            self.assertFalse(settings_script.enable_service(path, "technitium_secondary"))
+            self.assertTrue(
+                settings_script.enable_service(path, "technitium_secondary")
+            )
+            self.assertFalse(
+                settings_script.enable_service(path, "technitium_secondary")
+            )
             data = json.loads(path.read_text(encoding="utf-8"))
         finally:
             path.unlink()
         self.assertEqual(data["values_repo"]["remote"], "git@example.invalid:repo.git")
-        self.assertEqual(data["services"], ["technitium", "forgejo", "technitium_secondary"])
+        self.assertEqual(
+            data["services"], ["technitium", "forgejo", "technitium_secondary"]
+        )
 
     def write_registry(self, services: dict[str, object]) -> Path:
-        return self.write_settings({"default_services": ["first"], "services": services})
+        return self.write_settings(
+            {"default_services": ["first"], "services": services}
+        )
 
     def test_registry_rejects_unknown_self_and_cyclic_dependencies(self) -> None:
         cases = {
@@ -78,22 +90,49 @@ class SettingsTests(unittest.TestCase):
             with self.subTest(name=name):
                 path = self.write_registry(services)
                 try:
-                    with self.assertRaisesRegex(ValueError, name if name != "cycle" else "cyclic"):
+                    with self.assertRaisesRegex(
+                        ValueError, name if name != "cycle" else "cyclic"
+                    ):
                         settings_script.load_service_registry(path)
                 finally:
                     path.unlink()
 
-    def test_registry_rejects_duplicate_playbooks_and_invalid_execution_resources(self) -> None:
+    def test_registry_rejects_duplicate_playbooks_and_invalid_execution_resources(
+        self,
+    ) -> None:
         cases = {
             "duplicate playbook": {
                 "first": {"playbooks": ["shared.yml"], "dependencies": []},
                 "second": {"playbooks": ["shared.yml"], "dependencies": []},
             },
             "execution_resource": {
-                "first": {"playbooks": ["first.yml"], "dependencies": [], "execution_resource": ""},
+                "first": {
+                    "playbooks": ["first.yml"],
+                    "dependencies": [],
+                    "execution_resource": "",
+                },
             },
             "terraform_module": {
-                "first": {"playbooks": ["first.yml"], "dependencies": [], "terraform_module": ""},
+                "first": {
+                    "playbooks": ["first.yml"],
+                    "dependencies": [],
+                    "terraform_module": "",
+                },
+            },
+            "terraform_target": {
+                "first": {
+                    "playbooks": ["first.yml"],
+                    "dependencies": [],
+                    "terraform_target": "",
+                },
+            },
+            "both terraform_module and terraform_target": {
+                "first": {
+                    "playbooks": ["first.yml"],
+                    "dependencies": [],
+                    "terraform_module": "first",
+                    "terraform_target": "first.resource",
+                },
             },
         }
         for message, services in cases.items():
@@ -108,7 +147,11 @@ class SettingsTests(unittest.TestCase):
     def test_registry_requires_reciprocal_conflicts(self) -> None:
         path = self.write_registry(
             {
-                "first": {"playbooks": ["first.yml"], "dependencies": [], "conflicts": ["second"]},
+                "first": {
+                    "playbooks": ["first.yml"],
+                    "dependencies": [],
+                    "conflicts": ["second"],
+                },
                 "second": {"playbooks": ["second.yml"], "dependencies": []},
             }
         )
@@ -168,9 +211,13 @@ class SettingsTests(unittest.TestCase):
         )
 
     def test_infisical_deployment_modes_are_mutually_exclusive(self) -> None:
-        path = self.write_settings({"services": ["onramp_host", "infisical", "infisical_onramp"]})
+        path = self.write_settings(
+            {"services": ["onramp_host", "infisical", "infisical_onramp"]}
+        )
         try:
-            with self.assertRaisesRegex(settings_script.SettingsError, "conflicts with"):
+            with self.assertRaisesRegex(
+                settings_script.SettingsError, "conflicts with"
+            ):
                 settings_script.load_settings(path)
         finally:
             path.unlink()
@@ -232,7 +279,9 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings["services"], ["hermes"])
 
     def test_playbooks_follow_service_order(self) -> None:
-        path = self.write_settings({"services": ["technitium", "forgejo", "tailscale_client"]})
+        path = self.write_settings(
+            {"services": ["technitium", "forgejo", "tailscale_client"]}
+        )
         try:
             settings = settings_script.load_settings(path)
         finally:
@@ -251,9 +300,18 @@ class SettingsTests(unittest.TestCase):
 
     def test_tofu_target_returns_enabled_service_module(self) -> None:
         settings = {"services": ["forgejo"]}
-        self.assertEqual(settings_script.tofu_target(settings, "forgejo"), "module.forgejo")
+        self.assertEqual(
+            settings_script.tofu_target(settings, "forgejo"), "module.forgejo"
+        )
         with self.assertRaisesRegex(settings_script.SettingsError, "not enabled"):
             settings_script.tofu_target(settings, "hermes")
+
+    def test_tofu_target_returns_enabled_service_resource(self) -> None:
+        settings = {"services": ["onramp_host"]}
+        self.assertEqual(
+            settings_script.tofu_target(settings, "onramp_host"),
+            "proxmox_virtual_environment_vm.onramp_host",
+        )
 
     def test_tofu_target_command_returns_enabled_service_module(self) -> None:
         path = self.write_settings({"services": ["hermes"]})
@@ -262,7 +320,9 @@ class SettingsTests(unittest.TestCase):
                 original_stdout = settings_script.sys.stdout
                 settings_script.sys.stdout = stdout
                 try:
-                    rc = settings_script.main(["--settings", str(path), "tofu-target", "hermes"])
+                    rc = settings_script.main(
+                        ["--settings", str(path), "tofu-target", "hermes"]
+                    )
                 finally:
                     settings_script.sys.stdout = original_stdout
                 stdout.seek(0)

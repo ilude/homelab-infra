@@ -170,7 +170,7 @@
           "infisical_bind_address": "infisical_bind_address"
         }
       },
-      "terraform_module": "onramp_host"
+      "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     },
     "hermes": {
       "execution_resource": "direct_lxc_known_hosts",
@@ -221,10 +221,15 @@
           "onramp_host_password_authentication": "onramp_host_password_authentication",
           "onramp_host_permit_root_login": "onramp_host_permit_root_login",
           "onramp_host_allow_passwordless_sudo": "onramp_host_allow_passwordless_sudo",
-          "onramp_host_allowed_ssh_cidrs": "onramp_host_allowed_ssh_cidrs"
+          "onramp_host_allowed_ssh_cidrs": "onramp_host_allowed_ssh_cidrs",
+          "onramp_host_data_device": "onramp_host_data_device",
+          "onramp_host_data_disk_gb": "onramp_host_data_disk_gb",
+          "onramp_host_var_lv_gb": "onramp_host_var_lv_gb",
+          "onramp_host_srv_lv_gb": "onramp_host_srv_lv_gb",
+          "onramp_host_vg_min_free_percent": "onramp_host_vg_min_free_percent"
         }
       },
-      "terraform_module": "onramp_host"
+      "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     },
     "searxng_onramp": {
       "state_capable": true,
@@ -257,7 +262,7 @@
           "searxng_enable_public_url": "searxng_enable_public_url"
         }
       },
-      "terraform_module": "onramp_host"
+      "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     },
     "onclave_onramp": {
       "state_capable": true,
@@ -284,7 +289,7 @@
           "onclave_onramp_amqp_allowed_cidrs": "onramp_host_allowed_ssh_cidrs"
         }
       },
-      "terraform_module": "onramp_host"
+      "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     },
     "menos_onramp": {
       "state_capable": true,
@@ -310,7 +315,7 @@
           "onramp_host_deploy_dir": "onramp_host_deploy_dir"
         }
       },
-      "terraform_module": "onramp_host"
+      "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     }
   }
 }

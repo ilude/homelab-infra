@@ -8,10 +8,34 @@ from typing import Any
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
-RUNNER_TASKS = REPO / "infra" / "ansible" / "roles" / "forgejo_runner" / "tasks" / "main.yml"
-LXC_READY_TASKS = REPO / "infra" / "ansible" / "roles" / "lxc_ready" / "tasks" / "main.yml"
-DIRECT_ACCESS_PLAYBOOK = REPO / "infra" / "ansible" / "playbooks" / "direct-access-ready.yml"
+RUNNER_TASKS = (
+    REPO / "infra" / "ansible" / "roles" / "forgejo_runner" / "tasks" / "main.yml"
+)
+LXC_READY_TASKS = (
+    REPO / "infra" / "ansible" / "roles" / "lxc_ready" / "tasks" / "main.yml"
+)
+DIRECT_ACCESS_PLAYBOOK = (
+    REPO / "infra" / "ansible" / "playbooks" / "direct-access-ready.yml"
+)
+VM_DIRECT_ACCESS_PLAYBOOK = (
+    REPO / "infra" / "ansible" / "playbooks" / "vm-direct-access-ready.yml"
+)
 ZFS_DATASET_TASKS = REPO / "infra" / "ansible" / "tasks" / "zfs-dataset.yml"
+ONRAMP_HOST_TASKS = (
+    REPO / "infra" / "ansible" / "roles" / "onramp_host" / "tasks" / "main.yml"
+)
+ONRAMP_HOST_STORAGE_TASKS = (
+    REPO / "infra" / "ansible" / "roles" / "onramp_host" / "tasks" / "storage.yml"
+)
+ROOTLESS_ONRAMP_UNITS = tuple(
+    REPO / "infra" / "ansible" / "roles" / role / "templates" / unit
+    for role, unit in (
+        ("infisical_onramp", "infisical-onramp.service.j2"),
+        ("searxng_onramp", "searxng-onramp.service.j2"),
+        ("onclave_onramp", "onclave-onramp.service.j2"),
+        ("menos_onramp", "menos-onramp.service.j2"),
+    )
+)
 CADDY_TASK_FILES = (
     REPO / "infra" / "ansible" / "roles" / "caddy_proxy" / "tasks" / "main.yml",
     REPO / "infra" / "ansible" / "roles" / "forgejo" / "tasks" / "caddy.yml",
@@ -31,7 +55,13 @@ SERVICE_SMOKE_TASK_FILES = (
 ALLOWLIST_PCT = {
     REPO / "infra" / "ansible" / "roles" / "lxc_ready" / "tasks" / "main.yml",
     REPO / "infra" / "ansible" / "roles" / "forgejo_bind_mount" / "tasks" / "main.yml",
-    REPO / "infra" / "ansible" / "roles" / "forgejo_bind_mount" / "handlers" / "main.yml",
+    REPO
+    / "infra"
+    / "ansible"
+    / "roles"
+    / "forgejo_bind_mount"
+    / "handlers"
+    / "main.yml",
 }
 
 
@@ -70,15 +100,63 @@ def command_text(task: dict[str, Any]) -> str:
 
 class AnsibleSafetyTests(unittest.TestCase):
     def test_storage_prep_does_not_reset_existing_service_ownership(self) -> None:
-        task = task_by_name(ZFS_DATASET_TASKS, "Set initial host storage ownership {{ storage_dataset.mountpoint }}")
+        task = task_by_name(
+            ZFS_DATASET_TASKS,
+            "Set initial host storage ownership {{ storage_dataset.mountpoint }}",
+        )
         self.assertEqual(task.get("when"), "storage_zfs_list.rc != 0")
+
+    def test_onramp_storage_precedes_app_installation_and_units_require_mounts(
+        self,
+    ) -> None:
+        names = task_names(ONRAMP_HOST_TASKS)
+        self.assertLess(
+            names.index(
+                "Prepare onramp-host guest storage before application packages"
+            ),
+            names.index("Install Podman onramp-host packages"),
+        )
+        self.assertLess(
+            names.index("Install Podman onramp-host packages"),
+            names.index("Build pinned Caddy for onramp host"),
+        )
+        inspect_device = task_by_name(
+            ONRAMP_HOST_STORAGE_TASKS, "Inspect onramp-host data device"
+        )
+        self.assertTrue(inspect_device["ansible.builtin.stat"].get("follow"))
+        inspect_var = task_by_name(
+            ONRAMP_HOST_STORAGE_TASKS, "Inspect current onramp-host var mount"
+        )
+        self.assertIn("--target", command_text(inspect_var))
+        storage = ONRAMP_HOST_STORAGE_TASKS.read_text(encoding="utf-8")
+        for contract in (
+            "Fail closed for an unsafe onramp-host data device",
+            "Copy fresh onramp-host var data once",
+            "Persist onramp-host var mount by UUID",
+            "Reboot once for onramp-host var handoff",
+            "Verify onramp-host VG reserve",
+        ):
+            self.assertIn(contract, storage)
+        main = ONRAMP_HOST_TASKS.read_text(encoding="utf-8")
+        self.assertIn('graphroot = "/srv/podman/{{ onramp_host_deploy_user }}"', main)
+        for unit in ROOTLESS_ONRAMP_UNITS:
+            source = unit.read_text(encoding="utf-8")
+            self.assertIn(
+                "RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}",
+                source,
+                str(unit),
+            )
 
     def test_service_roles_do_not_use_pct_for_steady_state(self) -> None:
         for path in sorted((REPO / "infra" / "ansible" / "roles").glob("*/**/*.yml")):
             if path in ALLOWLIST_PCT:
                 continue
             for task in load_tasks(path):
-                self.assertNotRegex(command_text(task), r"(^|\s)pct(\s|$)", f"{path}: {task.get('name')}")
+                self.assertNotRegex(
+                    command_text(task),
+                    r"(^|\s)pct(\s|$)",
+                    f"{path}: {task.get('name')}",
+                )
 
     def test_forgejo_runner_secret_tasks_are_no_log(self) -> None:
         for name in (
@@ -114,40 +192,72 @@ class AnsibleSafetyTests(unittest.TestCase):
             path = REPO / rel_path
             names = task_names(path)
             self.assertLess(names.index(directory), names.index(override), rel_path)
-            self.assertEqual(task_by_name(path, directory).get("ansible.builtin.file", {}).get("state"), "directory")
-            self.assertIn("Restart caddy", task_by_name(path, override).get("notify", []))
+            self.assertEqual(
+                task_by_name(path, directory)
+                .get("ansible.builtin.file", {})
+                .get("state"),
+                "directory",
+            )
+            self.assertIn(
+                "Restart caddy", task_by_name(path, override).get("notify", [])
+            )
 
     def test_caddy_restart_handlers_reload_systemd_units(self) -> None:
         for role in ("caddy_proxy", "forgejo", "infisical", "hermes"):
-            handler = REPO / "infra" / "ansible" / "roles" / role / "handlers" / "main.yml"
-            self.assertIn("daemon_reload: true", handler.read_text(encoding="utf-8"), str(handler))
+            handler = (
+                REPO / "infra" / "ansible" / "roles" / role / "handlers" / "main.yml"
+            )
+            self.assertIn(
+                "daemon_reload: true", handler.read_text(encoding="utf-8"), str(handler)
+            )
 
     def test_forgejo_runner_pve_access_targets_pve_inventory_host(self) -> None:
-        directory = task_by_name(RUNNER_TASKS, "Ensure root SSH directory exists on Proxmox host")
-        authorization = task_by_name(RUNNER_TASKS, "Authorize Forgejo runner SSH key on Proxmox host")
-        trust = task_by_name(RUNNER_TASKS, "Trust Proxmox host key in Forgejo runner LXC")
-        key_generation = task_by_name(RUNNER_TASKS, "Ensure Forgejo runner SSH key exists")
+        directory = task_by_name(
+            RUNNER_TASKS, "Ensure root SSH directory exists on Proxmox host"
+        )
+        authorization = task_by_name(
+            RUNNER_TASKS, "Authorize Forgejo runner SSH key on Proxmox host"
+        )
+        trust = task_by_name(
+            RUNNER_TASKS, "Trust Proxmox host key in Forgejo runner LXC"
+        )
+        key_generation = task_by_name(
+            RUNNER_TASKS, "Ensure Forgejo runner SSH key exists"
+        )
         for task in (directory, authorization):
             self.assertEqual(task.get("delegate_to"), "{{ groups['pve'][0] }}")
         self.assertNotIn("delegate_to", key_generation)
         self.assertIn("hostvars[groups['pve'][0]].ansible_host", command_text(trust))
 
-    def test_direct_lxc_host_key_refresh_uses_proxmox_authority_not_network_scanning(self) -> None:
+    def test_direct_lxc_host_key_refresh_uses_proxmox_authority_not_network_scanning(
+        self,
+    ) -> None:
         play = load_tasks(DIRECT_ACCESS_PLAYBOOK)[0]
         tasks = [task for task in play.get("pre_tasks", []) if isinstance(task, dict)]
         names = [str(task.get("name")) for task in tasks]
         source = DIRECT_ACCESS_PLAYBOOK.read_text(encoding="utf-8")
         by_name = {str(task.get("name")): task for task in tasks}
-        read_keys = by_name["Read LXC SSH host public keys through authenticated Proxmox access"]
-        validate_keys = by_name["Fail closed when Proxmox did not provide valid LXC host public keys"]
-        remove_stale = by_name["Remove stale controller SSH trust for the direct inventory aliases"]
-        install_keys = by_name["Install exact Proxmox-authoritative SSH keys for direct inventory aliases"]
+        read_keys = by_name[
+            "Read LXC SSH host public keys through authenticated Proxmox access"
+        ]
+        validate_keys = by_name[
+            "Fail closed when Proxmox did not provide valid LXC host public keys"
+        ]
+        remove_stale = by_name[
+            "Remove stale controller SSH trust for the direct inventory aliases"
+        ]
+        install_keys = by_name[
+            "Install exact Proxmox-authoritative SSH keys for direct inventory aliases"
+        ]
 
         self.assertIn("pct", command_text(read_keys))
         self.assertIn("exec", command_text(read_keys))
         self.assertIn("ssh_host_*_key.pub", command_text(read_keys))
         self.assertEqual(read_keys.get("delegate_to"), "{{ direct_access_pve_host }}")
-        self.assertIn("direct_access_pve_host", str(by_name["Validate direct LXC host-key refresh inputs"]))
+        self.assertIn(
+            "direct_access_pve_host",
+            str(by_name["Validate direct LXC host-key refresh inputs"]),
+        )
         self.assertTrue(read_keys.get("no_log"))
         self.assertTrue(validate_keys.get("no_log"))
         self.assertNotIn("ssh-keyscan", source)
@@ -156,8 +266,12 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("/tmp/homelab-infra/ansible/known_hosts", source)
         self.assertNotIn("/workspace/values/ansible/known_hosts", source)
         reset_trust = by_name["Reset the ephemeral controller known_hosts file"]
-        trust_file = by_name["Ensure the managed controller known_hosts file has restrictive permissions"]
-        trust_directory = by_name["Ensure the managed controller known_hosts directory exists"]
+        trust_file = by_name[
+            "Ensure the managed controller known_hosts file has restrictive permissions"
+        ]
+        trust_directory = by_name[
+            "Ensure the managed controller known_hosts directory exists"
+        ]
         self.assertEqual(trust_directory.get("delegate_to"), "localhost")
         self.assertEqual(trust_directory["ansible.builtin.file"].get("mode"), "0700")
         self.assertEqual(reset_trust.get("delegate_to"), "localhost")
@@ -165,17 +279,70 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertEqual(trust_file.get("delegate_to"), "localhost")
         self.assertEqual(trust_file["ansible.builtin.file"].get("state"), "touch")
         self.assertEqual(trust_file["ansible.builtin.file"].get("mode"), "0600")
-        self.assertLess(names.index(str(reset_trust["name"])), names.index(str(trust_file["name"])))
-        self.assertLess(names.index(str(trust_file["name"])), names.index(str(remove_stale["name"])))
-        self.assertLess(names.index(str(remove_stale["name"])), names.index(str(install_keys["name"])))
+        self.assertLess(
+            names.index(str(reset_trust["name"])), names.index(str(trust_file["name"]))
+        )
+        self.assertLess(
+            names.index(str(trust_file["name"])), names.index(str(remove_stale["name"]))
+        )
+        self.assertLess(
+            names.index(str(remove_stale["name"])),
+            names.index(str(install_keys["name"])),
+        )
         self.assertIn("inventory_hostname", str(remove_stale))
         self.assertIn("ansible_host", str(remove_stale))
         self.assertIn("inventory_hostname", str(install_keys))
         self.assertIn("ansible_host", str(install_keys))
         self.assertFalse(play.get("gather_facts"))
 
-    def test_all_direct_access_callers_select_only_registered_direct_lxc_groups(self) -> None:
-        registry = json.loads((REPO / "infra" / "services.json").read_text(encoding="utf-8"))["services"]
+    def test_vm_direct_access_verifies_proxmox_mac_before_keyscan(self) -> None:
+        plays = load_tasks(VM_DIRECT_ACCESS_PLAYBOOK)
+        self.assertEqual(len(plays), 1)
+        tasks = plays[0]["pre_tasks"]
+        by_name = {str(task["name"]): task for task in tasks}
+        read_keys = by_name["Read VM SSH keys after Proxmox MAC ownership verification"]
+        command = command_text(read_keys)
+        self.assertIn("qm config", command)
+        self.assertIn("ip neigh", command)
+        self.assertLess(command.index("ip neigh"), command.index("ssh-keyscan"))
+        self.assertEqual(read_keys.get("delegate_to"), "{{ direct_access_pve_host }}")
+        self.assertTrue(read_keys.get("no_log"))
+        self.assertTrue(
+            by_name["Fail closed without valid Proxmox-verified VM SSH keys"].get(
+                "no_log"
+            )
+        )
+        self.assertIn("/tmp/homelab-infra/ansible/known_hosts", str(plays[0]))
+
+    def test_vm_direct_access_callers_cover_registered_onramp_group(self) -> None:
+        registry = json.loads(
+            (REPO / "infra" / "services.json").read_text(encoding="utf-8")
+        )["services"]
+        direct_groups = {
+            config["inventory"]["group"]
+            for config in registry.values()
+            if config.get("execution_resource") == "onramp_host"
+        }
+        caller_groups: set[str] = set()
+        for path in sorted((REPO / "infra" / "ansible" / "playbooks").glob("*.yml")):
+            for play in load_tasks(path):
+                if (
+                    play.get("ansible.builtin.import_playbook")
+                    != "vm-direct-access-ready.yml"
+                ):
+                    continue
+                group = play.get("vars", {}).get("direct_vm_access_target_group")
+                self.assertIsInstance(group, str, str(path))
+                self.assertIn(group, direct_groups, str(path))
+                caller_groups.add(group)
+        self.assertEqual(caller_groups, direct_groups)
+
+    def test_all_direct_access_callers_select_only_registered_direct_lxc_groups(
+        self,
+    ) -> None:
+        registry = json.loads(
+            (REPO / "infra" / "services.json").read_text(encoding="utf-8")
+        )["services"]
         direct_groups = {
             config["inventory"]["group"]
             for config in registry.values()
@@ -184,7 +351,10 @@ class AnsibleSafetyTests(unittest.TestCase):
         caller_groups: set[str] = set()
         for path in sorted((REPO / "infra" / "ansible" / "playbooks").glob("*.yml")):
             for play in load_tasks(path):
-                if play.get("ansible.builtin.import_playbook") != "direct-access-ready.yml":
+                if (
+                    play.get("ansible.builtin.import_playbook")
+                    != "direct-access-ready.yml"
+                ):
                     continue
                 group = play.get("vars", {}).get("direct_access_target_group")
                 self.assertIsInstance(group, str, str(path))
@@ -204,7 +374,13 @@ class AnsibleSafetyTests(unittest.TestCase):
     def test_verified_artifact_installs_check_hashes_before_atomic_moves(self) -> None:
         task_files = (
             REPO / "infra" / "ansible" / "roles" / "forgejo" / "tasks" / "main.yml",
-            REPO / "infra" / "ansible" / "roles" / "forgejo_runner" / "tasks" / "main.yml",
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "forgejo_runner"
+            / "tasks"
+            / "main.yml",
             REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",
             REPO / "infra" / "ansible" / "roles" / "infisical" / "tasks" / "main.yml",
             REPO / "infra" / "ansible" / "roles" / "caddy_build" / "tasks" / "main.yml",
@@ -215,12 +391,17 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertIn("mv -f", text, str(path))
 
     def test_caddy_build_is_shared_and_pinned(self) -> None:
-        build_tasks = REPO / "infra" / "ansible" / "roles" / "caddy_build" / "tasks" / "main.yml"
+        build_tasks = (
+            REPO / "infra" / "ansible" / "roles" / "caddy_build" / "tasks" / "main.yml"
+        )
         text = build_tasks.read_text(encoding="utf-8")
         self.assertIn("GOPROXY=proxy.golang.org,direct", text)
         self.assertIn("GOSUMDB=sum.golang.org", text)
         self.assertIn("caddy_build_cloudflare_version", text)
-        for marker_name in ("Check installed Caddy build marker", "Verify installed Caddy build marker"):
+        for marker_name in (
+            "Check installed Caddy build marker",
+            "Verify installed Caddy build marker",
+        ):
             self.assertIn(
                 'GOTOOLCHAIN=local go version -m "$(command -v caddy)"',
                 command_text(task_by_name(build_tasks, marker_name)),
@@ -237,25 +418,46 @@ class AnsibleSafetyTests(unittest.TestCase):
             text,
         )
         for path in CADDY_TASK_FILES[:4]:
-            self.assertIn("name: caddy_build", path.read_text(encoding="utf-8"), str(path))
+            self.assertIn(
+                "name: caddy_build", path.read_text(encoding="utf-8"), str(path)
+            )
 
     def test_caddy_build_markers_verify_pinned_cloudflare_module_version(self) -> None:
-        build_tasks = REPO / "infra" / "ansible" / "roles" / "caddy_build" / "tasks" / "main.yml"
-        expected = (
-            "awk '$1 == \"dep\" && $2 == \"github.com/caddy-dns/cloudflare\" && "
-            '$3 == \"v{{ caddy_build_cloudflare_version }}\" { found=1 } END { exit !found }'
+        build_tasks = (
+            REPO / "infra" / "ansible" / "roles" / "caddy_build" / "tasks" / "main.yml"
         )
-        for name in ("Check installed Caddy build marker", "Verify installed Caddy build marker"):
+        expected = (
+            'awk \'$1 == "dep" && $2 == "github.com/caddy-dns/cloudflare" && '
+            '$3 == "v{{ caddy_build_cloudflare_version }}" { found=1 } END { exit !found }'
+        )
+        for name in (
+            "Check installed Caddy build marker",
+            "Verify installed Caddy build marker",
+        ):
             marker = command_text(task_by_name(build_tasks, name))
             self.assertIn('go version -m "$(command -v caddy)"', marker, name)
             self.assertIn(expected, marker, name)
 
     def test_debian_security_updates_are_automatic_without_reboots(self) -> None:
-        role = REPO / "infra" / "ansible" / "roles" / "debian_security_updates" / "tasks" / "main.yml"
+        role = (
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "debian_security_updates"
+            / "tasks"
+            / "main.yml"
+        )
         text = role.read_text(encoding="utf-8")
-        self.assertIn('APT::Periodic::Unattended-Upgrade "1"', text)  # public-safety: allow-ip
-        self.assertIn('codename=${distro_codename}-security', text)  # public-safety: allow-ip
-        self.assertIn('Unattended-Upgrade::Automatic-Reboot "false"', text)  # public-safety: allow-ip
+        self.assertIn(
+            'APT::Periodic::Unattended-Upgrade "1"', text
+        )  # public-safety: allow-ip
+        self.assertIn(
+            "codename=${distro_codename}-security", text
+        )  # public-safety: allow-ip
+        self.assertIn(
+            'Unattended-Upgrade::Automatic-Reboot "false"', text
+        )  # public-safety: allow-ip
         for name in (
             "technitium.yml",
             "forgejo.yml",
@@ -265,16 +467,32 @@ class AnsibleSafetyTests(unittest.TestCase):
             "tailscale-client.yml",
             "onramp-host.yml",
         ):
-            playbook = (REPO / "infra" / "ansible" / "playbooks" / name).read_text(encoding="utf-8")
+            playbook = (REPO / "infra" / "ansible" / "playbooks" / name).read_text(
+                encoding="utf-8"
+            )
             self.assertIn("debian_security_updates", playbook, name)
 
     def test_tailscale_uses_signed_debian_13_repository(self) -> None:
-        path = REPO / "infra" / "ansible" / "roles" / "tailscale_client" / "tasks" / "main.yml"
+        path = (
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "tailscale_client"
+            / "tasks"
+            / "main.yml"
+        )
         text = path.read_text(encoding="utf-8")
         self.assertIn("trixie.noarmor.gpg", text)
-        self.assertIn("checksum: sha256:3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39", text)
+        self.assertIn(
+            "checksum: sha256:3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39",
+            text,
+        )
         self.assertIn("trixie.tailscale-keyring.list", text)
-        self.assertIn("checksum: sha256:5a1b21b30892bf22fb5d7c4f52fefe9b65efda2100e82abba2e0849da2a2264b", text)
+        self.assertIn(
+            "checksum: sha256:5a1b21b30892bf22fb5d7c4f52fefe9b65efda2100e82abba2e0849da2a2264b",
+            text,
+        )
         self.assertIn("tailscale-archive-keyring.gpg", text)
         self.assertIn('name: "tailscale={{ tailscale_client_version }}"', text)
         self.assertIn("Verify installed Tailscale version", text)
@@ -284,7 +502,9 @@ class AnsibleSafetyTests(unittest.TestCase):
         for path in CADDY_TASK_FILES:
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("caddy fmt --overwrite", text, str(path))
-            self.assertIn("caddy validate --config /etc/caddy/Caddyfile", text, str(path))
+            self.assertIn(
+                "caddy validate --config /etc/caddy/Caddyfile", text, str(path)
+            )
 
     def test_curl_output_is_not_accidentally_streamed_to_ansible(self) -> None:
         for path in ANSIBLE_TASK_FILES:
@@ -317,8 +537,12 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertNotEqual(task.get("failed_when"), False, rel_path)
 
     def test_forgejo_runner_registration_is_guarded_by_existing_lookup(self) -> None:
-        existing = task_by_name(RUNNER_TASKS, "Check existing Forgejo Actions runner registration")
-        registration = task_by_name(RUNNER_TASKS, "Register Forgejo Actions runner with Forgejo")
+        existing = task_by_name(
+            RUNNER_TASKS, "Check existing Forgejo Actions runner registration"
+        )
+        registration = task_by_name(
+            RUNNER_TASKS, "Register Forgejo Actions runner with Forgejo"
+        )
         config = task_by_name(RUNNER_TASKS, "Install Forgejo runner config")
 
         existing_text = command_text(existing)
@@ -328,12 +552,23 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("forgejo_runner_scope", existing_text)
         self.assertIn("forgejo_runner_name", existing_text)
         self.assertEqual(existing.get("changed_when"), False)
-        self.assertIn('forgejo_runner_existing_registration.stdout | trim == ""', str(registration.get("when")))
+        self.assertIn(
+            'forgejo_runner_existing_registration.stdout | trim == ""',
+            str(registration.get("when")),
+        )
         self.assertEqual(existing.get("delegate_to"), "{{ groups['forgejo'][0] }}")
         self.assertEqual(registration.get("delegate_to"), "{{ groups['forgejo'][0] }}")
-        self.assertEqual(task_by_name(RUNNER_TASKS, "Normalize Forgejo repository-scoped runner ownership").get("delegate_to"), "{{ groups['forgejo'][0] }}")
+        self.assertEqual(
+            task_by_name(
+                RUNNER_TASKS, "Normalize Forgejo repository-scoped runner ownership"
+            ).get("delegate_to"),
+            "{{ groups['forgejo'][0] }}",
+        )
         self.assertNotIn("forgejo_runner_registration.stdout", str(config))
-        self.assertIn("forgejo_runner_uuid", str(task_by_name(RUNNER_TASKS, "Set Forgejo runner UUID")))
+        self.assertIn(
+            "forgejo_runner_uuid",
+            str(task_by_name(RUNNER_TASKS, "Set Forgejo runner UUID")),
+        )
 
     def test_forgejo_runner_registration_task_order(self) -> None:
         names = task_names(RUNNER_TASKS)
@@ -364,19 +599,41 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertTrue(any("mode" in str(task) for task in matches), rel_path)
 
     def test_hermes_exports_native_searxng_url_key(self) -> None:
-        template = REPO / "infra" / "ansible" / "roles" / "hermes" / "templates" / "hermes-dashboard.env.j2"
+        template = (
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "hermes"
+            / "templates"
+            / "hermes-dashboard.env.j2"
+        )
         text = template.read_text(encoding="utf-8")
         self.assertIn("HERMES_WEB_SEARXNG_URL={{ hermes_web_searxng_url }}", text)
         self.assertIn("SEARXNG_URL={{ hermes_web_searxng_url }}", text)
 
     def test_hermes_dashboard_uses_packaged_tui_bundle(self) -> None:
-        env_template = REPO / "infra" / "ansible" / "roles" / "hermes" / "templates" / "hermes-dashboard.env.j2"
+        env_template = (
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "hermes"
+            / "templates"
+            / "hermes-dashboard.env.j2"
+        )
         tasks = REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml"
-        self.assertIn("HERMES_TUI_DIR=/usr/local/lib/hermes-agent/tui", env_template.read_text(encoding="utf-8"))
+        self.assertIn(
+            "HERMES_TUI_DIR=/usr/local/lib/hermes-agent/tui",
+            env_template.read_text(encoding="utf-8"),
+        )
         text = tasks.read_text(encoding="utf-8")
         self.assertIn("Link Hermes dashboard TUI bundle to the active release", text)
         self.assertIn("/usr/local/lib/hermes-agent/tui/dist/entry.js", text)
-        self.assertIn("/usr/local/lib/hermes-agent/venv/lib/python3.13/site-packages/hermes_cli/tui_dist/entry.js", text)
+        self.assertIn(
+            "/usr/local/lib/hermes-agent/venv/lib/python3.13/site-packages/hermes_cli/tui_dist/entry.js",
+            text,
+        )
 
     def test_hermes_passwordless_sudo_policy_is_validated(self) -> None:
         task = task_by_name(
@@ -422,46 +679,229 @@ class AnsibleSafetyTests(unittest.TestCase):
 
     def test_menos_assertions_are_string_conditions(self) -> None:
         tasks = yaml.safe_load(
-            (REPO / "infra" / "ansible" / "roles" / "menos_onramp" / "tasks" / "main.yml").read_text(
-                encoding="utf-8"
-            )
+            (
+                REPO
+                / "infra"
+                / "ansible"
+                / "roles"
+                / "menos_onramp"
+                / "tasks"
+                / "main.yml"
+            ).read_text(encoding="utf-8")
         )
         conditions = tasks[0]["ansible.builtin.assert"]["that"]
         self.assertTrue(all(isinstance(condition, str) for condition in conditions))
         self.assertIn("menos_s3_access_key | length > 0", conditions)
+        self.assertIn("menos_source_git_sha in menos_app_definition_url", conditions)
+        self.assertIn(
+            "menos_backup_script_sha256 is match('^[0-9a-f]{64}$')", conditions
+        )
+        self.assertIn(
+            "menos_restore_script_sha256 is match('^[0-9a-f]{64}$')", conditions
+        )
         self.assertNotIn("menos_s3_access_key | length >= 16", conditions)
+
+    def test_menos_installs_pinned_postgres_backup_helpers(self) -> None:
+        task = task_by_name(
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "menos_onramp"
+            / "tasks"
+            / "main.yml",
+            "Install pinned Menos PostgreSQL backup helpers",
+        )
+        module = task["ansible.builtin.get_url"]
+        self.assertIn("menos_app_definition_url", module["url"])
+        self.assertEqual(module["checksum"], "sha256:{{ item.sha256 }}")
+        self.assertEqual(module["mode"], "0750")
+        self.assertEqual(
+            [item["name"] for item in task["loop"]],
+            ["backup-postgres.sh", "restore-postgres.sh"],
+        )
+
+    def test_menos_upstream_seam_matches_postgres_compose_api_port(self) -> None:
+        task = task_by_name(
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "menos_onramp"
+            / "tasks"
+            / "main.yml",
+            "Validate Menos app definition consumer seams",
+        )
+        conditions = task["ansible.builtin.assert"]["that"]
+        self.assertIn("'- \"8000:8000\"' in menos_onramp_upstream_text", conditions)
+        self.assertNotIn("'- \"8080:8000\"' in menos_onramp_upstream_text", conditions)
+
+    def test_menos_state_directory_ownership_is_not_reset_on_rerun(self) -> None:
+        role_tasks = (
+            REPO / "infra" / "ansible" / "roles" / "menos_onramp" / "tasks" / "main.yml"
+        )
+        inspect = task_by_name(
+            role_tasks, "Inspect container-managed Menos state directories"
+        )
+        create = task_by_name(role_tasks, "Create missing Menos state directories once")
+        self.assertIn("{{ menos_onramp_base_dir }}/data/postgres", inspect["loop"])
+        self.assertEqual(create["when"], "not item.stat.exists")
+
+    def test_menos_bucket_initialization_is_idempotent_and_secret_safe(self) -> None:
+        role_tasks = (
+            REPO / "infra" / "ansible" / "roles" / "menos_onramp" / "tasks" / "main.yml"
+        )
+        resolver = task_by_name(role_tasks, "Resolve running Menos API container ID")
+        resolver_command = command_text(resolver)
+        self.assertIn("com.docker.compose.service=menos-api", resolver_command)
+        self.assertNotIn("menos_api_1", resolver_command)
+        task = task_by_name(
+            role_tasks,
+            "Ensure Menos managed MinIO bucket exists",
+        )
+        command = command_text(task)
+        self.assertIn("/app/.venv/bin/python", command)
+        self.assertIn("sys.path.insert(0, '/app')", command)
+        self.assertIn("bucket_exists", command)
+        self.assertIn("make_bucket", command)
+        self.assertTrue(task.get("no_log"))
+        self.assertIn('"created": true', task["changed_when"])
 
     def test_menos_render_removes_dependency_host_ports(self) -> None:
         task = task_by_name(
-            REPO / "infra" / "ansible" / "roles" / "menos_onramp" / "tasks" / "main.yml",
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "menos_onramp"
+            / "tasks"
+            / "main.yml",
             "Render Menos app definition for the onramp host",
         )
         expression = task["ansible.builtin.set_fact"]["menos_onramp_compose_content"]
-        self.assertEqual(expression.count("combine({'ports': []"), 5)
-        self.assertIn("'127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000'", expression)  # public-safety: allow-ip
-        for mount in ("./data/surrealdb:/data:Z,U", "./data/minio:/data:Z,U", "./data/ollama:/root/.ollama:Z,U"):
+        self.assertEqual(expression.count("'ports': []"), 5)
+        self.assertIn(
+            "'127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000'", expression
+        )  # public-safety: allow-ip
+        for mount in (
+            "./data/postgres:/var/lib/postgresql/data:Z,U",
+            "./data/minio:/data:Z,U",
+            "./data/ollama:/root/.ollama:Z,U",
+            "./authorized_keys:/keys/authorized_keys:ro,Z",
+        ):
             self.assertIn(mount, expression)
+        self.assertIn("'configs': []", expression)
+        self.assertIn("'OLLAMA_KEEP_ALIVE': '-1'", expression)
+
+    def test_menos_render_requires_read_only_authorization_bind_mount(self) -> None:
+        task = task_by_name(
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "menos_onramp"
+            / "tasks"
+            / "main.yml",
+            "Validate rendered Menos network isolation",
+        )
+        conditions = task["ansible.builtin.assert"]["that"]
+        self.assertIn(
+            "menos_onramp_rendered_definition.services.ollama.environment.OLLAMA_KEEP_ALIVE == '-1'",
+            conditions,
+        )
+        self.assertIn(
+            "menos_onramp_rendered_definition.services['menos-api'].configs | default([]) | length == 0",
+            conditions,
+        )
+        self.assertIn(
+            "menos_onramp_rendered_definition.services['menos-api'].volumes == ['./authorized_keys:/keys/authorized_keys:ro,Z']",
+            conditions,
+        )
+
+    def test_menos_role_installs_required_embedding_model(self) -> None:
+        task = task_by_name(
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "menos_onramp"
+            / "tasks"
+            / "main.yml",
+            "Ensure Menos embedding model is available",
+        )
+        command = command_text(task)
+        self.assertIn("nsenter", command)
+        self.assertIn("settings.ollama_url", command)
+        self.assertIn("settings.ollama_model", command)
+        self.assertNotIn("settings.ollama_base_url", command)
+        self.assertIn("/api/pull", command)
+        self.assertIn("/api/tags", command)
+        self.assertIn("/api/embeddings", command)
+        self.assertIn("1024", command)
+        inline_script = task["ansible.builtin.command"]["argv"][-1]
+        compile(inline_script, "menos-embedding-model", "exec")
+        self.assertTrue(task.get("no_log"))
+        self.assertIn('"downloaded": true', task["changed_when"])
 
     def test_onramp_default_http_ports_do_not_collide(self) -> None:
         onclave_defaults = yaml.safe_load(
-            (REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "defaults" / "main.yml").read_text(
-                encoding="utf-8"
-            )
+            (
+                REPO
+                / "infra"
+                / "ansible"
+                / "roles"
+                / "onclave_onramp"
+                / "defaults"
+                / "main.yml"
+            ).read_text(encoding="utf-8")
         )
         searxng_defaults = yaml.safe_load(
-            (REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "defaults" / "main.yml").read_text(
-                encoding="utf-8"
-            )
+            (
+                REPO
+                / "infra"
+                / "ansible"
+                / "roles"
+                / "searxng_onramp"
+                / "defaults"
+                / "main.yml"
+            ).read_text(encoding="utf-8")
         )
-        self.assertNotEqual(onclave_defaults["onclave_onramp_core_port"], searxng_defaults["searxng_onramp_container_port"])
+        self.assertNotEqual(
+            onclave_defaults["onclave_onramp_core_port"],
+            searxng_defaults["searxng_onramp_container_port"],
+        )
 
     def test_searxng_onramp_ports_are_loopback_only(self) -> None:
-        compose = REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "templates" / "docker-compose.yml.j2"
+        compose = (
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "searxng_onramp"
+            / "templates"
+            / "docker-compose.yml.j2"
+        )
         text = compose.read_text(encoding="utf-8")
-        self.assertIn("{{ searxng_onramp_bind_address }}:{{ searxng_onramp_container_port }}:8080", text)
-        self.assertNotIn("0.0.0.0:{{ searxng_onramp_container_port }}:8080", text)  # public-safety: allow-ip
-        task = task_by_name(REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml", "Validate SearXNG onramp required variables")
-        self.assertIn("searxng_onramp_bind_address in ['127.0.0.1', '::1']", str(task))  # public-safety: allow-ip
+        self.assertIn(
+            "{{ searxng_onramp_bind_address }}:{{ searxng_onramp_container_port }}:8080",
+            text,
+        )
+        self.assertNotIn(
+            "0.0.0.0:{{ searxng_onramp_container_port }}:8080", text
+        )  # public-safety: allow-ip
+        task = task_by_name(
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "searxng_onramp"
+            / "tasks"
+            / "main.yml",
+            "Validate SearXNG onramp required variables",
+        )
+        self.assertIn(
+            "searxng_onramp_bind_address in ['127.0.0.1', '::1']", str(task)
+        )  # public-safety: allow-ip
 
 
 if __name__ == "__main__":

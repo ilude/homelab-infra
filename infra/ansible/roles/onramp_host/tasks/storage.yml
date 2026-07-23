@@ -1,0 +1,295 @@
+---
+- name: Install onramp-host storage prerequisites
+  ansible.builtin.apt:
+    name:
+      - e2fsprogs
+      - lvm2
+      - rsync
+    state: present
+    update_cache: true
+
+- name: Inspect onramp-host data device
+  ansible.builtin.stat:
+    path: "{{ onramp_host_data_device }}"
+    follow: true
+  register: onramp_host_data_device_stat
+
+- name: Inspect existing onramp-host data PV
+  ansible.builtin.command:
+    argv:
+      - pvs
+      - --noheadings
+      - -o
+      - vg_name
+      - "{{ onramp_host_data_device }}"
+  register: onramp_host_data_pv
+  changed_when: false
+  failed_when: false
+
+- name: Inspect onramp-host data device mount state
+  ansible.builtin.command:
+    argv:
+      - lsblk
+      - --noheadings
+      - --list
+      - --output
+      - NAME,TYPE,MOUNTPOINTS
+      - "{{ onramp_host_data_device }}"
+  register: onramp_host_data_lsblk
+  changed_when: false
+  failed_when: false
+
+- name: Fail closed for an unsafe onramp-host data device
+  ansible.builtin.assert:
+    that:
+      - onramp_host_data_device_stat.stat.exists
+      - onramp_host_data_device_stat.stat.isblk | default(false)
+      - >-
+        (onramp_host_data_pv.rc == 0 and
+         onramp_host_data_pv.stdout | trim == onramp_host_storage_vg_name) or
+        (onramp_host_data_pv.rc != 0 and
+         onramp_host_data_lsblk.rc == 0 and
+         onramp_host_data_lsblk.stdout_lines | length == 1 and
+         (onramp_host_data_lsblk.stdout_lines[0].split() | length) == 2 and
+         onramp_host_data_lsblk.stdout_lines[0].split()[1] == 'disk')
+    fail_msg: >-
+      The configured onramp-host data device must be an unused, unmounted disk
+      or an existing PV owned by the managed VG.
+
+- name: Create onramp-host data PV
+  ansible.builtin.command:
+    argv:
+      - pvcreate
+      - "{{ onramp_host_data_device }}"
+  when: onramp_host_data_pv.rc != 0
+
+- name: Inspect onramp-host data VG
+  ansible.builtin.command:
+    argv:
+      - vgs
+      - "{{ onramp_host_storage_vg_name }}"
+  register: onramp_host_data_vg
+  changed_when: false
+  failed_when: false
+
+- name: Create onramp-host data VG
+  ansible.builtin.command:
+    argv:
+      - vgcreate
+      - "{{ onramp_host_storage_vg_name }}"
+      - "{{ onramp_host_data_device }}"
+  when: onramp_host_data_vg.rc != 0
+
+- name: Inspect onramp-host logical volumes
+  ansible.builtin.command:
+    argv:
+      - lvs
+      - --noheadings
+      - -o
+      - lv_name
+      - "{{ onramp_host_storage_vg_name }}"
+  register: onramp_host_lvs
+  changed_when: false
+
+- name: Create onramp-host var logical volume
+  ansible.builtin.command:
+    argv:
+      - lvcreate
+      - --name
+      - var
+      - --size
+      - "{{ onramp_host_var_lv_gb }}G"
+      - "{{ onramp_host_storage_vg_name }}"
+  when: "'var' not in (onramp_host_lvs.stdout_lines | map('trim') | list)"
+
+- name: Create onramp-host srv logical volume
+  ansible.builtin.command:
+    argv:
+      - lvcreate
+      - --name
+      - srv
+      - --size
+      - "{{ onramp_host_srv_lv_gb }}G"
+      - "{{ onramp_host_storage_vg_name }}"
+  when: "'srv' not in (onramp_host_lvs.stdout_lines | map('trim') | list)"
+
+- name: Inspect onramp-host logical volume filesystems
+  ansible.builtin.command:
+    argv:
+      - blkid
+      - --output
+      - value
+      - --match-tag
+      - TYPE
+      - "{{ item }}"
+  loop:
+    - "/dev/{{ onramp_host_storage_vg_name }}/var"
+    - "/dev/{{ onramp_host_storage_vg_name }}/srv"
+  register: onramp_host_filesystems
+  changed_when: false
+  failed_when: false
+
+- name: Create onramp-host ext4 filesystems
+  ansible.builtin.command:
+    argv:
+      - mkfs.ext4
+      - -F
+      - "{{ item.item }}"
+  loop: "{{ onramp_host_filesystems.results }}"
+  when: item.rc != 0 or item.stdout | trim == ''
+
+- name: Read onramp-host logical volume UUIDs
+  ansible.builtin.command:
+    argv:
+      - blkid
+      - --output
+      - value
+      - --match-tag
+      - UUID
+      - "{{ item }}"
+  loop:
+    - "/dev/{{ onramp_host_storage_vg_name }}/var"
+    - "/dev/{{ onramp_host_storage_vg_name }}/srv"
+  register: onramp_host_filesystem_uuids
+  changed_when: false
+
+- name: Ensure onramp-host storage mount points exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /mnt/onramp-var
+    - /srv
+
+- name: Inspect current onramp-host var mount
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --output
+      - SOURCE
+      - --target
+      - /var
+  register: onramp_host_var_mount_before
+  changed_when: false
+
+- name: Mount onramp-host var LV for initial copy
+  ansible.builtin.command:
+    argv:
+      - mount
+      - "UUID={{ onramp_host_filesystem_uuids.results[0].stdout | trim }}"
+      - /mnt/onramp-var
+  when: onramp_host_var_mount_before.stdout | trim != '/dev/mapper/' + onramp_host_storage_vg_name + '-var'
+
+- name: Copy fresh onramp-host var data once
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -aHAXx
+      - /var/
+      - /mnt/onramp-var/
+    creates: /mnt/onramp-var/.homelab-var-copied
+  when: onramp_host_var_mount_before.stdout | trim != '/dev/mapper/' + onramp_host_storage_vg_name + '-var'
+
+- name: Mark initial onramp-host var copy complete
+  ansible.builtin.file:
+    path: /mnt/onramp-var/.homelab-var-copied
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+  when: onramp_host_var_mount_before.stdout | trim != '/dev/mapper/' + onramp_host_storage_vg_name + '-var'
+
+- name: Unmount temporary onramp-host var copy mount
+  ansible.builtin.command:
+    argv:
+      - umount
+      - /mnt/onramp-var
+  when: onramp_host_var_mount_before.stdout | trim != '/dev/mapper/' + onramp_host_storage_vg_name + '-var'
+
+- name: Persist onramp-host var mount by UUID
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^[^#]\S+\s+/var\s+'
+    line: "UUID={{ onramp_host_filesystem_uuids.results[0].stdout | trim }} /var ext4 defaults 0 2"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Persist onramp-host srv mount by UUID
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^[^#]\S+\s+/srv\s+'
+    line: "UUID={{ onramp_host_filesystem_uuids.results[1].stdout | trim }} /srv ext4 defaults 0 2"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Inspect current onramp-host srv mount
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --mountpoint
+      - /srv
+  register: onramp_host_srv_mount_before
+  changed_when: false
+  failed_when: false
+
+- name: Mount onramp-host srv filesystem
+  ansible.builtin.command:
+    argv:
+      - mount
+      - /srv
+  when: onramp_host_srv_mount_before.rc != 0
+
+- name: Reboot once for onramp-host var handoff
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: onramp_host_var_mount_before.stdout | trim != '/dev/mapper/' + onramp_host_storage_vg_name + '-var'
+
+- name: Verify onramp-host managed mounts
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --output
+      - SOURCE
+      - "{{ item.path }}"
+  loop:
+    - path: /var
+      source: "/dev/mapper/{{ onramp_host_storage_vg_name }}-var"
+    - path: /srv
+      source: "/dev/mapper/{{ onramp_host_storage_vg_name }}-srv"
+  register: onramp_host_managed_mounts
+  changed_when: false
+  failed_when: item.source != (onramp_host_managed_mounts.stdout | trim)
+
+- name: Read onramp-host VG size and free bytes
+  ansible.builtin.command:
+    argv:
+      - vgs
+      - --noheadings
+      - --units
+      - b
+      - --nosuffix
+      - --separator
+      - ','
+      - --options
+      - vg_size,vg_free
+      - "{{ onramp_host_storage_vg_name }}"
+  register: onramp_host_vg_capacity
+  changed_when: false
+
+- name: Verify onramp-host VG reserve
+  ansible.builtin.assert:
+    that:
+      - >-
+        (onramp_host_vg_capacity.stdout.split(',')[1] | trim | float) * 100 >=
+        (onramp_host_vg_capacity.stdout.split(',')[0] | trim | float) *
+        (onramp_host_vg_min_free_percent | float)
+    fail_msg: "The onramp-host data VG does not retain the configured free-space reserve."

@@ -26,7 +26,9 @@ except ImportError:
         sys.modules["hcl2"] = hcl2_stub
 
 TFVARS_INVENTORY = REPO / "infra" / "ansible" / "inventory" / "tfvars.py"
-tfvars_spec = importlib.util.spec_from_file_location("tfvars_inventory", TFVARS_INVENTORY)
+tfvars_spec = importlib.util.spec_from_file_location(
+    "tfvars_inventory", TFVARS_INVENTORY
+)
 assert tfvars_spec and tfvars_spec.loader
 tfvars_inventory = importlib.util.module_from_spec(tfvars_spec)
 sys.modules[tfvars_spec.name] = tfvars_inventory
@@ -45,16 +47,25 @@ class ServiceRegistryParityTests(unittest.TestCase):
                 "conflicts": tuple(config.get("conflicts", [])),
                 "execution_resource": str(config.get("execution_resource", name)),
                 "terraform_module": config.get("terraform_module"),
+                "terraform_target": config.get("terraform_target"),
             }
             for name, config in service_registry["services"].items()
         }
-        self.assertEqual(tuple(service_registry["default_services"]), settings_script.DEFAULT_SERVICES)
+        self.assertEqual(
+            tuple(service_registry["default_services"]),
+            settings_script.DEFAULT_SERVICES,
+        )
         self.assertEqual(expected_services, settings_script.SERVICES)
-        self.assertEqual(set(service_registry["services"]), settings_script.SERVICE_NAMES)
+        self.assertEqual(
+            set(service_registry["services"]), settings_script.SERVICE_NAMES
+        )
 
     def test_state_capability_metadata_matches_service_state_catalog(self) -> None:
         self.assertTrue(
-            all(isinstance(config.get("state_capable"), bool) for config in service_registry["services"].values())
+            all(
+                isinstance(config.get("state_capable"), bool)
+                for config in service_registry["services"].values()
+            )
         )
         state_capable = [
             (name, config)
@@ -65,7 +76,9 @@ class ServiceRegistryParityTests(unittest.TestCase):
         self.assertTrue(all(isinstance(order, int) and order > 0 for order in orders))
         self.assertEqual(len(orders), len(set(orders)))
         catalog = yaml.safe_load(
-            (REPO / "infra" / "ansible" / "vars" / "service-state.yml").read_text(encoding="utf-8")
+            (REPO / "infra" / "ansible" / "vars" / "service-state.yml").read_text(
+                encoding="utf-8"
+            )
         )["managed_service_state_catalog"]
         state_capable_services = {
             name
@@ -82,10 +95,16 @@ class ServiceRegistryParityTests(unittest.TestCase):
         self.assertEqual(expected_hosts, tfvars_inventory.SERVICE_HOSTS)
 
     def test_opentofu_enabled_services_validation_reads_registry(self) -> None:
-        variables = (REPO / "infra" / "opentofu" / "variables.tf").read_text(encoding="utf-8")
-        services = (REPO / "infra" / "opentofu" / "services.tf").read_text(encoding="utf-8")
+        variables = (REPO / "infra" / "opentofu" / "variables.tf").read_text(
+            encoding="utf-8"
+        )
+        services = (REPO / "infra" / "opentofu" / "services.tf").read_text(
+            encoding="utf-8"
+        )
         self.assertIn('jsondecode(file("${path.module}/../services.json"))', services)
-        self.assertIn('resource "terraform_data" "enabled_services_validation"', services)
+        self.assertIn(
+            'resource "terraform_data" "enabled_services_validation"', services
+        )
         self.assertIn("invalid_enabled_services", services)
         self.assertNotIn('contains(["technitium"', variables)
 
@@ -98,12 +117,19 @@ class ServiceRegistryParityTests(unittest.TestCase):
             "infra/ansible/playbooks/caddy-proxy.yml": "technitium",
             "infra/ansible/playbooks/technitium-dns.yml": "localhost",
         }
-        groups = {service: config["group"] for service, config in tfvars_inventory.SERVICE_HOSTS.items()}
+        groups = {
+            service: config["group"]
+            for service, config in tfvars_inventory.SERVICE_HOSTS.items()
+        }
         for service, config in settings_script.SERVICES.items():
             for playbook in config["playbooks"]:
                 group = special.get(playbook, groups[service])
-                self.assertTrue(group == "localhost" or group in groups.values(), playbook)
-        self.assertEqual(special["infra/ansible/playbooks/caddy-proxy.yml"], "technitium")
+                self.assertTrue(
+                    group == "localhost" or group in groups.values(), playbook
+                )
+        self.assertEqual(
+            special["infra/ansible/playbooks/caddy-proxy.yml"], "technitium"
+        )
 
 
 if __name__ == "__main__":

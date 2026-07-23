@@ -11,6 +11,30 @@ argument_specs:
         type: str
         required: true
         description: "Base deployment directory prepared for onramp service working trees."
+      onramp_host_data_device:
+        type: str
+        required: true
+        description: "Unused guest block device used for the managed data VG."
+      onramp_host_data_disk_gb:
+        type: int
+        required: true
+        description: "Capacity in GB of the managed data disk."
+      onramp_host_var_lv_gb:
+        type: int
+        required: true
+        description: "Logical volume size in GB for /var."
+      onramp_host_srv_lv_gb:
+        type: int
+        required: true
+        description: "Logical volume size in GB for /srv."
+      onramp_host_vg_min_free_percent:
+        type: int
+        required: true
+        description: "Minimum percentage of the data VG left unallocated."
+      onramp_host_storage_vg_name:
+        type: str
+        required: false
+        description: "Managed guest LVM volume group name (default: onramp_data)."
       onramp_host_password_authentication:
         type: bool
         required: true

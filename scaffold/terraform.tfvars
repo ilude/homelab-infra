@@ -153,6 +153,7 @@ hermes_start_on_boot = true
 # Optional Debian 13 Podman onramp-host VM for Onramp-managed services. Enable by adding onramp_host to settings.local.json services.
 # The onramp host is created from a clean Debian 13 genericcloud image, not from a mutable local template.
 onramp_host_vmid                     = 112
+onramp_host_rebuild_revision         = "two-disk-v1"
 onramp_host_hostname                 = "onramp-host"
 onramp_host_description              = "Debian 13 Podman onramp host for Onramp-managed services."
 onramp_host_image_datastore_id       = "local"
@@ -161,6 +162,8 @@ onramp_host_image_file_name          = "debian-13-genericcloud-amd64-20260623-25
 onramp_host_image_checksum_algorithm = "sha512"
 onramp_host_image_checksum           = "df2bd468b08566c0409a7982d6489d73499ad22f9a28646b538c2f21d08f15040a5e4737952ca209e9ad4488cd00793191791be9f135dee93082c86fcca3300c"
 onramp_host_datastore_id             = "local-lvm"
+onramp_host_data_datastore_id        = "vmstorage"
+onramp_host_data_device              = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1"
 onramp_host_ipv4_address             = "192.0.2.72/24"
 onramp_host_ipv4_gateway             = "192.0.2.1"
 onramp_host_dns_servers              = ["192.0.2.1"]
@@ -168,9 +171,13 @@ onramp_host_search_domain            = "example.internal"
 onramp_host_bridge                   = "vmbr0"
 onramp_host_vlan_id                  = null
 
-onramp_host_cores     = 2
-onramp_host_memory_mb = 4096
-onramp_host_disk_gb   = 128
+onramp_host_cores               = 2
+onramp_host_memory_mb           = 4096
+onramp_host_disk_gb             = 32
+onramp_host_data_disk_gb        = 512
+onramp_host_var_lv_gb           = 96
+onramp_host_srv_lv_gb           = 352
+onramp_host_vg_min_free_percent = 10
 
 onramp_host_cloud_init_user = "anvil"
 # Defaults to lxc_ssh_public_keys when empty.

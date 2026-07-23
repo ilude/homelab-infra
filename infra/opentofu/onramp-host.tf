@@ -12,6 +12,12 @@ resource "proxmox_download_file" "debian_13_onramp_host_image" {
   overwrite_unmanaged = false
 }
 
+resource "terraform_data" "onramp_host_rebuild" {
+  count = local.onramp_host_enabled && var.onramp_host_rebuild_revision != "" ? 1 : 0
+
+  triggers_replace = var.onramp_host_rebuild_revision
+}
+
 resource "proxmox_virtual_environment_vm" "onramp_host" {
   count = local.onramp_host_enabled ? 1 : 0
 
@@ -43,6 +49,12 @@ resource "proxmox_virtual_environment_vm" "onramp_host" {
     import_from  = proxmox_download_file.debian_13_onramp_host_image[0].id
     interface    = "scsi0"
     size         = var.onramp_host_disk_gb
+  }
+
+  disk {
+    datastore_id = var.onramp_host_data_datastore_id
+    interface    = "scsi1"
+    size         = var.onramp_host_data_disk_gb
   }
 
   initialization {
@@ -85,5 +97,9 @@ resource "proxmox_virtual_environment_vm" "onramp_host" {
     order      = var.onramp_host_startup_order
     up_delay   = var.onramp_host_startup_up_delay
     down_delay = var.onramp_host_startup_down_delay
+  }
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.onramp_host_rebuild]
   }
 }

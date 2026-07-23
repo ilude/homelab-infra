@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Read local operator settings for setup and service selection."""
+
 from __future__ import annotations
 
 import argparse
@@ -25,7 +26,9 @@ def load_service_registry(path: Path = SERVICE_REGISTRY) -> dict[str, Any]:
     defaults = registry.get("default_services")
     if not isinstance(services, dict):
         raise ValueError(f"{path}: services must be an object")
-    if not isinstance(defaults, list) or not all(isinstance(item, str) for item in defaults):
+    if not isinstance(defaults, list) or not all(
+        isinstance(item, str) for item in defaults
+    ):
         raise ValueError(f"{path}: default_services must be a list of strings")
     if len(defaults) != len(set(defaults)):
         raise ValueError(f"{path}: default_services contains duplicates")
@@ -33,7 +36,9 @@ def load_service_registry(path: Path = SERVICE_REGISTRY) -> dict[str, Any]:
     service_names = set(services)
     unknown_defaults = sorted(set(defaults) - service_names)
     if unknown_defaults:
-        raise ValueError(f"{path}: default_services contains unknown services: {', '.join(unknown_defaults)}")
+        raise ValueError(
+            f"{path}: default_services contains unknown services: {', '.join(unknown_defaults)}"
+        )
 
     playbook_owners: dict[str, str] = {}
     dependencies: dict[str, tuple[str, ...]] = {}
@@ -41,47 +46,84 @@ def load_service_registry(path: Path = SERVICE_REGISTRY) -> dict[str, Any]:
         if not isinstance(config, dict):
             raise ValueError(f"{path}: service {name} must be an object")
         playbooks = config.get("playbooks")
-        if not isinstance(playbooks, list) or not all(isinstance(playbook, str) and playbook for playbook in playbooks):
-            raise ValueError(f"{path}: service {name} playbooks must be a list of non-empty strings")
+        if not isinstance(playbooks, list) or not all(
+            isinstance(playbook, str) and playbook for playbook in playbooks
+        ):
+            raise ValueError(
+                f"{path}: service {name} playbooks must be a list of non-empty strings"
+            )
         for playbook in playbooks:
             owner = playbook_owners.get(playbook)
             if owner is not None:
-                raise ValueError(f"{path}: duplicate playbook {playbook} for {owner} and {name}")
+                raise ValueError(
+                    f"{path}: duplicate playbook {playbook} for {owner} and {name}"
+                )
             playbook_owners[playbook] = name
 
         service_dependencies = config.get("dependencies")
-        if not isinstance(service_dependencies, list) or not all(isinstance(dependency, str) for dependency in service_dependencies):
-            raise ValueError(f"{path}: service {name} dependencies must be a list of strings")
+        if not isinstance(service_dependencies, list) or not all(
+            isinstance(dependency, str) for dependency in service_dependencies
+        ):
+            raise ValueError(
+                f"{path}: service {name} dependencies must be a list of strings"
+            )
         unknown_dependencies = sorted(set(service_dependencies) - service_names)
         if unknown_dependencies:
-            raise ValueError(f"{path}: service {name} has unknown dependencies: {', '.join(unknown_dependencies)}")
+            raise ValueError(
+                f"{path}: service {name} has unknown dependencies: {', '.join(unknown_dependencies)}"
+            )
         if name in service_dependencies:
             raise ValueError(f"{path}: service {name} cannot depend on itself")
         dependencies[name] = tuple(service_dependencies)
 
         if "execution_resource" in config and (
-            not isinstance(config["execution_resource"], str) or not config["execution_resource"].strip()
+            not isinstance(config["execution_resource"], str)
+            or not config["execution_resource"].strip()
         ):
-            raise ValueError(f"{path}: service {name} execution_resource must be a non-empty string")
+            raise ValueError(
+                f"{path}: service {name} execution_resource must be a non-empty string"
+            )
         if "terraform_module" in config and (
-            not isinstance(config["terraform_module"], str) or not config["terraform_module"].strip()
+            not isinstance(config["terraform_module"], str)
+            or not config["terraform_module"].strip()
         ):
-            raise ValueError(f"{path}: service {name} terraform_module must be a non-empty string")
+            raise ValueError(
+                f"{path}: service {name} terraform_module must be a non-empty string"
+            )
+        if "terraform_target" in config and (
+            not isinstance(config["terraform_target"], str)
+            or not config["terraform_target"].strip()
+        ):
+            raise ValueError(
+                f"{path}: service {name} terraform_target must be a non-empty string"
+            )
+        if "terraform_module" in config and "terraform_target" in config:
+            raise ValueError(
+                f"{path}: service {name} cannot declare both terraform_module and terraform_target"
+            )
 
         if "conflicts" in config:
             conflicts = config["conflicts"]
-            if not isinstance(conflicts, list) or not all(isinstance(conflict, str) for conflict in conflicts):
-                raise ValueError(f"{path}: service {name} conflicts must be a list of strings")
+            if not isinstance(conflicts, list) or not all(
+                isinstance(conflict, str) for conflict in conflicts
+            ):
+                raise ValueError(
+                    f"{path}: service {name} conflicts must be a list of strings"
+                )
             unknown_conflicts = sorted(set(conflicts) - service_names)
             if unknown_conflicts:
-                raise ValueError(f"{path}: service {name} has unknown conflicts: {', '.join(unknown_conflicts)}")
+                raise ValueError(
+                    f"{path}: service {name} has unknown conflicts: {', '.join(unknown_conflicts)}"
+                )
             if name in conflicts:
                 raise ValueError(f"{path}: service {name} cannot conflict with itself")
 
     for name, config in services.items():
         for conflict in config.get("conflicts", []):
             if name not in services[conflict].get("conflicts", []):
-                raise ValueError(f"{path}: conflict between {name} and {conflict} must be reciprocal")
+                raise ValueError(
+                    f"{path}: conflict between {name} and {conflict} must be reciprocal"
+                )
 
     visiting: set[str] = set()
     visited: set[str] = set()
@@ -111,6 +153,7 @@ SERVICES = {
         "conflicts": tuple(config.get("conflicts", [])),
         "execution_resource": str(config.get("execution_resource", name)),
         "terraform_module": config.get("terraform_module"),
+        "terraform_target": config.get("terraform_target"),
     }
     for name, config in SERVICE_REGISTRY_DATA["services"].items()
 }
@@ -142,7 +185,9 @@ def normalize_services(value: Any, path: Path) -> list[str]:
     if value is None:
         services = list(DEFAULT_SERVICES)
     else:
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) for item in value
+        ):
             raise SettingsError(f"{path}: services must be a list of strings")
         services = value
     unknown = sorted(set(services) - SERVICE_NAMES)
@@ -178,18 +223,19 @@ def normalize_services(value: Any, path: Path) -> list[str]:
 
 def ansible_playbooks(services: list[str]) -> list[str]:
     return [
-        playbook
-        for service in services
-        for playbook in SERVICES[service]["playbooks"]
+        playbook for service in services for playbook in SERVICES[service]["playbooks"]
     ]
 
 
 def tofu_target(settings: dict[str, Any], service: str) -> str:
     if service not in settings["services"]:
         raise SettingsError(f"Service is not enabled: {service}")
+    terraform_target = SERVICES[service]["terraform_target"]
+    if terraform_target:
+        return str(terraform_target)
     terraform_module = SERVICES[service]["terraform_module"]
     if not terraform_module:
-        raise SettingsError(f"Service has no OpenTofu module target: {service}")
+        raise SettingsError(f"Service has no OpenTofu target: {service}")
     return f"module.{terraform_module}"
 
 
@@ -236,7 +282,9 @@ def load_settings(path: Path | None = None) -> dict[str, Any]:
     raw = load_raw(resolved_path)
     unknown = sorted(set(raw) - {"values_repo", "services"})
     if unknown:
-        raise SettingsError(f"{resolved_path}: unknown top-level keys: {', '.join(unknown)}")
+        raise SettingsError(
+            f"{resolved_path}: unknown top-level keys: {', '.join(unknown)}"
+        )
 
     values_repo = raw.get("values_repo", {})
     if values_repo is None:
@@ -294,7 +342,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "enable-service":
         enable_service(args.settings or settings_path(), args.service)
     elif args.command == "ansible-playbooks":
-        playbooks = all_ansible_playbooks() if args.all else ansible_playbooks(settings["services"])
+        playbooks = (
+            all_ansible_playbooks()
+            if args.all
+            else ansible_playbooks(settings["services"])
+        )
         for playbook in playbooks:
             print(playbook)
     elif args.command == "summary":

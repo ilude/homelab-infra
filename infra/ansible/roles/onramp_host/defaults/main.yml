@@ -1,6 +1,7 @@
 ---
 onramp_host_deploy_user: anvil
 onramp_host_deploy_dir: /srv/onramp
+onramp_host_storage_vg_name: onramp_data
 onramp_host_ssh_public_keys: []
 onramp_host_password_authentication: false
 onramp_host_permit_root_login: false

@@ -930,6 +930,17 @@ variable "onramp_host_vmid" {
   }
 }
 
+variable "onramp_host_rebuild_revision" {
+  description = "Optional reviewed revision token that forces replacement of an existing onramp-host VM when changed from empty or a prior value."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.onramp_host_rebuild_revision == "" || can(regex("^[a-z0-9][a-z0-9-]{0,62}$", var.onramp_host_rebuild_revision))
+    error_message = "onramp_host_rebuild_revision must be empty or a lowercase revision token."
+  }
+}
+
 variable "onramp_host_hostname" {
   description = "Hostname for the optional onramp-host VM."
   type        = string
@@ -1003,9 +1014,31 @@ variable "onramp_host_image_checksum" {
 }
 
 variable "onramp_host_datastore_id" {
-  description = "Datastore for the onramp-host VM disk and cloud-init drive."
+  description = "Datastore for the onramp-host root disk and cloud-init drive."
   type        = string
   default     = "local-lvm"
+}
+
+variable "onramp_host_data_datastore_id" {
+  description = "Datastore for the onramp-host data disk."
+  type        = string
+  default     = "vmstorage"
+
+  validation {
+    condition     = trimspace(var.onramp_host_data_datastore_id) != ""
+    error_message = "onramp_host_data_datastore_id must not be empty."
+  }
+}
+
+variable "onramp_host_data_device" {
+  description = "Unused guest block device reserved for the onramp-host data volume."
+  type        = string
+  default     = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1"
+
+  validation {
+    condition     = can(regex("^/dev/[A-Za-z0-9._/-]+$", var.onramp_host_data_device))
+    error_message = "onramp_host_data_device must be an absolute /dev path."
+  }
 }
 
 variable "onramp_host_ipv4_address" {
@@ -1070,6 +1103,55 @@ variable "onramp_host_disk_gb" {
   description = "Root disk size in GB for the onramp-host VM."
   type        = number
   default     = 32
+
+  validation {
+    condition     = var.onramp_host_disk_gb > 0
+    error_message = "onramp_host_disk_gb must be positive."
+  }
+}
+
+variable "onramp_host_data_disk_gb" {
+  description = "Data disk size in GB for the onramp-host VM."
+  type        = number
+  default     = 512
+
+  validation {
+    condition     = var.onramp_host_data_disk_gb > 0
+    error_message = "onramp_host_data_disk_gb must be positive."
+  }
+}
+
+variable "onramp_host_var_lv_gb" {
+  description = "Guest LVM allocation in GB for /var."
+  type        = number
+  default     = 96
+
+  validation {
+    condition     = var.onramp_host_var_lv_gb > 0
+    error_message = "onramp_host_var_lv_gb must be positive."
+  }
+}
+
+variable "onramp_host_srv_lv_gb" {
+  description = "Guest LVM allocation in GB for /srv."
+  type        = number
+  default     = 352
+
+  validation {
+    condition     = var.onramp_host_srv_lv_gb > 0
+    error_message = "onramp_host_srv_lv_gb must be positive."
+  }
+}
+
+variable "onramp_host_vg_min_free_percent" {
+  description = "Minimum percentage of the onramp-host data VG left unallocated."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.onramp_host_vg_min_free_percent > 0 && var.onramp_host_vg_min_free_percent < 100
+    error_message = "onramp_host_vg_min_free_percent must be greater than 0 and less than 100."
+  }
 }
 
 variable "onramp_host_cloud_init_user" {

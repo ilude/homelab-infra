@@ -44,4 +44,12 @@ check "onramp_host_hardening_policy" {
     )
     error_message = "onramp_host must keep password SSH disabled, root SSH disabled, an explicit sudo policy decision, and at least one SSH source CIDR."
   }
+
+  assert {
+    condition = (
+      var.onramp_host_var_lv_gb + var.onramp_host_srv_lv_gb <=
+      var.onramp_host_data_disk_gb * (100 - var.onramp_host_vg_min_free_percent) / 100
+    )
+    error_message = "onramp_host guest LVs must leave the configured minimum free percentage on the data VG."
+  }
 }

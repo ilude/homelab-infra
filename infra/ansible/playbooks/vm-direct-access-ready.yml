@@ -1,0 +1,108 @@
+---
+# This playbook is imported by each VM-hosted service playbook. The importing
+# playbook supplies its inventory group; VMID and address remain derived by
+# inventory/tfvars.py from OpenTofu inputs.
+- name: Refresh verified SSH host keys for direct VM access
+  hosts: "{{ direct_vm_access_target_group | default('localhost', true) }}"
+  gather_facts: false
+  vars:
+    direct_vm_access_known_hosts_file: /tmp/homelab-infra/ansible/known_hosts
+    direct_vm_access_allowed_key_types:
+      - ssh-ed25519
+      - ssh-rsa
+      - ecdsa-sha2-nistp256
+      - ecdsa-sha2-nistp384
+      - ecdsa-sha2-nistp521
+  pre_tasks:
+    - name: Validate direct VM host-key refresh inputs
+      ansible.builtin.assert:
+        that:
+          - direct_access_vmid is defined
+          - direct_access_vmid | string is match('^[1-9][0-9]*$')
+          - ansible_host is defined
+          - ansible_host | string is match('^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+          - inventory_hostname is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
+          - direct_vm_access_known_hosts_file == '/tmp/homelab-infra/ansible/known_hosts'
+          - direct_access_pve_host is defined
+          - direct_access_pve_host in hostvars
+          - hostvars[direct_access_pve_host].ansible_user | default('') == 'root'
+        fail_msg: >-
+          Direct VM host-key refresh requires a numeric inventory-derived VMID,
+          a direct inventory address, the managed known_hosts path, and its
+          root-authenticated Proxmox inventory target.
+
+    - name: Read VM SSH keys after Proxmox MAC ownership verification
+      ansible.builtin.command:
+        argv:
+          - sh
+          - -ec
+          - |
+            vm_mac="$(qm config "$1" | awk -F'[=,]' '/^net0:/{print $2; exit}')"
+            test -n "$vm_mac"
+            ping -c 1 -W 3 "$2" >/dev/null
+            neighbor_mac="$(ip neigh show "$2" | awk '/lladdr/{print $5; exit}')"
+            test -n "$neighbor_mac"
+            test "$(printf '%s' "$vm_mac" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$neighbor_mac" | tr '[:upper:]' '[:lower:]')"
+            ssh-keyscan -T 10 -t ecdsa,ed25519,rsa "$2" 2>/dev/null |
+              awk 'NF >= 3 && $1 !~ /^#/ { print $2 " " $3 }' |
+              sort -u
+          - direct-vm-host-key-refresh
+          - "{{ direct_access_vmid | string }}"
+          - "{{ ansible_host }}"
+      delegate_to: "{{ direct_access_pve_host }}"
+      register: direct_vm_access_host_keys
+      changed_when: false
+      no_log: true
+
+    - name: Fail closed without valid Proxmox-verified VM SSH keys
+      ansible.builtin.assert:
+        that:
+          - direct_vm_access_host_keys.rc == 0
+          - direct_vm_access_host_keys.stdout_lines | length > 0
+          - >-
+            direct_vm_access_host_keys.stdout_lines |
+            select('match', '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,2}$') |
+            list | length == direct_vm_access_host_keys.stdout_lines | length
+          - >-
+            direct_vm_access_host_keys.stdout_lines |
+            map('split', ' ') | map('first') |
+            difference(direct_vm_access_allowed_key_types) | length == 0
+        fail_msg: >-
+          Proxmox MAC ownership verification or VM SSH key retrieval failed;
+          refusing to alter direct SSH trust.
+      no_log: true
+
+    - name: Ensure the managed VM known_hosts directory exists
+      ansible.builtin.file:
+        path: "{{ direct_vm_access_known_hosts_file | dirname }}"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+
+    - name: Reset the ephemeral VM known_hosts file
+      ansible.builtin.file:
+        path: "{{ direct_vm_access_known_hosts_file }}"
+        state: absent
+      delegate_to: localhost
+
+    - name: Ensure the managed VM known_hosts file has restrictive permissions
+      ansible.builtin.file:
+        path: "{{ direct_vm_access_known_hosts_file }}"
+        state: touch
+        access_time: preserve
+        modification_time: preserve
+        mode: '0600'
+      delegate_to: localhost
+
+    - name: Install exact verified SSH keys for VM inventory aliases
+      ansible.builtin.known_hosts:
+        path: "{{ direct_vm_access_known_hosts_file }}"
+        name: "{{ item.0 }}"
+        key: "{{ item.0 }} {{ item.1 }}"
+        state: present
+        hash_host: false
+      loop: >-
+        {{ [inventory_hostname, ansible_host] |
+           product(direct_vm_access_host_keys.stdout_lines | unique) | list }}
+      delegate_to: localhost
+      no_log: true

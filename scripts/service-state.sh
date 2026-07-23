@@ -156,9 +156,16 @@ run_playbook() {
 
   local inventory_args="-i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py"
   local refresh_direct_access=""
-  if [[ "$(jq -r --arg service "${service}" '.services[$service].execution_resource // ""' infra/services.json | tr -d '\r')" == "direct_lxc_known_hosts" ]]; then
-    refresh_direct_access="ansible-playbook ${inventory_args} -e direct_access_target_group=${group@Q} infra/ansible/playbooks/direct-access-ready.yml;"
-  fi
+  local execution_resource
+  execution_resource="$(jq -r --arg service "${service}" '.services[$service].execution_resource // ""' infra/services.json | tr -d '\r')"
+  case "${execution_resource}" in
+    direct_lxc_known_hosts)
+      refresh_direct_access="ansible-playbook ${inventory_args} -e direct_access_target_group=${group@Q} infra/ansible/playbooks/direct-access-ready.yml;"
+      ;;
+    onramp_host)
+      refresh_direct_access="ansible-playbook ${inventory_args} -e direct_vm_access_target_group=${group@Q} infra/ansible/playbooks/vm-direct-access-ready.yml;"
+      ;;
+  esac
 
   if [[ "${mode}" == "backup" ]]; then
     INFRA_COPY_SSH_KEYS="${INFRA_COPY_SSH_KEYS:-true}" \

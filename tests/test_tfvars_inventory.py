@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-SCRIPT = Path(__file__).resolve().parents[1] / "infra" / "ansible" / "inventory" / "tfvars.py"
+SCRIPT = (
+    Path(__file__).resolve().parents[1]
+    / "infra"
+    / "ansible"
+    / "inventory"
+    / "tfvars.py"
+)
 spec = importlib.util.spec_from_file_location("tfvars_inventory", SCRIPT)
 assert spec and spec.loader
 tfvars_inventory = importlib.util.module_from_spec(spec)
@@ -35,22 +41,34 @@ class TfvarsInventoryTests(unittest.TestCase):
         self.assertEqual(hostvars["technitium_dns"]["ansible_host"], "192.0.2.53")
         self.assertEqual(hostvars["technitium_dns"]["technitium_vmid"], 106)
         self.assertEqual(hostvars["technitium_dns"]["direct_access_vmid"], 106)
-        self.assertEqual(hostvars["technitium_dns"]["direct_access_pve_host"], "pve_target")
+        self.assertEqual(
+            hostvars["technitium_dns"]["direct_access_pve_host"], "pve_target"
+        )
         self.assertEqual(
             hostvars["technitium_dns"]["ansible_ssh_common_args"],
             "-o UserKnownHostsFile=/tmp/homelab-infra/ansible/known_hosts "
             "-o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o ForwardAgent=no",
         )
         self.assertEqual(hostvars["forgejo_lxc"]["ansible_host"], "192.0.2.62")
-        self.assertEqual(hostvars["forgejo_lxc"]["forgejo_domain"], "git.example.internal")
+        self.assertEqual(
+            hostvars["forgejo_lxc"]["forgejo_domain"], "git.example.internal"
+        )
         self.assertEqual(inventory["all"]["vars"]["technitium_vmid"], 106)
         self.assertEqual(inventory["all"]["vars"]["forgejo_vmid"], 107)
-        self.assertEqual(inventory["all"]["vars"]["forgejo_domain"], "git.example.internal")
-        self.assertEqual(inventory["all"]["vars"]["forgejo_data_host_path"], "/srv/forgejo")
-        self.assertEqual(inventory["all"]["vars"]["forgejo_data_mount_path"], "/var/lib/forgejo")
+        self.assertEqual(
+            inventory["all"]["vars"]["forgejo_domain"], "git.example.internal"
+        )
+        self.assertEqual(
+            inventory["all"]["vars"]["forgejo_data_host_path"], "/srv/forgejo"
+        )
+        self.assertEqual(
+            inventory["all"]["vars"]["forgejo_data_mount_path"], "/var/lib/forgejo"
+        )
         self.assertEqual(inventory["services"]["children"], ["technitium", "forgejo"])
         self.assertEqual(inventory["pve"]["hosts"], ["pve_target"])
-        self.assertEqual(hostvars["pve_target"]["ansible_host"], "proxmox.example.internal")
+        self.assertEqual(
+            hostvars["pve_target"]["ansible_host"], "proxmox.example.internal"
+        )
         self.assertEqual(hostvars["pve_target"]["ansible_user"], "root")
         self.assertEqual(inventory["all"]["vars"]["proxmox_node_name"], "pve-a")
 
@@ -96,7 +114,9 @@ class TfvarsInventoryTests(unittest.TestCase):
         )
 
         self.assertEqual(inventory["pve"]["hosts"], ["pve_target"])
-        self.assertEqual(inventory["_meta"]["hostvars"]["pve_target"]["proxmox_node_name"], "pve")
+        self.assertEqual(
+            inventory["_meta"]["hostvars"]["pve_target"]["proxmox_node_name"], "pve"
+        )
         self.assertEqual(inventory["all"]["vars"]["proxmox_node_name"], "pve")
 
     def test_dhcp_address_is_not_used_as_ansible_host(self) -> None:
@@ -115,6 +135,7 @@ class TfvarsInventoryTests(unittest.TestCase):
     def test_onramp_host_uses_tfvars_address_user_and_policy_vars(self) -> None:
         inventory = tfvars_inventory.build_inventory(
             {
+                "proxmox_node_name": "pve",
                 "onramp_host_vmid": 112,
                 "onramp_host_ipv4_address": "192.0.2.72/24",
                 "onramp_host_hostname": "onramp-host",
@@ -123,8 +144,14 @@ class TfvarsInventoryTests(unittest.TestCase):
                 "onramp_host_password_authentication": False,
                 "onramp_host_permit_root_login": False,
                 "onramp_host_allowed_ssh_cidrs": ["192.0.2.0/24"],
+                "onramp_host_data_device": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1",
+                "onramp_host_data_disk_gb": 512,
+                "onramp_host_var_lv_gb": 96,
+                "onramp_host_srv_lv_gb": 352,
+                "onramp_host_vg_min_free_percent": 10,
             },
             ["onramp_host"],
+            pve_host="proxmox.example.internal",
         )
 
         hostvars = inventory["_meta"]["hostvars"]["onramp_host_vm"]
@@ -133,26 +160,52 @@ class TfvarsInventoryTests(unittest.TestCase):
         self.assertTrue(hostvars["ansible_become"])
         self.assertEqual(hostvars["onramp_host_vmid"], 112)
         self.assertEqual(hostvars["onramp_host_deploy_dir"], "/srv/onramp")
+        self.assertEqual(
+            hostvars["onramp_host_data_device"],
+            "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1",
+        )
+        self.assertEqual(hostvars["onramp_host_data_disk_gb"], 512)
+        self.assertEqual(hostvars["onramp_host_var_lv_gb"], 96)
+        self.assertEqual(hostvars["onramp_host_srv_lv_gb"], 352)
+        self.assertEqual(hostvars["onramp_host_vg_min_free_percent"], 10)
+        self.assertEqual(hostvars["direct_access_vmid"], 112)
+        self.assertEqual(hostvars["direct_access_pve_host"], "pve_target")
+        self.assertEqual(
+            hostvars["ansible_ssh_common_args"],
+            tfvars_inventory.DIRECT_LXC_SSH_ARGS,
+        )
         self.assertEqual(inventory["services"]["children"], ["onramp_host"])
 
     def test_searxng_onramp_reuses_onramp_host_and_promotes_endpoint_vars(self) -> None:
         inventory = tfvars_inventory.build_inventory(
             {
+                "proxmox_node_name": "pve",
                 "onramp_host_vmid": 112,
                 "onramp_host_ipv4_address": "192.0.2.72/24",
                 "onramp_host_deploy_user": "onramp",
                 "onramp_host_deploy_dir": "/srv/onramp",
+                "onramp_host_data_device": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1",
+                "onramp_host_data_disk_gb": 512,
+                "onramp_host_var_lv_gb": 96,
+                "onramp_host_srv_lv_gb": 352,
+                "onramp_host_vg_min_free_percent": 10,
                 "searxng_server_name": "searxng.apps.example.net",
                 "searxng_public_url": "https://searxng.apps.example.net",
             },
             ["onramp_host", "searxng_onramp"],
+            pve_host="proxmox.example.internal",
         )
 
         hostvars = inventory["_meta"]["hostvars"]["onramp_host_vm"]
         self.assertEqual(hostvars["ansible_host"], "192.0.2.72")
         self.assertEqual(hostvars["ansible_user"], "onramp")
-        self.assertEqual(inventory["all"]["vars"]["searxng_server_name"], "searxng.apps.example.net")
-        self.assertEqual(inventory["all"]["vars"]["searxng_public_url"], "https://searxng.apps.example.net")
+        self.assertEqual(
+            inventory["all"]["vars"]["searxng_server_name"], "searxng.apps.example.net"
+        )
+        self.assertEqual(
+            inventory["all"]["vars"]["searxng_public_url"],
+            "https://searxng.apps.example.net",
+        )
         self.assertEqual(inventory["services"]["children"], ["onramp_host"])
 
     def test_tailscale_enabled_is_promoted_to_all_vars(self) -> None:
@@ -172,7 +225,10 @@ class TfvarsInventoryTests(unittest.TestCase):
 
     def test_pve_workflow_rejects_missing_or_malformed_authority(self) -> None:
         tfvars = {"proxmox_node_name": "pve"}
-        with mock.patch.dict("os.environ", {}, clear=True), self.assertRaises(tfvars_inventory.InventoryError):
+        with (
+            mock.patch.dict("os.environ", {}, clear=True),
+            self.assertRaises(tfvars_inventory.InventoryError),
+        ):
             tfvars_inventory.build_inventory(tfvars, ["technitium"])
         for value in (
             "",
@@ -182,13 +238,45 @@ class TfvarsInventoryTests(unittest.TestCase):
             "999.999.999.999",
             "[2001:db8::not-an-address]",
         ):
-            with self.subTest(value=value), self.assertRaises(tfvars_inventory.InventoryError):
+            with (
+                self.subTest(value=value),
+                self.assertRaises(tfvars_inventory.InventoryError),
+            ):
                 tfvars_inventory.build_inventory(tfvars, ["technitium"], pve_host=value)
 
     def test_non_pve_workflow_does_not_require_pve_authority(self) -> None:
-        inventory = tfvars_inventory.build_inventory({}, ["onramp_host"])
+        inventory = tfvars_inventory.build_inventory({}, [])
 
         self.assertNotIn("pve", inventory)
+
+    def test_onramp_storage_layout_rejects_missing_invalid_and_under_reserved_values(
+        self,
+    ) -> None:
+        valid = {
+            "onramp_host_data_device": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1",
+            "onramp_host_data_disk_gb": 512,
+            "onramp_host_var_lv_gb": 96,
+            "onramp_host_srv_lv_gb": 352,
+            "onramp_host_vg_min_free_percent": 10,
+        }
+        invalid = (
+            {
+                key: value
+                for key, value in valid.items()
+                if key != "onramp_host_data_device"
+            },
+            {**valid, "onramp_host_data_device": ""},
+            {**valid, "onramp_host_data_disk_gb": 0},
+            {**valid, "onramp_host_var_lv_gb": -1},
+            {**valid, "onramp_host_srv_lv_gb": 420},
+            {**valid, "onramp_host_vg_min_free_percent": 100},
+        )
+        for values in invalid:
+            with (
+                self.subTest(values=values),
+                self.assertRaises(tfvars_inventory.InventoryError),
+            ):
+                tfvars_inventory.build_inventory(values, ["onramp_host"])
 
     def test_disabled_service_groups_exist_without_hosts(self) -> None:
         inventory = tfvars_inventory.build_inventory({}, [])
@@ -208,10 +296,15 @@ class TfvarsInventoryTests(unittest.TestCase):
         self.assertEqual(inventory["_meta"]["hostvars"], {})
 
     def test_load_tfvars_uses_python_hcl2(self) -> None:
-        fake_file = mock.mock_open(read_data='technitium_container_vmid = 106\n')
-        with mock.patch("pathlib.Path.open", fake_file), mock.patch.object(
-            tfvars_inventory.hcl2, "load", return_value={"technitium_container_vmid": 106}
-        ) as hcl_load:
+        fake_file = mock.mock_open(read_data="technitium_container_vmid = 106\n")
+        with (
+            mock.patch("pathlib.Path.open", fake_file),
+            mock.patch.object(
+                tfvars_inventory.hcl2,
+                "load",
+                return_value={"technitium_container_vmid": 106},
+            ) as hcl_load,
+        ):
             values = tfvars_inventory.load_tfvars(Path("values/terraform.tfvars"))
 
         self.assertEqual(values["technitium_container_vmid"], 106)

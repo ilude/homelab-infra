@@ -42,7 +42,16 @@ Menos private values are:
 - `values/ansible/inventory/local.yml`: source Compose checksum, six digest-pinned images, the HTTPS server name, and authorized public keys
 - `values/dns-records.local.json`: the Menos API name mapped to the onramp-host IP
 
-The managed state boundary is the full Menos deployment directory, including SurrealDB, MinIO, Ollama, authorized keys, private env, and the source-derived Compose file. Restore that directory before starting the user service. Cross-host legacy cutover additionally requires the quiesced export/import and parity gates in the Onclave Menos cutover plan.
+The Menos service-state archive contains only the source-derived Compose file, private env, authorized keys, and Caddy configuration. PostgreSQL custom-format dumps and MinIO payloads are separate bulk recovery artifacts under the host-local backup boundary and are not included in service-state archives. The role installs checksum-verified `bin/backup-postgres.sh` and `bin/restore-postgres.sh` from the same immutable Onclave revision as the Compose definition. Run them as the deploy user against the existing internal PostgreSQL container without exporting database credentials:
+
+```bash
+cd /srv/onramp/menos
+postgres_container="$(podman-compose -f compose.yaml ps -q postgres)"
+POSTGRES_CONTAINER="${postgres_container}" CONTAINER_RUNTIME=podman \
+  ./bin/backup-postgres.sh ./backups/postgres
+```
+
+Restore only into an empty PostgreSQL public schema, with the Menos API stopped. Use the same `POSTGRES_CONTAINER` and `CONTAINER_RUNTIME` values with `bin/restore-postgres.sh`, then restart the API and verify `/ready`. Restore PostgreSQL and MinIO sequentially before starting the user service. Cross-host legacy cutover additionally requires the quiesced export/import and parity gates in the Onclave Menos cutover plan.
 
 Temporary SearXNG private values are:
 - `values/.env`: `SEARXNG_SECRET_KEY` and `HERMES_WEB_SEARXNG_URL`
@@ -62,7 +71,7 @@ A later live deployment plan must:
 7. Verify Caddy on the onramp host and confirm no host-published app ports exist outside approved proxy ports 80/443 and explicitly approved protocol ports such as Onclave AMQP 5672.
 8. Confirm private `HERMES_WEB_SEARXNG_URL` points to the SearXNG endpoint and smoke-test Hermes search integration once the plugin/runtime exists.
 9. For Onclave, verify the core health response reports broker connectivity and topology declaration, then test AMQP from an approved LAN client.
-10. For Menos, verify `/health` reports the pinned source SHA, `/ready` reports healthy SurrealDB, S3, and Ollama dependencies, then run signed content, ingest, list, and semantic-search acceptance checks before consumer cutover.
+10. For Menos, verify `/health` reports the pinned source SHA, `/ready` reports healthy PostgreSQL, S3, and Ollama dependencies, then run signed content, ingest, list, and semantic-search acceptance checks before consumer cutover.
 
 ## Rollback choices
 

@@ -37,11 +37,11 @@ Private values files include:
 - Treat DNS, Forgejo, and HTTPS/SSH endpoints as critical infrastructure. Prefer reviewed plans over ad hoc mutation.
 - Treat review findings as a backlog, not one apply batch. Keep OS migrations, stateful replacements, hardening, backup redesign, and orchestration refactors in separate validated waves.
 - Replace at most one independent stateful service per plan/apply until its backup, restore path, direct endpoint, and persisted state are verified. Do not use `INFRA_ALLOW_STATEFUL_BATCH=1` except for an explicitly reviewed exception.
-- The first failed live mutation enters incident mode: stop broad applies, parallel recovery, and unrelated refactoring; preserve healthy services; recover one affected service directly. Resume rollout only after its original endpoint and state checks pass.
-- Service version changes must use managed pins and the `just update`/`just validate`/`just plan`/approved `just apply` path when a service has update support. Do not rerun upstream installers or ad hoc upgrade commands as the normal update mechanism.
+- A failed live operation enters incident mode only when it mutated state, degraded a service, or left the mutation boundary unknown. Then stop broad applies, parallel recovery, and unrelated refactoring; preserve healthy services; recover one affected service directly; and resume rollout only after its original endpoint and state checks pass. A fail-closed precondition or validation failure proven to occur before target connection or mutation does not enter incident mode; correct the runner and use the targeted check needed for a safe retry.
+- Service version changes must use managed pins and `just update` when a service has update support, followed by the approved targeted public deployment path appropriate to the changed resources. Use `just plan`/`just apply` only when infrastructure resources change, and run one final `just validate` after the complete request or active plan is otherwise finished. Do not rerun upstream installers or ad hoc upgrade commands as the normal update mechanism.
 - Prefer direct service access for service diagnostics and operator guidance. Do not default to SSHing into the Proxmox host and then using `pct exec`/`pct enter` when a service has its own LAN IP, DNS name, SSH daemon, or HTTPS endpoint. Proxmox host access is for Proxmox/LXC lifecycle diagnostics, console recovery, or cases where direct service access is unavailable or explicitly requested.
 - Do not mutate production routers/firewalls unless explicitly requested.
-- If changing service IPs, hostnames, SSH ports, proxy topology, or service-selection behavior, update scaffold examples, private values as requested, README, and any migration notes together.
+- If changing service IPs, hostnames, SSH ports, proxy topology, or service-selection behavior, update only the affected contract surfaces among scaffold examples, requested private values, README, and migration notes. Do not touch unaffected surfaces solely for completeness.
 
 ## Commands
 
@@ -49,15 +49,15 @@ Preferred workflow:
 
 ```bash
 just setup      # first checkout only; or: just setup <private-values-repo-url>
-just validate
 just update     # when checking or changing managed version pins
-just plan
-just apply      # after approval; a request to fix live/deployed behavior grants in-scope approval
+just plan       # before infrastructure resource changes
+just apply      # after approval when the full infrastructure workflow is required
+just validate   # once, as the final gate for the complete request or active plan
 ```
 
-Validation performed by `just validate` includes public-safety checks, OpenTofu format/validate, TFLint, ShellCheck, Python compile/unit checks, Technitium DNS JSON validation, Ansible syntax, ansible-lint, and private `values/` wiring checks.
+Validation performed by `just validate` includes public-safety checks, OpenTofu format/validate, TFLint, ShellCheck, Python compile/unit checks, Technitium DNS JSON validation, Ansible syntax, ansible-lint, and private `values/` wiring checks. Run it exactly once after all implementation and live work for the complete request or active plan is otherwise finished. Do not run it between tasks, fixes, retries, or intermediate milestones; use only the targeted checks needed to continue safely during execution.
 
-Treat `[private]` just recipes as implementation details for other recipes only. Do not invoke private recipes directly during normal agent work, even for validation. Use the public command surface above, primarily `just validate`.
+Treat `[private]` just recipes as implementation details for other recipes only. Do not invoke private recipes directly during normal agent work, even for validation. Use public recipes for complete workflows. During execution, use the targeted public script, playbook, or test needed to continue safely; do not substitute a private recipe or an intermediate `just validate`.
 
 Containerized tooling is used for Windows/local consistency. Project commands parse `values/.env` as dotenv-style data through `scripts/parse-env.py` / `scripts/run-infra.sh` and run inside the Docker Compose `infra` service. Do not source `values/.env` directly in new workflow code.
 
@@ -69,7 +69,7 @@ Forgejo Actions deployment monitoring helpers exist as private workflow plumbing
 - Before asking the operator for credentials, exhaust authorized local recovery sources without exposing secret values: current `values/` files, the private `values/` Git history/reflog, ignored generated state, and prior task artifacts/logs. Compare or test candidates programmatically with redacted output. If this automation previously generated, rotated, restored, or stored the credential, treat recovery as the agent's responsibility. Ask the operator only after documenting that these sources were checked and no valid candidate remains. Never ask the operator to paste credentials into chat.
 - `values/terraform.tfvars` is the source of truth for infrastructure-derived service shape: VMIDs, Proxmox networking, service LAN IPs, hostnames, and OpenTofu inputs. Ansible inventory should consume those values through `infra/ansible/inventory/tfvars.py` instead of duplicating them by hand.
 - Keep service orchestration in Ansible and resource declaration in OpenTofu. Do not use OpenTofu `local-exec` for host or service configuration; add an Ansible playbook/role and wire it into `just apply` in the correct order.
-- No breadcrumbs, comment-only placeholder files, dead wrappers, or permanent duplicate knobs. When behavior moves, add or update migration code for existing `values/` repos, update scaffold/docs/tests, and remove the old surface.
+- No breadcrumbs, comment-only placeholder files, dead wrappers, or permanent duplicate knobs. When behavior moves, update only the affected migration, scaffold, documentation, and test surfaces for existing `values/` repos, and remove the old surface. Do not add or modify unaffected surfaces solely for completeness.
 - Prefer small Python helpers for local data transformation and Ansible/OpenTofu integration over shell glue. Keep shell wrappers only when they are a narrow tooling boundary.
 - Generated secrets belong in `values/.env`, must be idempotent, and must never be printed in logs or responses.
 
@@ -77,15 +77,16 @@ Forgejo Actions deployment monitoring helpers exist as private workflow plumbing
 
 1. Keep tracked edits generic/public-safe.
 2. Put site-specific changes in `values/` only; commit/push them with `git -C values ...` to the private values remote when requested.
-3. Run `just validate` after source or scaffold changes.
-4. Before applying, run `just plan` and summarize creates/changes/destroys.
-5. Apply only after explicit approval using `just apply`; it verifies `tfplan.meta.json` before applying. A direct request to fix deployed or live behavior counts as explicit approval to validate, plan, and apply the changes required for that fix, so do not ask again before an in-scope apply. Ask again only when the reviewed plan introduces destructive action, stateful replacement, router/firewall mutation, or a material change in target, scope, or intended outcome.
-6. Use the user-facing `just` recipes (`setup`, `validate`, `plan`, `apply`) rather than private recipes or ad hoc shell sequences for normal operations.
+3. During execution, use only targeted checks needed to continue safely; do not run `just validate` between tasks, fixes, retries, or intermediate milestones.
+4. Before applying infrastructure resource changes, run `just plan` and summarize creates/changes/destroys. Do not require a global infrastructure plan for approved targeted service configuration or incident recovery that does not change infrastructure resources.
+5. Apply only after explicit approval using `just apply` when the full infrastructure workflow is required; it verifies `tfplan.meta.json` before applying. A direct request to fix deployed or live behavior counts as explicit approval for the bounded plan, including its listed targeted scripts, playbooks, plan, and apply actions, so do not ask again while target, scope, intended outcome, and destructive impact remain materially unchanged. Ask again only when the reviewed plan introduces destructive action, stateful replacement, router/firewall mutation, or another material boundary change.
+6. Use the user-facing `just` recipes (`setup`, `validate`, `plan`, `apply`) for complete workflows. During approved targeted service work or incident recovery, use the specific public service script or Ansible playbook rather than expanding the operation into a global plan/apply cycle.
 7. Do not run `[private]` just recipes directly. If a narrow diagnostic command is needed to investigate a failure, state why before running it and do not present it as repo validation.
 8. Do not add new public `just` recipes unless the user explicitly asks for that exact command. Prefer scripts or internal helpers for implementation details, and keep the public command surface limited to requested commands.
-9. If plan verification fails, rerun `just plan` instead of reusing or editing saved plan files.
-10. For in-LXC service configuration, prefer Ansible playbooks via `just apply` over ad hoc shell changes.
+9. If saved infrastructure plan verification fails, rerun `just plan` instead of reusing or editing saved plan files.
+10. For in-LXC service configuration, use the appropriate public service script or Ansible playbook. Use `just apply` only when the complete infrastructure workflow is required.
 11. For live diagnostics, use the service's direct endpoint first: SSH to the service DNS name/IP with its configured service user, or use the service HTTPS URL. Use Proxmox `pct exec`/`pct enter` only when debugging Proxmox/container lifecycle, recovering a broken service that cannot be reached directly, or following explicit operator instructions.
+12. After all implementation and live work for the complete request or active plan is otherwise finished, run `just validate` exactly once as the final validation gate.
 
 ## Service Access Pattern
 

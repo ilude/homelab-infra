@@ -19,7 +19,10 @@
       ansible.builtin.shell: |
         set -euo pipefail
         host={{ hostvars[service_inventory_host].ansible_host | quote }}
-        known_hosts={{ direct_access_ready_known_hosts_file | default('/workspace/values/ansible/known_hosts') | quote }}
+        known_hosts={{ direct_access_ready_known_hosts_file | default(
+          '/workspace/' ~ (lookup('env', 'INFRA_VALUES_DIR') | default('values', true)) ~
+          '/ansible/known_hosts', true
+        ) | quote }}
         accept_change={{ direct_access_ready_accept_host_key_change | default(false) | bool | ternary('true', 'false') }}
         install -d -m 0700 "$(dirname "${known_hosts}")"
         touch "${known_hosts}"

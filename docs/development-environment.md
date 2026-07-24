@@ -92,6 +92,21 @@ The public files provide the reusable implementation:
 - `scripts/migrate-values.py` maintains private-value compatibility.
 - `scaffold/` documents public-safe starter values.
 
+## Migrating a legacy values layout
+
+Existing private values repositories may still have their environment files at
+the values root. Preview the move into a site directory before changing files:
+
+```text
+python scripts/migrate-site-values.py --site prod
+```
+
+The migration tool requires an explicit `--apply` to move files. It creates the
+site metadata, moves state/inventory/DNS/secret files together, and removes the
+legacy service list from the root operator settings. Back up the private values
+repository first and review its status before applying the migration. Run the
+migration for development separately from production.
+
 ## Lifecycle
 
 The environment is recreated from scratch for a consistent test run.

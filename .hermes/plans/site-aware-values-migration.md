@@ -117,6 +117,8 @@ parallel path knobs.
 
 ### Phase 4 — Migrate private values safely
 
+- Use `scripts/migrate-site-values.py` for a dry-run first, then an explicit
+  `--apply` after review.
 - Back up the private values repository and verify its current status.
 - Create the persistent production site directory without changing values.
 - Move production env, tfvars, state, DNS records, inventory, and known-hosts
@@ -142,6 +144,9 @@ state, and DNS records are selected.
 After explicit approval, use the site-aware apply workflow for dev first. Run
 production only after the migration has passed wiring, plan metadata, and
 rollback checks.
+
+The migration helper refuses an existing target site, active Terraform locks,
+and missing legacy files. It never prints secret contents.
 
 ### Phase 6 — Remove compatibility paths
 

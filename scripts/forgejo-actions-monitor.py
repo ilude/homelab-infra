@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from values_context import from_environment
+
 REPO = Path(__file__).resolve().parents[1]
 INVENTORY = "values/ansible/inventory/local.yml"
 HOST = "pve"
@@ -285,6 +288,8 @@ def main(argv: list[str] | None = None) -> int:
     logs.add_argument("--unsafe-no-redact", action="store_true")
 
     args = parser.parse_args(argv)
+    global INVENTORY
+    INVENTORY = str(from_environment(REPO).path("ansible/inventory/local.yml"))
     try:
         if args.command == "status":
             print_status(args.limit, args.json)

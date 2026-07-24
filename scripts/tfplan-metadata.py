@@ -32,12 +32,15 @@ INPUT_GLOBS = (
     "compose.yaml",
     "tools/**/*",
     "ansible.cfg",
-    "values/terraform.tfvars",
-    "values/dns-records.local.json",
-    "values/ansible/inventory/local.yml",
-    "values/.env",
     "settings.example.json",
     "settings.local.json",
+)
+VALUE_INPUTS = (
+    "terraform.tfvars",
+    "dns-records.local.json",
+    "ansible/inventory/local.yml",
+    "ansible/known_hosts",
+    ".env",
 )
 
 
@@ -59,6 +62,13 @@ def matching_inputs(repo: Path) -> dict[str, str]:
         for path in repo.glob(pattern):
             if path.is_file():
                 paths.add(path)
+    context = from_environment(repo)
+    for relative in VALUE_INPUTS:
+        path = context.path(relative)
+        if path.is_file():
+            paths.add(path)
+    if context.metadata_path is not None and context.metadata_path.is_file():
+        paths.add(context.metadata_path)
     return {
         path.relative_to(repo).as_posix(): sha256_file(path)
         for path in sorted(paths, key=lambda item: item.as_posix())
@@ -122,11 +132,12 @@ def enabled_stateful_services_by_address(repo: Path) -> dict[str, list[str]]:
     except (OSError, json.JSONDecodeError) as error:
         raise MetadataError(f"cannot read service registry: {registry_path}") from error
     services = registry.get("services", {})
-    settings_path = repo / "settings.local.json"
+    context = from_environment(repo)
+    settings_path = context.metadata_path or (repo / "settings.local.json")
     try:
         local_settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.is_file() else {}
     except json.JSONDecodeError as error:
-        raise MetadataError(f"cannot parse operator settings: {settings_path}") from error
+        raise MetadataError(f"cannot parse site settings: {settings_path}") from error
     enabled = local_settings.get("services", registry.get("default_services", []))
     if not isinstance(services, dict) or not isinstance(enabled, list):
         raise MetadataError("service registry or operator settings has an invalid service list")

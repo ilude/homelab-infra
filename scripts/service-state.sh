@@ -15,7 +15,9 @@ USAGE
 }
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-backup_root="${SERVICE_STATE_BACKUP_ROOT:-/workspace/values/service-backups}"
+source "${repo_root}/scripts/site-context.sh"
+site_values_dir="$(site_values_dir)"
+backup_root="${SERVICE_STATE_BACKUP_ROOT:-/workspace/${site_values_dir}/service-backups}"
 
 supported_services=(
   hermes
@@ -60,7 +62,7 @@ container_path() {
 
 latest_local_archive() {
   local service="$1"
-  local backup_dir="${repo_root}/values/service-backups/${service}"
+  local backup_dir="${repo_root}/${site_values_dir}/service-backups/${service}"
   if [[ ! -d "${backup_dir}" ]]; then
     return 1
   fi
@@ -72,9 +74,9 @@ validate_restore_file() {
   local service="$1"
   local file="$2"
   case "${file}" in
-    "/workspace/values/service-backups/${service}/"*.tar.gz) ;;
+    "/workspace/${site_values_dir}/service-backups/${service}/"*.tar.gz) ;;
     *)
-      printf 'Restore archive must be under values/service-backups/%s/ and end in .tar.gz\n' "${service}" >&2
+      printf 'Restore archive must be under %s/service-backups/%s/ and end in .tar.gz\n' "${site_values_dir}" "${service}" >&2
       exit 2
       ;;
   esac
@@ -122,14 +124,14 @@ run_playbook() {
       MSYS2_ENV_CONV_EXCL="${msys_env_conv_excl}" \
       SERVICE_STATE_BACKUP_ROOT="${backup_root}" \
       scripts/run-infra.sh bash -lc \
-      "export PATH=/opt/ansible/bin:\$PATH; ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-backup.yml"
+      "export PATH=/opt/ansible/bin:\$PATH; ansible-playbook -i \${INFRA_VALUES_DIR}/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-backup.yml"
   else
     INFRA_COPY_SSH_KEYS="${INFRA_COPY_SSH_KEYS:-true}" \
       MSYS2_ENV_CONV_EXCL="${msys_env_conv_excl}" \
       SERVICE_STATE_BACKUP_ROOT="${backup_root}" \
       SERVICE_STATE_RESTORE_FILE="${restore_file}" \
       scripts/run-infra.sh bash -lc \
-      "export PATH=/opt/ansible/bin:\$PATH; ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-restore.yml"
+      "export PATH=/opt/ansible/bin:\$PATH; ansible-playbook -i \${INFRA_VALUES_DIR}/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-restore.yml"
   fi
 }
 

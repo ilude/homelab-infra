@@ -978,7 +978,8 @@ def migrate(values_dir: Path) -> list[str]:
             changes.append(f"removed historical unused {env_key}")
 
     if "DNS_RECORDS_FILE" not in env_entries:
-        set_env(env_lines, env_entries, "DNS_RECORDS_FILE", "values/dns-records.local.json")
+        dns_file = (values_dir / "dns-records.local.json").as_posix()
+        set_env(env_lines, env_entries, "DNS_RECORDS_FILE", dns_file)
         changes.append("added DNS_RECORDS_FILE default")
 
     if changes:

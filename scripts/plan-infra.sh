@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-rm -f tfplan tfplan.meta.json ./*.tfplan ./*.tfplan.meta.json
+source scripts/site-context.sh
+values_dir="$(site_values_dir)"
+rm -f "${values_dir}/tfplan" "${values_dir}/tfplan.meta.json"
 
 target_service="${INFRA_TARGET_SERVICE:-}"
 replace_service="${INFRA_REPLACE_SERVICE:-}"
@@ -26,7 +28,7 @@ python scripts/guest-mount-feature-vars.py --summary
 
 guest_mount_feature_vars="$(python scripts/guest-mount-feature-vars.py)"
 ansible-playbook \
-  -i values/ansible/inventory/local.yml \
+  -i "${INFRA_VALUES_DIR}/ansible/inventory/local.yml" \
   -i infra/ansible/inventory/tfvars.py \
   -e "${guest_mount_feature_vars}" \
   infra/ansible/playbooks/guest-mount-feature-preflight.yml
@@ -52,16 +54,16 @@ fi
 
 tofu -chdir=infra/opentofu plan \
   -var "enabled_services=${enabled_services}" \
-  -var-file=../../values/terraform.tfvars \
-  -state=../../values/terraform.tfstate \
+  -var-file=../../${INFRA_VALUES_DIR}/terraform.tfvars \
+  -state=../../${INFRA_VALUES_DIR}/terraform.tfstate \
   "${target_args[@]}" \
   "${replace_args[@]}" \
-  -out=../../tfplan
+  -out=../../${INFRA_VALUES_DIR}/tfplan
 
-tofu -chdir=infra/opentofu show ../../tfplan
+tofu -chdir=infra/opentofu show ../../${INFRA_VALUES_DIR}/tfplan
 python scripts/tfplan-metadata.py create \
-  --plan tfplan \
-  --metadata tfplan.meta.json \
+  --plan "${INFRA_VALUES_DIR}/tfplan" \
+  --metadata "${INFRA_VALUES_DIR}/tfplan.meta.json" \
   --target-service "${1:-}" \
   --replace-service "${2:-}" \
   --print-summary

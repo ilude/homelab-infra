@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SCRIPT = ROOT / "scripts" / "service-state.sh"
+SITE_CONTEXT_SCRIPT = ROOT / "scripts" / "site-context.sh"
 
 
 class ServiceStateCliTests(unittest.TestCase):
@@ -18,6 +19,7 @@ class ServiceStateCliTests(unittest.TestCase):
         scripts.mkdir()
         script = scripts / "service-state.sh"
         shutil.copy2(SOURCE_SCRIPT, script)
+        shutil.copy2(SITE_CONTEXT_SCRIPT, scripts / "site-context.sh")
         (scripts / "python.sh").write_text("#!/usr/bin/env bash\nif [[ \"$1\" == \"-\" ]]; then echo hermes; else echo hermes; fi\n", encoding="utf-8")
         (scripts / "settings.py").write_text("#!/usr/bin/env bash\necho hermes\n", encoding="utf-8")
         (scripts / "run-infra.sh").write_text(

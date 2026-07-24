@@ -103,9 +103,10 @@ python scripts/migrate-site-values.py --site prod
 
 The migration tool requires an explicit `--apply` to move files. It creates the
 site metadata, moves state/inventory/DNS/secret files together, and removes the
-legacy service list from the root operator settings. Back up the private values
-repository first and review its status before applying the migration. Run the
-migration for development separately from production.
+legacy service list from the root operator settings. The apply operation rolls
+back completed moves if a later move or settings update fails. Back up the
+private values repository first and review its status before applying the
+migration. Run the migration for development separately from production.
 
 ## Lifecycle
 

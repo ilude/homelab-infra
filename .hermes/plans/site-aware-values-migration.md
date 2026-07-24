@@ -146,7 +146,8 @@ production only after the migration has passed wiring, plan metadata, and
 rollback checks.
 
 The migration helper refuses an existing target site, active Terraform locks,
-and missing legacy files. It never prints secret contents.
+and missing legacy files. Its apply path rolls back completed moves if a later
+operation fails, and it never prints secret contents.
 
 ### Phase 6 — Remove compatibility paths
 

@@ -106,16 +106,31 @@ variable "rootfs_datastore_id" {
 variable "template_datastore_id" {
   description = "Proxmox datastore for downloaded LXC templates. Set in terraform.tfvars."
   type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9_.-]*$", var.template_datastore_id))
+    error_message = "template_datastore_id must be a single Proxmox datastore identifier, not a path."
+  }
 }
 
 variable "debian_template_url" {
   description = "Debian 13 standard LXC template URL. Set in terraform.tfvars."
   type        = string
+
+  validation {
+    condition     = can(regex("^https?://[^[:space:]]+$", var.debian_template_url))
+    error_message = "debian_template_url must be an HTTP or HTTPS URL."
+  }
 }
 
 variable "debian_template_file_name" {
   description = "File name for the downloaded Debian 13 LXC template. Set in terraform.tfvars."
   type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9_.-]*$", var.debian_template_file_name))
+    error_message = "debian_template_file_name must be a file name, not a path."
+  }
 }
 
 variable "debian_template_checksum_algorithm" {

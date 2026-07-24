@@ -15,8 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from envfile import get_env_value, set_env_value
+from values_context import from_environment
 
-DEFAULT_VALUES_DIR = Path("values")
+DEFAULT_VALUES_DIR = from_environment().values_dir
 PLACEHOLDER_DOMAINS = ("example.internal", "example.net", "example.com")
 
 
@@ -306,7 +307,7 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     set_env_value(env_path, "TECHNITIUM_API_URL", f"http://{technitium_ip}:5380/api")
-    set_env_value(env_path, "DNS_RECORDS_FILE", "values/dns-records.local.json")
+    set_env_value(env_path, "DNS_RECORDS_FILE", (values_dir / "dns-records.local.json").as_posix())
     set_env_value(env_path, "HERMES_WEB_SEARXNG_URL", f"https://searxng.apps.{domain}")
 
     set_tfvar_string(tfvars_path, "technitium_container_ipv4_address", f"{technitium_ip}/{default_prefix}")

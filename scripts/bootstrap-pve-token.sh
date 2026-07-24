@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-values_dir="${VALUES_DIR:-values}"
+# shellcheck disable=SC1091
+source "$(dirname "$0")/site-context.sh"
+values_dir="$(site_values_dir)"
 env_file="${values_dir}/.env"
 force=0
 if_needed=0

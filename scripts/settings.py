@@ -152,6 +152,22 @@ def all_ansible_playbooks() -> list[str]:
     return playbooks
 
 
+def validate_site_metadata(metadata: dict[str, Any], site: str, path: Path) -> None:
+    if metadata.get("name", site) != site:
+        raise SettingsError(f"{path}: site metadata name does not match selected site")
+    site_class = metadata.get("class", "")
+    lifecycle = metadata.get("lifecycle", "")
+    if site_class not in {"development", "staging", "production", "location", "purpose"}:
+        raise SettingsError(f"{path}: unsupported site class")
+    if lifecycle not in {"disposable", "persistent"}:
+        raise SettingsError(f"{path}: lifecycle must be disposable or persistent")
+    for key in ("allow_apply", "allow_destroy"):
+        if not isinstance(metadata.get(key), bool):
+            raise SettingsError(f"{path}: {key} must be a boolean")
+    if site == "dev" and (site_class != "development" or lifecycle != "disposable"):
+        raise SettingsError(f"{path}: the dev site must be disposable development")
+
+
 def settings_summary(settings: dict[str, Any]) -> str:
     path = settings["path"]
     status = str(path) if Path(path).exists() else f"{path} missing; using defaults"
@@ -206,6 +222,8 @@ def load_settings(path: Path | None = None) -> dict[str, Any]:
         metadata = load_metadata(context)
     except ValuesContextError as error:
         raise SettingsError(str(error)) from error
+    if context.site is not None:
+        validate_site_metadata(metadata, context.site, resolved_path)
     services_raw = site_raw.get("services") if context.site is not None else raw.get("services")
     if context.site is not None and services_raw is None:
         raise SettingsError(f"{resolved_path}: site services are required")

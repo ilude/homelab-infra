@@ -66,6 +66,20 @@ class ValuesContextTests(unittest.TestCase):
 
 
 class SiteSettingsTests(unittest.TestCase):
+    def test_dev_site_requires_disposable_development_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            site = repo / "values" / "sites" / "dev"
+            site.mkdir(parents=True)
+            site_settings = site / "site.json"
+            site_settings.write_text(
+                json.dumps({"name": "dev", "class": "production", "lifecycle": "persistent", "allow_apply": True, "allow_destroy": False, "services": ["hermes"]}),
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"VALUES_DIR": str(repo / "values"), "VALUES_SITE": "dev"}, clear=True):
+                with self.assertRaises(settings.SettingsError):
+                    settings.load_settings(site_settings)
+
     def test_site_settings_supply_services_while_root_supplies_remote(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
@@ -77,7 +91,7 @@ class SiteSettingsTests(unittest.TestCase):
             )
             site_settings = site / "site.json"
             site_settings.write_text(
-                json.dumps({"name": "dev", "class": "development", "services": ["hermes"]}),
+                json.dumps({"name": "dev", "class": "development", "lifecycle": "disposable", "allow_apply": True, "allow_destroy": True, "services": ["hermes"]}),
                 encoding="utf-8",
             )
             with patch.dict(os.environ, {"VALUES_DIR": str(repo / "values"), "VALUES_SITE": "dev"}, clear=True):

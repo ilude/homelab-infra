@@ -46,6 +46,11 @@ class ServiceStateTests(unittest.TestCase):
         self.assertIn("pg_restore", restore)
         self.assertIn("forgejo-postgres.dump", restore)
 
+    def test_restore_uses_selected_site_root_and_local_preflight(self) -> None:
+        restore = RESTORE.read_text(encoding="utf-8")
+        self.assertIn("service_state_backup_root | regex_escape", restore)
+        self.assertIn("delegate_to: localhost", restore)
+
     def test_onramp_recovery_dependencies_and_container_paths_are_wired(self) -> None:
         defaults = yaml.safe_load(ONRAMP_DEFAULTS.read_text(encoding="utf-8"))
         compose = COMPOSE.read_text(encoding="utf-8")

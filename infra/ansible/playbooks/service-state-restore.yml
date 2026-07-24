@@ -16,10 +16,10 @@
           - service_state_service in managed_service_state_catalog
           - service_state_hosts is defined
           - service_state_restore_file | length > 0
-          - service_state_restore_file is match('^/workspace/values/service-backups/' ~ service_state_service ~ '/.+\.tar\.gz$')
+          - service_state_restore_file is match('^' ~ (service_state_backup_root | regex_escape) ~ '/' ~ service_state_service ~ '/.+\.tar\.gz$')
         fail_msg: >-
           service_state_service, service_state_hosts, and SERVICE_STATE_RESTORE_FILE under
-          /workspace/values/service-backups/<service>/<archive>.tar.gz are required.
+          {{ service_state_backup_root }}/<service>/<archive>.tar.gz are required.
 
     - name: Select managed service-state definition
       ansible.builtin.set_fact:
@@ -92,6 +92,8 @@
           --state-paths-json '{{ service_state_definition.paths | to_json }}'
       args:
         chdir: "{{ playbook_dir }}"
+      delegate_to: localhost
+      become: false
       changed_when: false
       register: service_state_capacity_preflight
 

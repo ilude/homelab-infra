@@ -168,6 +168,18 @@ def validate_site_metadata(metadata: dict[str, Any], site: str, path: Path) -> N
         raise SettingsError(f"{path}: the dev site must be disposable development")
 
 
+def ensure_site_action_allowed(settings: dict[str, Any], action: str) -> None:
+    if action not in {"plan", "apply", "destroy"}:
+        raise SettingsError(f"unsupported site action: {action}")
+    if settings.get("site") is None:
+        return
+    metadata = settings.get("site_metadata", {})
+    if action == "apply" and metadata.get("allow_apply") is not True:
+        raise SettingsError(f"site {settings['site']} does not allow apply")
+    if action == "destroy" and metadata.get("allow_destroy") is not True:
+        raise SettingsError(f"site {settings['site']} does not allow destroy")
+
+
 def settings_summary(settings: dict[str, Any]) -> str:
     path = settings["path"]
     status = str(path) if Path(path).exists() else f"{path} missing; using defaults"
@@ -247,6 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     ansible_playbooks_parser.add_argument("--all", action="store_true")
     ansible_playbooks_parser.add_argument("--settings", type=Path, default=None)
     subparsers.add_parser("summary")
+    policy_parser = subparsers.add_parser("policy")
+    policy_parser.add_argument("--action", required=True, choices=("plan", "apply", "destroy"))
     subparsers.add_parser("tofu-var")
     tofu_target_parser = subparsers.add_parser("tofu-targets")
     tofu_target_parser.add_argument("service")
@@ -273,6 +287,13 @@ def main(argv: list[str] | None = None) -> int:
             print(playbook)
     elif args.command == "summary":
         print(settings_summary(settings))
+    elif args.command == "policy":
+        try:
+            ensure_site_action_allowed(settings, args.action)
+        except SettingsError as error:
+            print(error, file=sys.stderr)
+            return 1
+        print(f"site policy allows {args.action}")
     elif args.command == "tofu-var":
         print(json.dumps(settings["services"]))
     elif args.command == "tofu-targets":

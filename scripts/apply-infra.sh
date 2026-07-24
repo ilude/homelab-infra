@@ -22,6 +22,7 @@ fi
 # shellcheck disable=SC2016
 INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c '
 python scripts/workspace-preflight.py --require-values
+python scripts/settings.py policy --action apply
 
 if [[ ! -f "${INFRA_VALUES_DIR}/tfplan" && ! -f "${INFRA_VALUES_DIR}/tfplan.meta.json" ]]; then
   printf "No saved infrastructure plan found. Run just plan, review the output, then run just apply.\n" >&2

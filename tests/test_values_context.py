@@ -66,6 +66,17 @@ class ValuesContextTests(unittest.TestCase):
 
 
 class SiteSettingsTests(unittest.TestCase):
+    def test_site_policy_controls_apply_and_destroy(self) -> None:
+        settings_data = {
+            "site": "dev",
+            "site_metadata": {"allow_apply": True, "allow_destroy": True},
+        }
+        settings.ensure_site_action_allowed(settings_data, "apply")
+        settings.ensure_site_action_allowed(settings_data, "destroy")
+        settings_data["site_metadata"]["allow_destroy"] = False
+        with self.assertRaises(settings.SettingsError):
+            settings.ensure_site_action_allowed(settings_data, "destroy")
+
     def test_dev_site_requires_disposable_development_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)

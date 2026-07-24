@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source scripts/site-context.sh
+require_site_context
+
 destroy_verify_flag=""
 if [[ "${INFRA_ALLOW_DESTROY:-}" == "1" ]]; then
   destroy_verify_flag="--allow-destroy"

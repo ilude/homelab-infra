@@ -36,13 +36,21 @@ class ServiceStateCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             script = self.make_fixture(root)
-            archive = root / "values" / "service-backups" / "hermes" / "state.tar.gz"
+            site_values = root / "values" / "sites" / "dev"
+            site_values.mkdir(parents=True)
+            (site_values / "site.json").write_text(
+                '{"name":"dev","class":"development","lifecycle":"disposable",'
+                '"allow_apply":true,"allow_destroy":true,"services":["hermes"]}\n',
+                encoding="utf-8",
+            )
+            archive = site_values / "service-backups" / "hermes" / "state.tar.gz"
             archive.parent.mkdir(parents=True)
             archive.touch()
             capture = root / "run-infra.txt"
             environment = os.environ | {
                 "CAPTURE_FILE": str(capture),
                 "MSYS2_ENV_CONV_EXCL": "KEEP",
+                "VALUES_SITE": "dev",
             }
 
             result = subprocess.run(

@@ -153,6 +153,7 @@ case "${command_name}" in
     printf '  %s\n' "${supported_services[@]}"
     ;;
   backup)
+    require_site_context
     if [[ $# -ne 1 ]]; then
       usage
       exit 2
@@ -177,6 +178,7 @@ case "${command_name}" in
     fi
     ;;
   restore)
+    require_site_context
     if [[ $# -ne 2 ]]; then
       usage
       exit 2
@@ -191,6 +193,7 @@ case "${command_name}" in
     run_playbook restore "${service}"
     ;;
   restore-if-present)
+    require_site_context
     if [[ $# -lt 1 || $# -gt 2 ]]; then
       usage
       exit 2

@@ -89,13 +89,15 @@ clean-plans:
     source scripts/site-context.sh; values_dir="$(site_values_dir)"; rm -f "${values_dir}/tfplan" "${values_dir}/tfplan.meta.json" "${values_dir}"/*.tfplan "${values_dir}"/*.tfplan.meta.json
 
 # Review infrastructure changes using private values; writes tfplan for `just apply`
-plan: check-values
+plan:
     scripts/require-site-context.sh
+    just check-values
     scripts/python.sh scripts/migrate-values.py
     scripts/plan-infra.sh
 
 # Apply reviewed infrastructure plan, then configure services with Ansible
-apply: check-values
+apply:
     scripts/require-site-context.sh
+    just check-values
     scripts/python.sh scripts/migrate-values.py
     scripts/apply-infra.sh

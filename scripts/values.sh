@@ -107,7 +107,11 @@ case "${command_name}" in
   check)
     require_values
     missing=0
-    for path in .env terraform.tfvars dns-records.local.json ansible/inventory/local.yml; do
+    required_paths=(.env terraform.tfvars dns-records.local.json ansible/inventory/local.yml)
+  if [[ -n "${site}" ]]; then
+    required_paths+=(site.json)
+  fi
+  for path in "${required_paths[@]}"; do
       if [[ ! -f "${values_dir}/${path}" ]]; then
         printf 'Missing %s/%s\n' "${values_dir}" "${path}" >&2
         missing=1

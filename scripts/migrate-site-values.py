@@ -6,6 +6,7 @@ import argparse
 import json
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -86,7 +87,35 @@ def remove_services_from_root_settings(repo: Path) -> None:
         return
     data = json.loads(path.read_text(encoding="utf-8"))
     data.pop("services", None)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    content = json.dumps(data, indent=2, sort_keys=True) + "\n"
+    mode = path.stat().st_mode & 0o777
+    with tempfile.NamedTemporaryFile("w", dir=path.parent, prefix=f".{path.name}.migration-", delete=False, encoding="utf-8") as handle:
+        handle.write(content)
+        temporary = Path(handle.name)
+    temporary.chmod(mode)
+    try:
+        temporary.replace(path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def rollback_migration(
+    target: Path,
+    moved: list[tuple[Path, Path]],
+    settings_path: Path,
+    original_settings: bytes | None,
+) -> None:
+    if original_settings is None:
+        settings_path.unlink(missing_ok=True)
+    else:
+        settings_path.write_bytes(original_settings)
+    for source, destination in reversed(moved):
+        if destination.exists():
+            source.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(destination), str(source))
+    if target.exists():
+        shutil.rmtree(target)
 
 
 def migrate(
@@ -101,6 +130,8 @@ def migrate(
 ) -> list[str]:
     metadata = site_metadata(repo, site, site_class, lifecycle, allow_apply, allow_destroy)
     target, items = validate_request(values_root, site, metadata)
+    settings_path = repo / "settings.local.json"
+    original_settings = settings_path.read_bytes() if settings_path.is_file() else None
     actions = [f"create {target}/site.json"]
     actions.extend(f"move {source} -> {destination}" for source, destination in items)
     if (repo / "settings.local.json").is_file():
@@ -109,14 +140,22 @@ def migrate(
         return actions
 
     target.mkdir(parents=True)
+    moved: list[tuple[Path, Path]] = []
     try:
         (target / "site.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         for source, destination in items:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source), str(destination))
+            moved.append((source, destination))
         remove_services_from_root_settings(repo)
-    except Exception:
-        raise SiteMigrationError("site migration was interrupted; restore from the private values backup before retrying")
+    except Exception as error:
+        try:
+            rollback_migration(target, moved, settings_path, original_settings)
+        except Exception as rollback_error:
+            raise SiteMigrationError(
+                "site migration and rollback both failed; restore from the private values backup before retrying"
+            ) from rollback_error
+        raise SiteMigrationError("site migration failed and was rolled back") from error
     return actions
 
 

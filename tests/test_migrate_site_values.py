@@ -4,6 +4,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -49,6 +50,33 @@ class SiteMigrationTests(unittest.TestCase):
             self.assertTrue((site / "terraform.tfvars").is_file())
             self.assertFalse((values / "terraform.tfvars").exists())
             self.assertNotIn("services", json.loads((values.parent / "settings.local.json").read_text()))
+
+    def test_interrupted_move_is_rolled_back(self) -> None:
+        temp, values = self.make_legacy_values()
+        with temp:
+            original_settings = (values.parent / "settings.local.json").read_bytes()
+            original_move = migration.shutil.move
+            calls = 0
+
+            def fail_on_second_move(source: str, destination: str) -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("simulated move failure")
+                original_move(source, destination)
+
+            with patch.object(migration.shutil, "move", side_effect=fail_on_second_move):
+                with self.assertRaises(migration.SiteMigrationError):
+                    migration.migrate(values, values.parent, "dev", "development", "disposable", True, True, True)
+            self.assertFalse((values / "sites" / "dev").exists())
+            self.assertTrue((values / "terraform.tfvars").is_file())
+            self.assertEqual((values.parent / "settings.local.json").read_bytes(), original_settings)
+
+    def test_site_identifier_rejects_path_traversal(self) -> None:
+        temp, values = self.make_legacy_values()
+        with temp:
+            with self.assertRaises(migration.SiteMigrationError):
+                migration.migrate(values, values.parent, "../prod", "production", "persistent", True, False, False)
 
     def test_existing_site_is_never_overwritten(self) -> None:
         temp, values = self.make_legacy_values()

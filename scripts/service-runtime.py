@@ -9,6 +9,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import settings
+from values_context import from_environment
 
 try:
     import hcl2
@@ -16,7 +17,7 @@ except ImportError as error:  # pragma: no cover - exercised in tooling containe
     print(f"missing python-hcl2 dependency: {error}", file=sys.stderr)
     raise SystemExit(1) from error
 
-DEFAULT_TFVARS = Path("values/terraform.tfvars")
+DEFAULT_TFVARS = from_environment().path("terraform.tfvars")
 
 
 class ServiceRuntimeError(ValueError):

@@ -11,6 +11,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 import settings
+from values_context import ValuesContextError, from_environment
 
 try:
     import hcl2
@@ -19,7 +20,11 @@ except ImportError as error:  # pragma: no cover - exercised in tooling containe
     raise SystemExit(1) from error
 
 REPO = Path(__file__).resolve().parents[3]
-DEFAULT_TFVARS = REPO / "values" / "terraform.tfvars"
+try:
+    DEFAULT_TFVARS = from_environment(REPO).path("terraform.tfvars")
+except ValuesContextError as error:
+    print(str(error), file=sys.stderr)
+    raise SystemExit(1) from error
 DEFAULT_ANSIBLE_USER = "root"
 
 SERVICE_HOSTS = {
@@ -150,11 +155,13 @@ def service_hostvars(service: str, tfvars: dict[str, Any]) -> tuple[str, str, di
 
 
 def build_inventory(tfvars: dict[str, Any], services: list[str]) -> dict[str, Any]:
+    context = from_environment(REPO)
+    known_hosts = context.path("ansible/known_hosts")
     inventory: dict[str, Any] = {
         "_meta": {"hostvars": {}},
         "all": {
             "vars": {
-                "ansible_ssh_common_args": "-o UserKnownHostsFile=/workspace/values/ansible/known_hosts -o StrictHostKeyChecking=yes",
+                "ansible_ssh_common_args": f"-o UserKnownHostsFile={known_hosts} -o StrictHostKeyChecking=yes",
             }
         },
         "services": {"children": []},

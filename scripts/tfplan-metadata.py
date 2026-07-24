@@ -12,7 +12,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 3
+try:
+    from values_context import ValuesContextError, from_environment
+except ModuleNotFoundError:  # pragma: no cover - direct import in test loaders
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from values_context import ValuesContextError, from_environment
+
+SCHEMA_VERSION = 4
 DEFAULT_MAX_AGE_HOURS = 24
 INPUT_GLOBS = (
     "infra/opentofu/**/*.tf",
@@ -232,6 +238,13 @@ def plan_scope(target_service: str = "", replace_service: str = "") -> dict[str,
     return {"target_service": target_service, "replace_service": replace_service}
 
 
+def selected_site(repo: Path) -> str | None:
+    try:
+        return from_environment(repo).site
+    except ValuesContextError as error:
+        raise MetadataError(str(error)) from error
+
+
 def create_metadata(
     plan: Path,
     metadata: Path,
@@ -250,6 +263,7 @@ def create_metadata(
         "created_at": now.isoformat(),
         "expires_at": (now + timedelta(hours=max_age_hours)).isoformat(),
         "git_commit": git_commit(repo),
+        "site": selected_site(repo),
         "plan": {
             "path": plan.as_posix(),
             "sha256": sha256_file(plan),
@@ -299,6 +313,8 @@ def load_metadata(metadata: Path) -> dict[str, Any]:
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
     if not isinstance(data.get("inputs"), dict):
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
+    if data.get("site") is not None and not isinstance(data.get("site"), str):
+        raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
     scope = data.get("scope")
     if not isinstance(scope, dict) or not all(isinstance(scope.get(key), str) for key in ("target_service", "replace_service")):
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
@@ -326,6 +342,9 @@ def verify_metadata(
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.") from error
     if datetime.now(timezone.utc) > expires_at:
         raise MetadataError("Saved tfplan is expired. Run `just plan` again.")
+
+    if data.get("site") != selected_site(repo):
+        raise MetadataError("Saved tfplan site differs from this apply. Run `just plan` again.")
 
     expected_plan_hash = data.get("plan", {}).get("sha256")
     if expected_plan_hash != sha256_file(plan):

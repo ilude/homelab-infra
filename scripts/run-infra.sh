@@ -2,6 +2,15 @@
 set -euo pipefail
 
 values_dir="${VALUES_DIR:-values}"
+if [[ -n "${VALUES_SITE:-}" ]]; then
+  if [[ ! "${VALUES_SITE}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ || "${VALUES_SITE}" == *..* ]]; then
+    printf 'VALUES_SITE must be a simple site identifier.\n' >&2
+    exit 2
+  fi
+  if [[ "${values_dir}" != */"${VALUES_SITE}" ]]; then
+    values_dir="${values_dir}/sites/${VALUES_SITE}"
+  fi
+fi
 env_file="${values_dir}/.env"
 if [[ ! -f "${env_file}" ]]; then
   printf 'Missing %s. Run just setup or just setup <remote>.\n' "${env_file}" >&2
@@ -25,4 +34,8 @@ umask 077
 scripts/python.sh scripts/parse-env.py --env-file "${env_file}" >"${compose_env_file}"
 chmod 0600 "${compose_env_file}"
 
-docker compose run --rm --env-from-file "${compose_env_file}" infra "$@"
+docker compose run --rm \
+  --env VALUES_DIR="${values_dir}" \
+  --env VALUES_SITE="${VALUES_SITE:-}" \
+  --env-from-file "${compose_env_file}" \
+  infra "$@"

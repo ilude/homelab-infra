@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "tfplan-metadata.py"
 spec = importlib.util.spec_from_file_location("tfplan_metadata", SCRIPT)
@@ -54,6 +56,19 @@ class TfplanMetadataTests(unittest.TestCase):
         with temp_dir:
             tfplan_metadata.create_metadata(plan, metadata, repo, 24, {"resource_changes": []})
             tfplan_metadata.verify_metadata(plan, metadata, repo)
+
+    def test_plan_metadata_binds_to_selected_site(self) -> None:
+        temp_dir, repo, plan, metadata = self.make_repo()
+        site = repo / "values" / "sites" / "dev"
+        site.mkdir(parents=True)
+        (site / "terraform.tfvars").write_text("x = 1\n")
+        with temp_dir:
+            with patch.dict(os.environ, {"VALUES_SITE": "dev", "VALUES_DIR": str(repo / "values")}, clear=True):
+                tfplan_metadata.create_metadata(plan, metadata, repo, 24, {"resource_changes": []})
+                tfplan_metadata.verify_metadata(plan, metadata, repo)
+            with patch.dict(os.environ, {"VALUES_SITE": "prod", "VALUES_DIR": str(repo / "values")}, clear=True):
+                with self.assertRaises(tfplan_metadata.MetadataError):
+                    tfplan_metadata.verify_metadata(plan, metadata, repo)
 
     def test_missing_metadata_fails(self) -> None:
         temp_dir, repo, plan, metadata = self.make_repo()

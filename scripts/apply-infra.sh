@@ -86,7 +86,16 @@ if python -c "import json, sys; raise SystemExit(0 if json.loads(sys.argv[1]).ge
     infra/ansible/playbooks/storage-prep.yml
 fi
 
-tofu -chdir=infra/opentofu apply -state=../../${INFRA_VALUES_DIR}/terraform.tfstate ../../${INFRA_VALUES_DIR}/tfplan
+# A saved plan already contains its variable values. Do not let TF_VAR_* values
+# from the runtime env be compared against those values during apply.
+(
+  while IFS='=' read -r variable _; do
+    case "${variable}" in
+      TF_VAR_*) unset "${variable}" ;;
+    esac
+  done < <(env)
+  tofu -chdir=infra/opentofu apply -state=../../${INFRA_VALUES_DIR}/terraform.tfstate ../../${INFRA_VALUES_DIR}/tfplan
+)
 
 ansible_service_args=()
 if [[ -n "${target_service}" ]]; then

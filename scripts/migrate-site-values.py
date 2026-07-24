@@ -126,15 +126,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--site", required=True)
     parser.add_argument("--class", dest="site_class", default=None)
     parser.add_argument("--lifecycle", default=None)
-    parser.add_argument("--allow-apply", action="store_true")
     parser.add_argument("--allow-destroy", action="store_true")
     parser.add_argument("--apply", action="store_true", help="perform the migration; default is dry-run")
     args = parser.parse_args(argv)
 
-    site_class = args.site_class or ("development" if args.site == "dev" else "production")
-    lifecycle = args.lifecycle or ("disposable" if args.site == "dev" else "persistent")
-    allow_apply = args.allow_apply or args.site == "dev"
-    allow_destroy = args.allow_destroy or args.site == "dev"
+    disposable_site = args.site == "dev" or args.site.endswith("-dev")
+    site_class = args.site_class or ("development" if disposable_site else "production")
+    lifecycle = args.lifecycle or ("disposable" if disposable_site else "persistent")
+    # Migrating an existing production values tree must not silently disable
+    # normal applies; destruction remains opt-in for persistent sites.
+    allow_apply = True
+    allow_destroy = args.allow_destroy or disposable_site
     try:
         actions = migrate(
             args.values_dir,

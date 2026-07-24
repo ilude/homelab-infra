@@ -1,0 +1,8 @@
+{
+  "name": "dev",
+  "class": "development",
+  "lifecycle": "disposable",
+  "allow_apply": true,
+  "allow_destroy": true,
+  "services": ["technitium", "hermes"]
+}

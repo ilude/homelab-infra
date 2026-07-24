@@ -16,6 +16,15 @@ spec.loader.exec_module(migrate_values)
 
 
 class MigrateValuesTests(unittest.TestCase):
+    def test_site_metadata_controls_enabled_services(self) -> None:
+        temp, values = self.make_values()
+        with temp:
+            (values / "site.json").write_text(
+                json.dumps({"name": "dev", "services": ["hermes"]}),
+                encoding="utf-8",
+            )
+            self.assertEqual(migrate_values.enabled_services(values), {"hermes"})
+
     def test_infisical_encryption_key_generator_matches_current_format(self) -> None:
         value = migrate_values.GENERATED_SECRET_KEYS["INFISICAL_ENCRYPTION_KEY"]()
         self.assertRegex(value, r"^[0-9a-f]{32}$")

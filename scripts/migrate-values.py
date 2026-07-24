@@ -16,6 +16,11 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from envfile import EnvEntry, EnvFileError, parse_env_lines as parse_envfile_lines, parse_scalar as envfile_parse_scalar, read_lines, remove_env, set_env, write_lines
+try:
+    from values_context import from_environment
+except ModuleNotFoundError:  # pragma: no cover - direct import in test loaders
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from values_context import from_environment
 
 GENERATED_SECRET_KEYS = {
     "FORGEJO_SECRET_KEY": lambda: secrets.token_urlsafe(32),
@@ -820,9 +825,11 @@ def ensure_dns_records(
 
 
 def enabled_services(values_dir: Path) -> set[str]:
-    if values_dir != Path("values"):
+    site_settings = values_dir / "site.json"
+    if not site_settings.is_file() and values_dir != Path("values"):
         return set()
-    settings_path = Path("settings.local.json")
+    legacy_settings = Path("settings.local.json")
+    settings_path = site_settings if site_settings.is_file() else legacy_settings
     if not settings_path.exists():
         return set()
     try:
@@ -990,11 +997,12 @@ def redact_change(change: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--values-dir", type=Path, default=Path("values"))
+    parser.add_argument("--values-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     try:
-        changes = migrate(args.values_dir)
+        values_dir = args.values_dir or from_environment().values_dir
+        changes = migrate(values_dir)
     except MigrationError as error:
         print(f"values migration failed: {error}", file=sys.stderr)
         return 1

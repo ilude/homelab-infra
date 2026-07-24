@@ -86,7 +86,7 @@ actions-runners:
 # Remove saved plan artifacts
 [private]
 clean-plans:
-    rm -f tfplan tfplan.meta.json *.tfplan *.tfplan.meta.json
+    source scripts/site-context.sh; values_dir="$$(site_values_dir)"; rm -f "$${values_dir}/tfplan" "$${values_dir}/tfplan.meta.json" "$${values_dir}"/*.tfplan "$${values_dir}"/*.tfplan.meta.json
 
 # Review infrastructure changes using private values; writes tfplan for `just apply`
 plan: migrate-values

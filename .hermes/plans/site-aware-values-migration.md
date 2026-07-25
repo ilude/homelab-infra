@@ -1,7 +1,7 @@
 # Site-Aware Values and Service Selection Migration
 
-**Status:** Proposed — planning only. No private values, state, production
-inventory, or infrastructure resources have been migrated.
+**Status:** Implemented — site-aware development validation completed; production
+was left untouched.
 
 ## Objective
 
@@ -145,18 +145,23 @@ After explicit approval, use the site-aware apply workflow for dev first. Run
 production only after the migration has passed wiring, plan metadata, and
 rollback checks.
 
+**Validation result:** The isolated `dev` cycle completed successfully on the
+correct Proxmox target. Its state, service configuration, backup/restore path,
+endpoint checks, and final zero-change plan were validated. Production was not
+applied or modified.
+
 The migration helper refuses an existing target site, active Terraform locks,
 and missing legacy files. Its apply path rolls back completed moves if a later
 operation fails, and it never prints secret contents.
 
 ### Phase 6 — Remove compatibility paths
 
-After at least one successful site-aware cycle:
+Completed after the successful site-aware dev cycle:
 
-- remove obsolete root values assumptions;
-- remove the temporary dev checkout;
-- update documentation and agent instructions;
-- retain a clear migration or rollback tool for older private values layouts.
+- removed obsolete root values assumptions;
+- removed the temporary dev checkout;
+- updated documentation and agent instructions;
+- retained a clear migration or rollback tool for older private values layouts.
 
 ## Testing requirements
 

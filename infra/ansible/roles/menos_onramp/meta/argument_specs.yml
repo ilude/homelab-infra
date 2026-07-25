@@ -103,6 +103,9 @@ argument_specs:
       menos_onramp_openai_api_key:
         type: str
         required: false
+      menos_onramp_unified_pipeline_model:
+        type: str
+        required: false
       menos_onramp_callback_url:
         type: str
         required: false

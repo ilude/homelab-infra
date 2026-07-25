@@ -6,5 +6,6 @@ menos_onramp_required_packages: []
 menos_onramp_s3_bucket: menos
 menos_onramp_s3_region: us-east-1
 menos_onramp_openai_api_key: ""
+menos_onramp_unified_pipeline_model: openai/gpt-4o-mini
 menos_onramp_callback_url: ""
 menos_onramp_callback_secret: ""

@@ -172,6 +172,8 @@
                          'ports': ['127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000'],
                          'configs': [],
                          'volumes': ['./authorized_keys:/keys/authorized_keys:ro,Z'],
+                         'environment': (menos_onramp_definition.services['menos-api'].environment | default({}))
+                           | combine({'UNIFIED_PIPELINE_MODEL': menos_onramp_unified_pipeline_model}),
                          'healthcheck': menos_onramp_rootless_healthcheck
                        })
                  })
@@ -192,6 +194,7 @@
       - "menos_onramp_rendered_definition.services['menos-api'].ports == ['127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000']"
       - "menos_onramp_rendered_definition.services['menos-api'].configs | default([]) | length == 0"
       - "menos_onramp_rendered_definition.services['menos-api'].volumes == ['./authorized_keys:/keys/authorized_keys:ro,Z']"
+      - "menos_onramp_rendered_definition.services['menos-api'].environment.UNIFIED_PIPELINE_MODEL == menos_onramp_unified_pipeline_model"
       - "menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[0] == 'CMD-SHELL'"
       - "menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[1] is match('^python -c ')"
       - "'urllib.request.urlopen' in menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[1]"

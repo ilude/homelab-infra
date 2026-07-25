@@ -701,6 +701,20 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertNotIn("menos_s3_access_key | length >= 16", conditions)
 
+    def test_menos_env_pins_unified_pipeline_model(self) -> None:
+        role = REPO / "infra" / "ansible" / "roles" / "menos_onramp"
+        defaults = yaml.safe_load(
+            (role / "defaults" / "main.yml").read_text(encoding="utf-8")
+        )
+        env_template = (role / "templates" / "menos.env.j2").read_text(encoding="utf-8")
+        self.assertEqual(
+            defaults["menos_onramp_unified_pipeline_model"], "openai/gpt-4o-mini"
+        )
+        self.assertIn(
+            "UNIFIED_PIPELINE_MODEL={{ menos_onramp_unified_pipeline_model }}",
+            env_template,
+        )
+
     def test_menos_installs_pinned_postgres_backup_helpers(self) -> None:
         task = task_by_name(
             REPO
@@ -792,6 +806,9 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertIn(mount, expression)
         self.assertIn("'configs': []", expression)
         self.assertIn("'OLLAMA_KEEP_ALIVE': '-1'", expression)
+        self.assertIn(
+            "'UNIFIED_PIPELINE_MODEL': menos_onramp_unified_pipeline_model", expression
+        )
         self.assertIn("'healthcheck': menos_onramp_rootless_healthcheck", expression)
         command = task["vars"]["menos_onramp_rootless_healthcheck_command"]
         self.assertIn("python -c", command)
@@ -822,6 +839,10 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertIn(
             "menos_onramp_rendered_definition.services['menos-api'].volumes == ['./authorized_keys:/keys/authorized_keys:ro,Z']",
+            conditions,
+        )
+        self.assertIn(
+            "menos_onramp_rendered_definition.services['menos-api'].environment.UNIFIED_PIPELINE_MODEL == menos_onramp_unified_pipeline_model",
             conditions,
         )
         self.assertIn(

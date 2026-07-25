@@ -7,6 +7,8 @@ completed:
   - T2
   - V0
   - T3
+  - G1
+  - V1
 ---
 
 # Plan: Cut Over Menos Consumers and Decommission the Legacy Stack
@@ -166,12 +168,12 @@ Checked means the task and its verification passed. An unchecked task is pending
 - [x] T3: Pass process-local reader canaries
   - Status: complete
   - Evidence: with the backfill circuit disabled in the child environment, the exact shared Pi/Claude list and search entrypoints, Claude YouTube-ID resolution, known-content JSON, transcript-only retrieval, and Pi-native channel listing all passed against PostgreSQL Menos. Channel listing reported Menos as its source, and the persistent user endpoint remained unset before and after.
-- [ ] G1: Approve and execute the persistent reader cutover
-  - Status: in progress
-  - Evidence: explicit G1 approval and a passing full pre-mutation check are recorded privately. No active writer was found, and the future-process backfill circuit is persistently disabled. The endpoint switch is intentionally deferred until all active Pi/Claude processes are closed so the reader domain cannot split across inherited environments.
-- [ ] V1: Reader workflows and rollback boundary pass
-  - Status: pending
-  - Evidence: --
+- [x] G1: Approve and execute the persistent reader cutover
+  - Status: complete
+  - Evidence: explicit G1 approval and passing pre-mutation evidence are recorded privately. The persistent workstation endpoint now targets PostgreSQL, writes remain disabled, and the active Pi process inherited both settings. At operator direction, other idle client processes were left untouched; no writer was active and a clean validation window showed no legacy business-route traffic.
+- [x] V1: Reader workflows and rollback boundary pass
+  - Status: complete
+  - Evidence: the inherited Pi/Claude list, search, content, transcript, and channel workflows passed without process-local endpoint overrides or fallback. The full checker passed, channel listing reported Menos as its source, legacy remained healthy, and the clean validation window contained zero legacy business-route requests.
 
 ### Wave 2 - Writer transfer
 
@@ -531,9 +533,9 @@ Archive to `.specs/archive/postgresql-consumer-cutover-and-legacy-decommission/p
 ## Execution Status
 
 - **State:** in progress
-- **Completed work:** T1 bounded inventory; T2 focused checker, full preflight, healthcheck repair, fresh dump, configuration-state backup, and recovery-input verification; V0; T3 exact process-local reader canaries; and the approved G1 pre-mutation check and future-process backfill disable action
-- **Confirmed:** one workstation consumer domain; all legacy principals are local; one healthy API replica per deployment; no writer scheduler, active maintenance writer, callback, unmatched activity, or unexpected legacy data/object drift; live legacy storage is MinIO; current restore-affecting inputs match the successful T7 restore; exact Pi/Claude read entrypoints pass against PostgreSQL without fallback or persistent routing
-- **Current blockers:** active Pi/Claude processes must be closed before the approved persistent endpoint switch; this running Pi process cannot inherit a Windows user-environment update
-- **Next ready task:** follow the private G1 process-boundary handoff, launch a fresh Pi process, resume this plan, and run V1
+- **Completed work:** T1 bounded inventory; T2 focused checker, full preflight, healthcheck repair, fresh dump, configuration-state backup, and recovery-input verification; V0; T3 process-local reader canaries; and G1/V1 persistent PostgreSQL reader cutover and inherited-workflow validation
+- **Confirmed:** one workstation consumer domain; all legacy principals are local; one healthy API replica per deployment; no writer scheduler, active maintenance writer, callback, unmatched activity, or unexpected legacy data/object drift; live legacy storage is MinIO; current restore-affecting inputs match the successful T7 restore; persistent Pi/Claude read entrypoints use PostgreSQL without fallback while writes remain disabled
+- **Current blockers:** G2 legacy fence and writer transfer is not approved
+- **Next ready task:** obtain explicit G2 approval referencing the G2 section of the latest private cutover packet commit, then execute only the approved legacy fence, single writer canary, idempotency check, and V2 checks
 - **No action authorized:** G2, ingest, source edits, legacy service shutdown, deletion, plan/apply, or decommission
 - **Resume command after review:** `/do-it .specs/postgresql-consumer-cutover-and-legacy-decommission/plan.md`

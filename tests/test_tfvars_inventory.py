@@ -49,6 +49,17 @@ class TfvarsInventoryTests(unittest.TestCase):
 
         self.assertNotIn("ansible_host", inventory["_meta"]["hostvars"]["forgejo_lxc"])
 
+    def test_disabled_service_groups_exist_without_hosts(self) -> None:
+        inventory = tfvars_inventory.build_inventory({}, [])
+
+        expected_groups = {config["group"] for config in tfvars_inventory.SERVICE_HOSTS.values()}
+        self.assertEqual({group for group in inventory if group in expected_groups}, expected_groups)
+        for group in expected_groups:
+            with self.subTest(group=group):
+                self.assertEqual(inventory[group]["hosts"], [])
+        self.assertEqual(inventory["services"]["children"], [])
+        self.assertEqual(inventory["_meta"]["hostvars"], {})
+
     def test_onramp_host_uses_tfvars_address_user_and_policy_vars(self) -> None:
         inventory = tfvars_inventory.build_inventory(
             {

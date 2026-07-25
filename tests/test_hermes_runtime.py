@@ -17,6 +17,9 @@ ENV = ROLE / "templates" / "hermes-dashboard.env.j2"
 PREFLIGHT = ROLE / "templates" / "hermes-dashboard-preflight.sh.j2"
 OPERATOR_PLUGIN = ROLE / "files" / "homelab-infra-operator" / "__init__.py"
 OPERATOR_MANIFEST = ROLE / "files" / "homelab-infra-operator" / "plugin.yaml"
+OPERATOR_DASHBOARD_MANIFEST = ROLE / "files" / "homelab-infra-operator" / "dashboard" / "manifest.json"
+OPERATOR_DASHBOARD_API = ROLE / "files" / "homelab-infra-operator" / "dashboard" / "plugin_api.py"
+OPERATOR_DASHBOARD_JS = ROLE / "files" / "homelab-infra-operator" / "dashboard" / "dist" / "index.js"
 WHEEL_SHA256 = "bf75c02d59f7c464cd0d85026fb7ee2e6bb15f003beccab3442b572f1ae1fd37"
 
 
@@ -63,6 +66,9 @@ class HermesRuntimeContractTests(unittest.TestCase):
         cls.gateway_unit = GATEWAY_UNIT.read_text(encoding="utf-8")
         cls.operator_plugin = OPERATOR_PLUGIN.read_text(encoding="utf-8")
         cls.operator_manifest = OPERATOR_MANIFEST.read_text(encoding="utf-8")
+        cls.operator_dashboard_manifest = OPERATOR_DASHBOARD_MANIFEST.read_text(encoding="utf-8")
+        cls.operator_dashboard_api = OPERATOR_DASHBOARD_API.read_text(encoding="utf-8")
+        cls.operator_dashboard_js = OPERATOR_DASHBOARD_JS.read_text(encoding="utf-8")
 
     def test_runtime_user_can_run_containerized_tasks(self) -> None:
         self.assertIn("Grant Hermes runtime user access to Docker", self.main)
@@ -125,6 +131,10 @@ class HermesRuntimeContractTests(unittest.TestCase):
         self.assertIn("unsupported apply argument", self.operator_plugin)
         self.assertIn("Configure Hermes SearXNG web-search backend", self.main)
         self.assertIn("web.search_backend", self.main)
+        self.assertIn('"path": "/homelab-infra"', self.operator_dashboard_manifest)
+        self.assertIn("@router.post(\"/apply\")", self.operator_dashboard_api)
+        self.assertIn('body.get("confirm") != "APPLY"', self.operator_dashboard_api)
+        self.assertIn('registry.register("homelab-infra-operator"', self.operator_dashboard_js)
 
     def test_full_state_bootstrap_restore_is_guarded_and_validated(self) -> None:
         self.assertIn("Restore guarded private Hermes state during bootstrap", self.main)

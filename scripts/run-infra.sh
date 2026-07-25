@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-values_dir="${VALUES_DIR:-values}"
+source scripts/site-context.sh
+values_dir="$(site_values_dir)"
 env_file="${values_dir}/.env"
 if [[ ! -f "${env_file}" ]]; then
   printf 'Missing %s. Run just setup or just setup <remote>.\n' "${env_file}" >&2
@@ -25,4 +26,9 @@ umask 077
 scripts/python.sh scripts/parse-env.py --env-file "${env_file}" >"${compose_env_file}"
 chmod 0600 "${compose_env_file}"
 
-docker compose run --rm --env-from-file "${compose_env_file}" infra "$@"
+docker compose run --rm \
+  --env VALUES_DIR="${VALUES_DIR:-values}" \
+  --env VALUES_SITE="${VALUES_SITE:-}" \
+  --env INFRA_VALUES_DIR="${values_dir}" \
+  --env-from-file "${compose_env_file}" \
+  infra "$@"

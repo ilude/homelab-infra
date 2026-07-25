@@ -40,7 +40,13 @@ exits successfully.
 
 Restore stops the managed service units declared for the service, writes a
 pre-restore archive of the current state into `values/service-backups/<service>/`,
-restores the selected archive, and starts the managed units again.
+restores the selected archive, and starts the managed units again. Backups stream
+directly over service SSH into an atomic private `0600` archive. Before any restore
+stops services or removes state, the archive is checksum/manifest validated and a
+mount-aware capacity preflight must confirm room for the incoming archive, current
+state, pre-restore snapshot/archive allowance, and a safety reserve. A capacity
+failure makes no guest-state change; expand the affected guest filesystem and rerun
+the explicit restore.
 
 Hermes is also restored automatically during guarded bootstrap when its live
 `.hermes` directory is missing or empty. The role validates the newest complete

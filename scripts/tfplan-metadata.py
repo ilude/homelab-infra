@@ -12,7 +12,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 3
+try:
+    from values_context import ValuesContextError, from_environment
+except ModuleNotFoundError:  # pragma: no cover - direct import in test loaders
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from values_context import ValuesContextError, from_environment
+
+SCHEMA_VERSION = 4
 DEFAULT_MAX_AGE_HOURS = 24
 INPUT_GLOBS = (
     "infra/opentofu/**/*.tf",
@@ -26,12 +32,15 @@ INPUT_GLOBS = (
     "compose.yaml",
     "tools/**/*",
     "ansible.cfg",
-    "values/terraform.tfvars",
-    "values/dns-records.local.json",
-    "values/ansible/inventory/local.yml",
-    "values/.env",
     "settings.example.json",
     "settings.local.json",
+)
+VALUE_INPUTS = (
+    "terraform.tfvars",
+    "dns-records.local.json",
+    "ansible/inventory/local.yml",
+    "ansible/known_hosts",
+    ".env",
 )
 
 
@@ -53,6 +62,13 @@ def matching_inputs(repo: Path) -> dict[str, str]:
         for path in repo.glob(pattern):
             if path.is_file():
                 paths.add(path)
+    context = from_environment(repo)
+    for relative in VALUE_INPUTS:
+        path = context.path(relative)
+        if path.is_file():
+            paths.add(path)
+    if context.metadata_path is not None and context.metadata_path.is_file():
+        paths.add(context.metadata_path)
     return {
         path.relative_to(repo).as_posix(): sha256_file(path)
         for path in sorted(paths, key=lambda item: item.as_posix())
@@ -116,11 +132,12 @@ def enabled_stateful_services_by_address(repo: Path) -> dict[str, list[str]]:
     except (OSError, json.JSONDecodeError) as error:
         raise MetadataError(f"cannot read service registry: {registry_path}") from error
     services = registry.get("services", {})
-    settings_path = repo / "settings.local.json"
+    context = from_environment(repo)
+    settings_path = context.metadata_path or (repo / "settings.local.json")
     try:
         local_settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.is_file() else {}
     except json.JSONDecodeError as error:
-        raise MetadataError(f"cannot parse operator settings: {settings_path}") from error
+        raise MetadataError(f"cannot parse site settings: {settings_path}") from error
     enabled = local_settings.get("services", registry.get("default_services", []))
     if not isinstance(services, dict) or not isinstance(enabled, list):
         raise MetadataError("service registry or operator settings has an invalid service list")
@@ -232,6 +249,13 @@ def plan_scope(target_service: str = "", replace_service: str = "") -> dict[str,
     return {"target_service": target_service, "replace_service": replace_service}
 
 
+def selected_site(repo: Path) -> str | None:
+    try:
+        return from_environment(repo).site
+    except ValuesContextError as error:
+        raise MetadataError(str(error)) from error
+
+
 def create_metadata(
     plan: Path,
     metadata: Path,
@@ -250,6 +274,7 @@ def create_metadata(
         "created_at": now.isoformat(),
         "expires_at": (now + timedelta(hours=max_age_hours)).isoformat(),
         "git_commit": git_commit(repo),
+        "site": selected_site(repo),
         "plan": {
             "path": plan.as_posix(),
             "sha256": sha256_file(plan),
@@ -299,6 +324,8 @@ def load_metadata(metadata: Path) -> dict[str, Any]:
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
     if not isinstance(data.get("inputs"), dict):
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
+    if data.get("site") is not None and not isinstance(data.get("site"), str):
+        raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
     scope = data.get("scope")
     if not isinstance(scope, dict) or not all(isinstance(scope.get(key), str) for key in ("target_service", "replace_service")):
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
@@ -326,6 +353,9 @@ def verify_metadata(
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.") from error
     if datetime.now(timezone.utc) > expires_at:
         raise MetadataError("Saved tfplan is expired. Run `just plan` again.")
+
+    if data.get("site") != selected_site(repo):
+        raise MetadataError("Saved tfplan site differs from this apply. Run `just plan` again.")
 
     expected_plan_hash = data.get("plan", {}).get("sha256")
     if expected_plan_hash != sha256_file(plan):

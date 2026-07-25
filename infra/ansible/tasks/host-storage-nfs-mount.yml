@@ -38,10 +38,11 @@
   changed_when: storage_host_nfs_mount.rc == 0
   failed_when: storage_host_nfs_mount.rc not in [0, 32]
 
-- name: Set host NFS storage ownership
+- name: Set initial host NFS storage ownership
   ansible.builtin.file:
     path: "{{ storage_bind_mount.host_prepare.mountpoint }}"
     state: directory
     owner: "{{ storage_bind_mount.uid }}"
     group: "{{ storage_bind_mount.gid }}"
     mode: "{{ storage_bind_mount.mode | default('0750') }}"
+  when: storage_host_nfs_mount.rc == 0

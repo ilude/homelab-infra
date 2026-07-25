@@ -19,6 +19,7 @@ onramp_host_podman_packages:
   - caddy
   - curl
   - golang
+  - rsync
 onramp_host_compose_provider_command: podman-compose
 onramp_host_enable_docker_compat_socket: true
 onramp_host_allowed_reverse_proxy_ports:

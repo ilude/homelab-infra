@@ -18,6 +18,10 @@ Environment="VIRTUAL_ENV=/usr/local/lib/hermes-agent/venv"
 Environment="HERMES_HOME=/home/{{ hermes_runtime_user | default('anvil') }}/.hermes"
 Environment="HERMES_OPERATOR_REPO_PATH={{ hermes_repo_path | default('/srv/homelab-infra') }}"
 Environment="HERMES_DISABLE_LAZY_INSTALLS=1"
+{% if hermes_control_enabled | default(false) | bool %}
+EnvironmentFile=-/etc/hermes-control/plugin.env
+{% endif %}
+
 Restart=always
 RestartSec=5
 RestartForceExitStatus=75

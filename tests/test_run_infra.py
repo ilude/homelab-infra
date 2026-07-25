@@ -13,13 +13,15 @@ REPO = Path(__file__).resolve().parents[1]
 
 @unittest.skipIf(os.name == "nt", "run-infra.sh fake PATH test requires POSIX shell path semantics")
 class RunInfraTests(unittest.TestCase):
-    def run_with_fake_docker(self, exit_code: int) -> tuple[subprocess.CompletedProcess[str], Path]:
+    def run_with_fake_docker(self, exit_code: int, site: str | None = None) -> tuple[subprocess.CompletedProcess[str], Path]:
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         root = Path(temp_dir.name)
         values = root / "values"
         values.mkdir()
-        (values / ".env").write_text("PVE_HOST=proxmox.example.internal\n", encoding="utf-8")
+        selected_values = values / "sites" / site if site else values
+        selected_values.mkdir(parents=True, exist_ok=True)
+        (selected_values / ".env").write_text("PVE_HOST=proxmox.example.internal\n", encoding="utf-8")
         fakebin = root / "bin"
         fakebin.mkdir()
         record = root / "record"
@@ -59,6 +61,10 @@ class RunInfraTests(unittest.TestCase):
                 "TMPDIR": str(root),
             }
         )
+        if site:
+            env["VALUES_SITE"] = site
+        else:
+            env.pop("VALUES_SITE", None)
         result = subprocess.run(
             ["bash", "scripts/run-infra.sh", "true"],
             cwd=REPO,
@@ -71,6 +77,11 @@ class RunInfraTests(unittest.TestCase):
 
     def test_temp_env_file_removed_on_success(self) -> None:
         result, root = self.run_with_fake_docker(0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(list(root.glob("run-infra.*")))
+
+    def test_site_values_directory_is_selected(self) -> None:
+        result, root = self.run_with_fake_docker(0, site="dev")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(list(root.glob("run-infra.*")))
 

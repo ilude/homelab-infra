@@ -15,8 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from envfile import get_env_value, set_env_value
+from values_context import from_environment
 
-DEFAULT_VALUES_DIR = Path("values")
+DEFAULT_VALUES_DIR = from_environment().values_dir
 PLACEHOLDER_DOMAINS = ("example.internal", "example.net", "example.com")
 
 
@@ -234,6 +235,7 @@ def update_dns_records(
         "git.example.internal",
         "infisical.example.internal",
         "hermes.example.internal",
+        "control.hermes.example.internal",
         "searxng.apps.example.net",
     ):
         records.pop(placeholder, None)
@@ -242,6 +244,7 @@ def update_dns_records(
     records[f"git.{domain}"] = forgejo_ip
     records[f"infisical.{domain}"] = infisical_ip
     records[f"hermes.{domain}"] = hermes_ip
+    records[f"control.hermes.{domain}"] = hermes_ip
     records[f"searxng.apps.{domain}"] = searxng_ip
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
@@ -304,7 +307,7 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     set_env_value(env_path, "TECHNITIUM_API_URL", f"http://{technitium_ip}:5380/api")
-    set_env_value(env_path, "DNS_RECORDS_FILE", "values/dns-records.local.json")
+    set_env_value(env_path, "DNS_RECORDS_FILE", (values_dir / "dns-records.local.json").as_posix())
     set_env_value(env_path, "HERMES_WEB_SEARXNG_URL", f"https://searxng.apps.{domain}")
 
     set_tfvar_string(tfvars_path, "technitium_container_ipv4_address", f"{technitium_ip}/{default_prefix}")
@@ -349,7 +352,7 @@ def run(args: argparse.Namespace) -> int:
     print(f"  TECHNITIUM_API_URL=http://{technitium_ip}:5380/api")
     print(f"  LXC gateway: {gateway}")
     print(f"  Managed service IPs: git={forgejo_ip}, runner={forgejo_runner_ip}, tailscale={tailscale_ip}, infisical={infisical_ip}, hermes={hermes_ip}, searxng={searxng_ip}")
-    print(f"  DNS records: dns.{domain}, technitium.{domain}, git.{domain}, infisical.{domain}, hermes.{domain}, searxng.apps.{domain}")
+    print(f"  DNS records: dns.{domain}, technitium.{domain}, git.{domain}, infisical.{domain}, hermes.{domain}, control.hermes.{domain}, searxng.apps.{domain}")
     return 0
 
 

@@ -1,0 +1,16 @@
+---
+hermes_control_enabled: false
+hermes_control_checkout_path: /opt/hermes-control
+hermes_control_state_dir: /var/lib/hermes-control
+hermes_control_api_host: 127.0.0.1
+hermes_control_api_port: 8787
+hermes_control_api_workers: 1
+hermes_control_require_task_approval: true
+hermes_control_source_url: ""
+hermes_control_source_ref: ""
+hermes_control_domain: ""
+hermes_control_api_token: ""
+hermes_control_bridge_token: ""
+hermes_control_workspace_root: /srv
+hermes_control_project_roots: []
+hermes_control_extension_socket: /run/hermes/control-extension.sock

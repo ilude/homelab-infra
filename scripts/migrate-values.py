@@ -16,6 +16,11 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from envfile import EnvEntry, EnvFileError, parse_env_lines as parse_envfile_lines, parse_scalar as envfile_parse_scalar, read_lines, remove_env, set_env, write_lines
+try:
+    from values_context import from_environment
+except ModuleNotFoundError:  # pragma: no cover - direct import in test loaders
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from values_context import from_environment
 
 GENERATED_SECRET_KEYS = {
     "FORGEJO_SECRET_KEY": lambda: secrets.token_urlsafe(32),
@@ -29,6 +34,8 @@ GENERATED_SECRET_KEYS = {
     "INFISICAL_AUTH_SECRET": lambda: base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
     "INFISICAL_POSTGRES_PASSWORD": lambda: secrets.token_urlsafe(32),
     "HERMES_DASHBOARD_BASIC_AUTH_SECRET": lambda: secrets.token_urlsafe(48),
+    "HERMES_CONTROL_API_TOKEN": lambda: secrets.token_urlsafe(48),
+    "HERMES_CONTROL_BRIDGE_TOKEN": lambda: secrets.token_urlsafe(48),
     "SEARXNG_SECRET_KEY": lambda: secrets.token_urlsafe(48),
 }
 
@@ -55,6 +62,8 @@ SECRET_KEYS = {
     "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
     "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH",
     "HERMES_DASHBOARD_BASIC_AUTH_SECRET",
+    "HERMES_CONTROL_API_TOKEN",
+    "HERMES_CONTROL_BRIDGE_TOKEN",
     "HERMES_WEB_SEARXNG_URL",
     "SEARXNG_SECRET_KEY",
 }
@@ -103,6 +112,10 @@ MIGRATION_ENV_KEYS = {
     "FORGEJO_REPO_OWNER_EMAIL",
     "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
     "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH",
+    "HERMES_CONTROL_API_TOKEN",
+    "HERMES_CONTROL_BRIDGE_TOKEN",
+    "HERMES_CONTROL_SOURCE_URL",
+    "HERMES_CONTROL_SOURCE_REF",
     "HERMES_WEB_SEARXNG_URL",
     *ENV_TO_INVENTORY,
     *HISTORICAL_ENV_KEYS,
@@ -667,6 +680,12 @@ def ensure_inventory_vars(path: Path, text: str, domain: str) -> tuple[str, list
         "hermes_dashboard_basic_auth_username": "    hermes_dashboard_basic_auth_username: admin",
         "hermes_dashboard_basic_auth_password_hash": "    hermes_dashboard_basic_auth_password_hash: \"{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH') }}\"",
         "hermes_dashboard_basic_auth_secret": "    hermes_dashboard_basic_auth_secret: \"{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_SECRET') }}\"",
+        "hermes_control_enabled": "    hermes_control_enabled: false",
+        "hermes_control_domain": f"    hermes_control_domain: control.hermes.{domain}",
+        "hermes_control_source_url": "    hermes_control_source_url: \"{{ lookup('env', 'HERMES_CONTROL_SOURCE_URL') }}\"",
+        "hermes_control_source_ref": "    hermes_control_source_ref: \"{{ lookup('env', 'HERMES_CONTROL_SOURCE_REF') }}\"",
+        "hermes_control_api_token": "    hermes_control_api_token: \"{{ lookup('env', 'HERMES_CONTROL_API_TOKEN') }}\"",
+        "hermes_control_bridge_token": "    hermes_control_bridge_token: \"{{ lookup('env', 'HERMES_CONTROL_BRIDGE_TOKEN') }}\"",
         "hermes_web_searxng_url": "    hermes_web_searxng_url: \"{{ lookup('env', 'HERMES_WEB_SEARXNG_URL') }}\"",
         "searxng_server_name": f"    searxng_server_name: searxng.apps.{domain}",
         "searxng_public_url": f"    searxng_public_url: https://searxng.apps.{domain}",
@@ -782,6 +801,8 @@ def ensure_dns_records(
     infisical_ip: str,
     hermes_ip: str,
     searxng_ip: str = "",
+    hermes_domain: str = "",
+    hermes_control_domain: str = "",
 ) -> list[str]:
     if not path.exists():
         return []
@@ -790,7 +811,10 @@ def ensure_dns_records(
     if not isinstance(records, dict):
         raise MigrationError(f"{path}: a_records must be an object")
     changes: list[str] = []
-    desired = {f"infisical.{domain}": infisical_ip, f"hermes.{domain}": hermes_ip}
+    desired = {f"infisical.{domain}": infisical_ip}
+    if hermes_ip:
+        desired[hermes_domain or f"hermes.{domain}"] = hermes_ip
+        desired[hermes_control_domain or f"control.hermes.{domain}"] = hermes_ip
     if searxng_ip:
         desired[f"searxng.apps.{domain}"] = searxng_ip
     for name, address in desired.items():
@@ -804,9 +828,11 @@ def ensure_dns_records(
 
 
 def enabled_services(values_dir: Path) -> set[str]:
-    if values_dir != Path("values"):
+    site_settings = values_dir / "site.json"
+    if not site_settings.is_file() and values_dir != Path("values"):
         return set()
-    settings_path = Path("settings.local.json")
+    legacy_settings = Path("settings.local.json")
+    settings_path = site_settings if site_settings.is_file() else legacy_settings
     if not settings_path.exists():
         return set()
     try:
@@ -857,8 +883,11 @@ def migrate(values_dir: Path) -> list[str]:
     tfvars_values = parse_tfvars(tfvars_lines, tfvars_path)
 
     inventory_changes: list[str] = []
+    hermes_control_enabled = bool(re.search(r"^\s*hermes_control_enabled:\s*true\s*$", inventory_text, re.MULTILINE))
     if optional_services or forgejo_bootstrap_services or "technitium" in services:
         for key, generator in GENERATED_SECRET_KEYS.items():
+            if key.startswith("HERMES_CONTROL_") and not hermes_control_enabled:
+                continue
             if key not in env_entries:
                 set_env(env_lines, env_entries, key, generator())
                 changes.append(f"generated {key}")
@@ -894,15 +923,26 @@ def migrate(values_dir: Path) -> list[str]:
         if "searxng_onramp" in optional_services and "HERMES_WEB_SEARXNG_URL" not in env_entries:
             set_env(env_lines, env_entries, "HERMES_WEB_SEARXNG_URL", f"https://searxng.apps.{domain}")
             changes.append("added HERMES_WEB_SEARXNG_URL for SearXNG onramp")
+        hermes_control_match = re.search(
+            r"^\s*hermes_control_domain:\s*[\"']?([^\"'\s]+)",
+            inventory_text,
+            re.MULTILINE,
+        )
         changes.extend(
             ensure_dns_records(
                 values_dir / "dns-records.local.json",
                 domain,
-                tfvars_scalar_value(tfvars_lines, "infisical_lan_ip"),
-                tfvars_scalar_value(tfvars_lines, "hermes_lan_ip"),
+                tfvars_scalar_value(tfvars_lines, "infisical_lan_ip")
+                if "infisical" in optional_services
+                else "",
+                tfvars_scalar_value(tfvars_lines, "hermes_lan_ip")
+                if "hermes" in optional_services
+                else "",
                 tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0]
                 if "searxng_onramp" in optional_services
                 else "",
+                tfvars_scalar_value(tfvars_lines, "hermes_server_name"),
+                hermes_control_match.group(1) if hermes_control_match else "",
             )
         )
 
@@ -952,7 +992,8 @@ def migrate(values_dir: Path) -> list[str]:
             changes.append(f"removed historical unused {env_key}")
 
     if "DNS_RECORDS_FILE" not in env_entries:
-        set_env(env_lines, env_entries, "DNS_RECORDS_FILE", "values/dns-records.local.json")
+        dns_file = (values_dir / "dns-records.local.json").as_posix()
+        set_env(env_lines, env_entries, "DNS_RECORDS_FILE", dns_file)
         changes.append("added DNS_RECORDS_FILE default")
 
     if changes:
@@ -971,11 +1012,12 @@ def redact_change(change: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--values-dir", type=Path, default=Path("values"))
+    parser.add_argument("--values-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     try:
-        changes = migrate(args.values_dir)
+        values_dir = args.values_dir or from_environment().values_dir
+        changes = migrate(values_dir)
     except MigrationError as error:
         print(f"values migration failed: {error}", file=sys.stderr)
         return 1

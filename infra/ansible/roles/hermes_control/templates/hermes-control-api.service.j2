@@ -1,0 +1,19 @@
+[Unit]
+Description=Hermes Control API
+After=network-online.target hermes-control-bridge.service
+
+[Service]
+Type=simple
+User={{ hermes_runtime_user }}
+Group={{ hermes_runtime_user }}
+WorkingDirectory={{ hermes_control_checkout_path }}
+EnvironmentFile=/etc/hermes-control/api.env
+ExecStart={{ hermes_control_checkout_path }}/.venv/bin/uvicorn services.control_api.main:app --host {{ hermes_control_api_host }} --port {{ hermes_control_api_port }} --workers {{ hermes_control_api_workers }}
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths={{ hermes_control_state_dir }} /run/hermes
+
+[Install]
+WantedBy=multi-user.target

@@ -13,6 +13,12 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Callable
 
+try:
+    from values_context import from_environment
+except ModuleNotFoundError:  # pragma: no cover - direct import in test loaders
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from values_context import from_environment
+
 DEFAULT_MIN_AGE_HOURS = 48
 USER_AGENT = "homelab-infra-update/1.0"
 
@@ -307,7 +313,24 @@ def run(
 ) -> list[UpdateResult]:
     now = datetime.now(timezone.utc)
     min_age = timedelta(hours=min_age_hours)
-    return [process_target(target, root, now, min_age, opener) for target in TARGETS]
+    context = from_environment(root)
+    inventory_path = context.path("ansible/inventory/local.yml").relative_to(root)
+    targets = tuple(
+        Target(
+            name=target.name,
+            path=inventory_path if target.path == Path("values/ansible/inventory/local.yml") else target.path,
+            pattern=target.pattern,
+            replacement=target.replacement,
+            release_url=target.release_url,
+            strip_prefix=target.strip_prefix,
+            checksum_pattern=target.checksum_pattern,
+            checksum_replacement=target.checksum_replacement,
+            checksum_asset_template=target.checksum_asset_template,
+            checksum_file_template=target.checksum_file_template,
+        )
+        for target in TARGETS
+    )
+    return [process_target(target, root, now, min_age, opener) for target in targets]
 
 
 def print_results(results: list[UpdateResult]) -> None:

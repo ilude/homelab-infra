@@ -14,6 +14,7 @@ from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from envfile import EnvEntry, parse_env_lines, read_lines, set_env, write_lines
+from values_context import from_environment
 
 PLACEHOLDER_PREFIXES = ("REPLACE", "CHANGE_ME", "TODO")
 DEFAULT_TOKEN_NAME = "homelab-infra"  # public-safety: allow-secret
@@ -164,14 +165,15 @@ def bootstrap(env_file: Path, retries: int, delay: int, token_name: str) -> bool
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--env-file", type=Path, default=Path("values/.env"))
+    parser.add_argument("--env-file", type=Path, default=None)
     parser.add_argument("--retries", type=int, default=20)
     parser.add_argument("--delay", type=int, default=6)
     parser.add_argument("--token-name", default=DEFAULT_TOKEN_NAME)
     args = parser.parse_args(argv)
 
     try:
-        bootstrap(args.env_file, args.retries, args.delay, args.token_name)
+        env_file = args.env_file or from_environment().path(".env")
+        bootstrap(env_file, args.retries, args.delay, args.token_name)
     except BootstrapError as error:
         print(error, file=sys.stderr)
         return 1

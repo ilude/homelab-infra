@@ -1,8 +1,15 @@
 ---
-- name: Create host storage path {{ storage_bind_mount.source }}
+- name: Create host storage path {{ storage_bind_mount.source }}  # noqa risky-file-permissions
+  ansible.builtin.file:
+    path: "{{ storage_bind_mount.source }}"
+    state: directory
+  register: storage_host_directory
+
+- name: Set initial host storage ownership {{ storage_bind_mount.source }}  # noqa no-handler
   ansible.builtin.file:
     path: "{{ storage_bind_mount.source }}"
     state: directory
     owner: "{{ storage_bind_mount.uid }}"
     group: "{{ storage_bind_mount.gid }}"
     mode: "{{ storage_bind_mount.mode | default('0750') }}"
+  when: storage_host_directory.changed

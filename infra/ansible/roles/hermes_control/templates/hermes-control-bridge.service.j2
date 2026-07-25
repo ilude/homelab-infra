@@ -1,0 +1,21 @@
+[Unit]
+Description=Hermes Control bridge
+After=network-online.target hermes-gateway.service
+
+[Service]
+Type=simple
+User={{ hermes_runtime_user }}
+Group={{ hermes_runtime_user }}
+WorkingDirectory={{ hermes_control_checkout_path }}
+EnvironmentFile=/etc/hermes-control/bridge.env
+RuntimeDirectory=hermes
+RuntimeDirectoryMode=0750
+ExecStart={{ hermes_control_checkout_path }}/.venv/bin/python -m services.hermes_extension.runner
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/run/hermes /home/{{ hermes_runtime_user }}/.hermes
+
+[Install]
+WantedBy=multi-user.target

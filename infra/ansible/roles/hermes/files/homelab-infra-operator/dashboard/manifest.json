@@ -1,0 +1,13 @@
+{
+  "name": "homelab-infra-operator",
+  "label": "Homelab Infra",
+  "description": "Review and operate the homelab-infra repository through guarded actions.",
+  "icon": "ShieldCheck",
+  "version": "1.0.0",
+  "tab": {
+    "path": "/homelab-infra",
+    "position": "after:skills"
+  },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

@@ -6,6 +6,12 @@ import argparse
 import sys
 from pathlib import Path
 
+try:
+    from values_context import from_environment
+except ModuleNotFoundError:  # pragma: no cover - direct import in test loaders
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from values_context import from_environment
+
 
 class PreflightError(RuntimeError):
     pass
@@ -74,10 +80,12 @@ def run(root: Path, require_values: bool) -> None:
     check_glob_writable(repo, "tfplan*")
     check_glob_writable(repo, "*.tfplan*")
 
-    values = repo / "values"
+    values = from_environment(repo).values_dir
     if require_values or values.exists():
         check_directory_writable(values)
         check_glob_writable(values, "terraform.tfstate*")
+        check_glob_writable(values, "tfplan*")
+        check_glob_writable(values, "*.tfplan*")
         check_glob_writable(values, "*.tfstate*")
         check_file_writable(values / ".terraform.tfstate.lock.info")
         check_no_state_lock(values)

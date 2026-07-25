@@ -74,6 +74,12 @@ all:
     hermes_dashboard_basic_auth_username: admin
     hermes_dashboard_basic_auth_password_hash: "{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH') }}"
     hermes_dashboard_basic_auth_secret: "{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_SECRET') }}"
+    hermes_control_enabled: false
+    hermes_control_domain: control.hermes.example.internal
+    hermes_control_source_url: "{{ lookup('env', 'HERMES_CONTROL_SOURCE_URL') }}"
+    hermes_control_source_ref: "{{ lookup('env', 'HERMES_CONTROL_SOURCE_REF') }}"
+    hermes_control_api_token: "{{ lookup('env', 'HERMES_CONTROL_API_TOKEN') }}"
+    hermes_control_bridge_token: "{{ lookup('env', 'HERMES_CONTROL_BRIDGE_TOKEN') }}"
     hermes_web_searxng_url: "{{ lookup('env', 'HERMES_WEB_SEARXNG_URL') }}"
     searxng_server_name: searxng.apps.example.net
     searxng_public_url: https://searxng.apps.example.net

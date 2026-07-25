@@ -38,6 +38,10 @@ __pycache__/
 # Local scratch/log output
 .tmp/
 
+# Hermes dashboard runtime bundle (tracked asset, despite the global dist/ ignore)
+!infra/ansible/roles/hermes/files/homelab-infra-operator/dashboard/dist/
+!infra/ansible/roles/hermes/files/homelab-infra-operator/dashboard/dist/index.js
+
 # OS/editor
 .DS_Store
 Thumbs.db

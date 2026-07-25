@@ -35,8 +35,22 @@
     groups: users
     append: true
 
+- name: Ensure home directory is traversable by non-root service users
+  ansible.builtin.file:
+    path: /home
+    state: directory
+    mode: "0755"
+
 - name: Restore guarded private Hermes state during bootstrap
   ansible.builtin.include_tasks: bootstrap-state.yml
+
+- name: Ensure Hermes runtime home directory is traversable by the runtime user
+  ansible.builtin.file:
+    path: "/home/{{ hermes_runtime_user | default('anvil') }}"
+    state: directory
+    owner: "{{ hermes_runtime_user | default('anvil') }}"
+    group: "{{ hermes_runtime_user | default('anvil') }}"
+    mode: "0750"
 
 - name: Ensure Hermes runtime state directory exists
   ansible.builtin.file:
@@ -358,6 +372,19 @@
     - Restart hermes dashboard
     - Restart hermes gateway
 
+- name: Install homelab-infra operator dashboard plugin
+  ansible.builtin.copy:
+    src: homelab-infra-operator/dashboard/
+    dest: "/home/{{ hermes_runtime_user | default('anvil') }}/.hermes/plugins/homelab-infra-operator/dashboard/"
+    owner: "{{ hermes_runtime_user | default('anvil') }}"
+    group: "{{ hermes_runtime_user | default('anvil') }}"
+    mode: '0644'
+    directory_mode: '0750'
+  when: hermes_dashboard_enabled | default(true) | bool
+  notify:
+    - Restart hermes dashboard
+    - Restart hermes gateway
+
 - name: Enable homelab-infra operator plugin
   ansible.builtin.command:
     argv:
@@ -523,6 +550,53 @@
   retries: 6
   delay: 5
   until: hermes_caddy_active.rc == 0
+- name: Configure optional Hermes Control companion stack
+  ansible.builtin.include_role:
+    name: hermes_control
+  when: hermes_control_enabled | default(false) | bool
+- name: Verify Hermes Control HTTPS health through Caddy
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ hermes_control_domain }}:443:127.0.0.1"
+      - "https://{{ hermes_control_domain }}/health"
+  changed_when: false
+  when: hermes_control_enabled | default(false) | bool
+  register: hermes_control_https_health
+  retries: 12
+  delay: 5
+  until: hermes_control_https_health.rc == 0
+
+- name: Verify Hermes Control HTTPS diagnostics through Caddy
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ hermes_control_domain }}:443:127.0.0.1"
+      - -H
+      - "Authorization: Bearer {{ hermes_control_api_token }}"
+      - "https://{{ hermes_control_domain }}/diagnostics"
+  changed_when: false
+  no_log: true
+  when: hermes_control_enabled | default(false) | bool
+  register: hermes_control_https_diagnostics
+  retries: 12
+  delay: 5
+  until: hermes_control_https_diagnostics.rc == 0
+
 - name: Verify Hermes gateway service is active
   ansible.builtin.command:
     argv:

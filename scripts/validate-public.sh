@@ -34,5 +34,15 @@ ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/invent
   infra/ansible/playbooks/storage-prep.yml \
   infra/ansible/playbooks/guest-mount-feature-preflight.yml \
   "${playbooks[@]}"
-ansible-lint infra/ansible
+
+lint_root="$(mktemp -d)"
+cleanup_lint_root() {
+  rm -rf "$lint_root"
+}
+trap cleanup_lint_root EXIT
+cp -a .ansible-lint ansible.cfg settings.example.json infra scaffold scripts "${lint_root}/"
+(
+  cd "${lint_root}"
+  ANSIBLE_CONFIG="${lint_root}/ansible.cfg" ansible-lint infra/ansible
+)
 '

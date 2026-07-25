@@ -19,10 +19,12 @@ if SETTINGS_SPEC is None or SETTINGS_SPEC.loader is None:
     raise RuntimeError("cannot load scripts/settings.py")
 settings = importlib.util.module_from_spec(SETTINGS_SPEC)
 SETTINGS_SPEC.loader.exec_module(settings)
-DEFAULT_INVENTORY = (
-    "values/ansible/inventory/local.yml",
-    "infra/ansible/inventory/tfvars.py",
-)
+try:
+    from values_context import from_environment
+except ModuleNotFoundError:  # pragma: no cover - direct import in test loaders
+    sys.path.insert(0, str(REPO / "scripts"))
+    from values_context import from_environment
+DEFAULT_INVENTORY = ("infra/ansible/inventory/tfvars.py",)
 RunCommand = Callable[[list[str], Path, dict[str, str]], int]
 
 
@@ -203,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--settings", type=Path, default=None)
     parser.add_argument("--inventory", action="append", default=None)
-    parser.add_argument("--env-file", type=Path, default=Path("values/.env"))
+    parser.add_argument("--env-file", type=Path, default=None)
     parser.add_argument("--mode", choices=("parallel", "sequential"), default=os.environ.get("INFRA_APPLY_ANSIBLE_MODE", "parallel"))
     parser.add_argument("--service", default="")
     parser.add_argument("--max-workers", type=int, default=int(os.environ.get("INFRA_APPLY_ANSIBLE_MAX_WORKERS", "4")))
@@ -215,7 +217,9 @@ def main(argv: list[str] | None = None) -> int:
     except settings.SettingsError as error:
         print(error, file=sys.stderr)
         return 1
-    inventories = tuple(args.inventory or DEFAULT_INVENTORY)
+    context = from_environment(REPO)
+    inventories = tuple(args.inventory or (str(context.path("ansible/inventory/local.yml")), *DEFAULT_INVENTORY))
+    env_file = args.env_file or context.path(".env")
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     log_dir = args.log_dir or Path(".tmp") / f"apply-ansible-{timestamp.replace(':', '')}"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -223,9 +227,9 @@ def main(argv: list[str] | None = None) -> int:
     base_env = dict(os.environ)
 
     if args.mode == "sequential":
-        results = run_sequential(services, inventories, log_dir, args.env_file, base_env)
+        results = run_sequential(services, inventories, log_dir, env_file, base_env)
     else:
-        results = run_parallel(services, inventories, log_dir, args.env_file, base_env, max(1, args.max_workers))
+        results = run_parallel(services, inventories, log_dir, env_file, base_env, max(1, args.max_workers))
     summarize_results(services, results)
     return summarize_failures(results)
 

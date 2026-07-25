@@ -1,0 +1,11 @@
+---
+- name: Restart hermes control API
+  ansible.builtin.systemd:
+    name: hermes-control-api
+    state: restarted
+    daemon_reload: true
+- name: Restart hermes control bridge
+  ansible.builtin.systemd:
+    name: hermes-control-bridge
+    state: restarted
+    daemon_reload: true

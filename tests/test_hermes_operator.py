@@ -18,12 +18,12 @@ spec.loader.exec_module(hermes_operator)
 class HermesOperatorTests(unittest.TestCase):
     def test_redaction_removes_secrets_private_addresses_and_paths(self) -> None:
         text = (
-            "TOKEN=super-secret-value host=192.168.10.20 "
+            "TOKEN=super-secret-value host=192.168.10.20 "  # public-safety: allow-ip # public-safety: allow-secret
             "path=/workspace/values/.env url=https://git.private.internal/"
         )
         redacted = hermes_operator.redact_output(text, {"super-secret-value"})
         self.assertNotIn("super-secret-value", redacted)
-        self.assertNotIn("192.168.10.20", redacted)
+        self.assertNotIn("192.168.10.20", redacted)  # public-safety: allow-ip
         self.assertNotIn("git.private.example", redacted)
         self.assertNotIn("/workspace/values/.env", redacted)
         self.assertIn("<redacted>", redacted)
@@ -65,7 +65,7 @@ class HermesOperatorTests(unittest.TestCase):
             result = hermes_operator.run_action(
                 root,
                 "validate",
-                runner=lambda *_: (0, "TOKEN=secret-value 192.168.1.5\n"),
+                runner=lambda *_: (0, "TOKEN=secret-value 192.168.1.5\n"),  # public-safety: allow-ip # public-safety: allow-secret
             )
             self.assertTrue(result["ok"])
             audit = json.loads((root / ".tmp" / "hermes-operator-audit.jsonl").read_text())

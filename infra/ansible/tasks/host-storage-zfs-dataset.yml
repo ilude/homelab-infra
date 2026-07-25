@@ -54,10 +54,11 @@
   changed_when: storage_zfs_mount.rc == 0
   failed_when: storage_zfs_mount.rc not in [0, 1]
 
-- name: Set host storage ownership {{ storage_bind_mount.host_prepare.mountpoint }}
+- name: Set initial host storage ownership {{ storage_bind_mount.host_prepare.mountpoint }}
   ansible.builtin.file:
     path: "{{ storage_bind_mount.host_prepare.mountpoint }}"
     state: directory
     owner: "{{ storage_bind_mount.uid }}"
     group: "{{ storage_bind_mount.gid }}"
     mode: "{{ storage_bind_mount.mode | default('0750') }}"
+  when: storage_zfs_list.rc != 0

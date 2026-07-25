@@ -9,6 +9,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from values_context import ValuesContextError, from_environment, load_metadata
+except ModuleNotFoundError:  # pragma: no cover - direct import in test loaders
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from values_context import ValuesContextError, from_environment, load_metadata
+
 DEFAULT_SETTINGS = Path("settings.local.json")
 REPO = Path(__file__).resolve().parents[1]
 SERVICE_REGISTRY = REPO / "infra" / "services.json"
@@ -54,7 +60,11 @@ class SettingsError(ValueError):
 
 
 def settings_path() -> Path:
-    return Path(os.environ.get("INFRA_SETTINGS_FILE", DEFAULT_SETTINGS))
+    explicit = os.environ.get("INFRA_SETTINGS_FILE")
+    if explicit:
+        return Path(explicit)
+    context = from_environment()
+    return context.metadata_path or DEFAULT_SETTINGS
 
 
 def load_raw(path: Path) -> dict[str, Any]:
@@ -142,6 +152,34 @@ def all_ansible_playbooks() -> list[str]:
     return playbooks
 
 
+def validate_site_metadata(metadata: dict[str, Any], site: str, path: Path) -> None:
+    if metadata.get("name", site) != site:
+        raise SettingsError(f"{path}: site metadata name does not match selected site")
+    site_class = metadata.get("class", "")
+    lifecycle = metadata.get("lifecycle", "")
+    if site_class not in {"development", "staging", "production", "location", "purpose"}:
+        raise SettingsError(f"{path}: unsupported site class")
+    if lifecycle not in {"disposable", "persistent"}:
+        raise SettingsError(f"{path}: lifecycle must be disposable or persistent")
+    for key in ("allow_apply", "allow_destroy"):
+        if not isinstance(metadata.get(key), bool):
+            raise SettingsError(f"{path}: {key} must be a boolean")
+    if site == "dev" and (site_class != "development" or lifecycle != "disposable"):
+        raise SettingsError(f"{path}: the dev site must be disposable development")
+
+
+def ensure_site_action_allowed(settings: dict[str, Any], action: str) -> None:
+    if action not in {"plan", "apply", "destroy"}:
+        raise SettingsError(f"unsupported site action: {action}")
+    if settings.get("site") is None:
+        return
+    metadata = settings.get("site_metadata", {})
+    if action == "apply" and metadata.get("allow_apply") is not True:
+        raise SettingsError(f"site {settings['site']} does not allow apply")
+    if action == "destroy" and metadata.get("allow_destroy") is not True:
+        raise SettingsError(f"site {settings['site']} does not allow destroy")
+
+
 def settings_summary(settings: dict[str, Any]) -> str:
     path = settings["path"]
     status = str(path) if Path(path).exists() else f"{path} missing; using defaults"
@@ -158,13 +196,25 @@ def settings_summary(settings: dict[str, Any]) -> str:
 
 
 def load_settings(path: Path | None = None) -> dict[str, Any]:
+    try:
+        context = from_environment()
+    except ValuesContextError as error:
+        raise SettingsError(str(error)) from error
+
     resolved_path = path or settings_path()
     raw = load_raw(resolved_path)
-    unknown = sorted(set(raw) - {"values_repo", "services"})
+    root_raw = load_raw(DEFAULT_SETTINGS) if context.site is not None and resolved_path != DEFAULT_SETTINGS else raw
+    site_raw = raw if context.site is not None and resolved_path != DEFAULT_SETTINGS else {}
+    unknown = sorted(set(root_raw) - {"values_repo", "services"})
     if unknown:
-        raise SettingsError(f"{resolved_path}: unknown top-level keys: {', '.join(unknown)}")
+        raise SettingsError(f"{DEFAULT_SETTINGS}: unknown top-level keys: {', '.join(unknown)}")
+    site_unknown = sorted(
+        set(site_raw) - {"name", "class", "lifecycle", "allow_apply", "allow_destroy", "services"}
+    )
+    if site_unknown:
+        raise SettingsError(f"{resolved_path}: unknown site keys: {', '.join(site_unknown)}")
 
-    values_repo = raw.get("values_repo", {})
+    values_repo = root_raw.get("values_repo", {})
     if values_repo is None:
         values_repo = {}
     if not isinstance(values_repo, dict):
@@ -180,10 +230,21 @@ def load_settings(path: Path | None = None) -> dict[str, Any]:
     if not isinstance(remote, str):
         raise SettingsError(f"{resolved_path}: values_repo.remote must be a string")
 
+    try:
+        metadata = load_metadata(context)
+    except ValuesContextError as error:
+        raise SettingsError(str(error)) from error
+    if context.site is not None:
+        validate_site_metadata(metadata, context.site, resolved_path)
+    services_raw = site_raw.get("services") if context.site is not None else raw.get("services")
+    if context.site is not None and services_raw is None:
+        raise SettingsError(f"{resolved_path}: site services are required")
     return {
         "path": resolved_path,
+        "site": context.site,
+        "site_metadata": metadata,
         "values_repo": {"remote": remote},
-        "services": normalize_services(raw.get("services"), resolved_path),
+        "services": normalize_services(services_raw, resolved_path),
     }
 
 
@@ -198,6 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     ansible_playbooks_parser.add_argument("--all", action="store_true")
     ansible_playbooks_parser.add_argument("--settings", type=Path, default=None)
     subparsers.add_parser("summary")
+    policy_parser = subparsers.add_parser("policy")
+    policy_parser.add_argument("--action", required=True, choices=("plan", "apply", "destroy"))
     subparsers.add_parser("tofu-var")
     tofu_target_parser = subparsers.add_parser("tofu-targets")
     tofu_target_parser.add_argument("service")
@@ -224,6 +287,13 @@ def main(argv: list[str] | None = None) -> int:
             print(playbook)
     elif args.command == "summary":
         print(settings_summary(settings))
+    elif args.command == "policy":
+        try:
+            ensure_site_action_allowed(settings, args.action)
+        except SettingsError as error:
+            print(error, file=sys.stderr)
+            return 1
+        print(f"site policy allows {args.action}")
     elif args.command == "tofu-var":
         print(json.dumps(settings["services"]))
     elif args.command == "tofu-targets":

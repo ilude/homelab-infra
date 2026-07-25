@@ -69,6 +69,24 @@ class ParseEnvTests(unittest.TestCase):
             path.unlink()
         self.assertEqual(values["TAILSCALE_AUTH_KEY"], "tskey-example-placeholder")
 
+    def test_hermes_control_keys_are_allowed(self) -> None:
+        path = self.write_env(
+            "\n".join(
+                (
+                    "HERMES_CONTROL_API_TOKEN=REPLACE_WITH_LONG_RANDOM_API_TOKEN",
+                    "HERMES_CONTROL_BRIDGE_TOKEN=REPLACE_WITH_LONG_RANDOM_BRIDGE_TOKEN",
+                    "HERMES_CONTROL_SOURCE_URL=ssh://git@example.internal/owner/hermes-control.git",
+                    "HERMES_CONTROL_SOURCE_REF=REPLACE_WITH_40_HEX_COMMIT",
+                )
+            )
+            + "\n"
+        )
+        try:
+            values = parse_env_script.parse_env(path)
+        finally:
+            path.unlink()
+        self.assertEqual(values["HERMES_CONTROL_SOURCE_REF"], "REPLACE_WITH_40_HEX_COMMIT")
+
     def test_keys_mode_prints_only_keys(self) -> None:
         path = self.write_env("PVE_HOST=proxmox.example.internal\n")
         try:

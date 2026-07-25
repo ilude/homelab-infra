@@ -10,6 +10,9 @@ CATALOG = ROOT / "infra" / "ansible" / "vars" / "service-state.yml"
 SERVICES = ROOT / "infra" / "services.json"
 BACKUP = ROOT / "infra" / "ansible" / "playbooks" / "service-state-backup.yml"
 RESTORE = ROOT / "infra" / "ansible" / "playbooks" / "service-state-restore.yml"
+ONRAMP_DEFAULTS = ROOT / "infra" / "ansible" / "roles" / "onramp_host" / "defaults" / "main.yml"
+COMPOSE = ROOT / "compose.yaml"
+SERVICE_STATE_CLI = ROOT / "scripts" / "service-state.sh"
 
 
 class ServiceStateTests(unittest.TestCase):
@@ -42,6 +45,21 @@ class ServiceStateTests(unittest.TestCase):
         self.assertIn("forgejo-postgres.dump", backup)
         self.assertIn("pg_restore", restore)
         self.assertIn("forgejo-postgres.dump", restore)
+
+    def test_restore_uses_selected_site_root_and_local_preflight(self) -> None:
+        restore = RESTORE.read_text(encoding="utf-8")
+        self.assertIn("service_state_backup_root | regex_escape", restore)
+        self.assertIn("delegate_to: localhost", restore)
+
+    def test_onramp_recovery_dependencies_and_container_paths_are_wired(self) -> None:
+        defaults = yaml.safe_load(ONRAMP_DEFAULTS.read_text(encoding="utf-8"))
+        compose = COMPOSE.read_text(encoding="utf-8")
+        cli = SERVICE_STATE_CLI.read_text(encoding="utf-8")
+
+        self.assertIn("rsync", defaults["onramp_host_podman_packages"])
+        self.assertIn("SERVICE_STATE_BACKUP_ROOT: ${SERVICE_STATE_BACKUP_ROOT:-}", compose)
+        self.assertIn("SERVICE_STATE_RESTORE_FILE: ${SERVICE_STATE_RESTORE_FILE:-}", compose)
+        self.assertIn('msys_env_conv_excl+="SERVICE_STATE_BACKUP_ROOT;SERVICE_STATE_RESTORE_FILE"', cli)
 
 
 if __name__ == "__main__":

@@ -801,6 +801,8 @@ def ensure_dns_records(
     infisical_ip: str,
     hermes_ip: str,
     searxng_ip: str = "",
+    hermes_domain: str = "",
+    hermes_control_domain: str = "",
 ) -> list[str]:
     if not path.exists():
         return []
@@ -809,9 +811,10 @@ def ensure_dns_records(
     if not isinstance(records, dict):
         raise MigrationError(f"{path}: a_records must be an object")
     changes: list[str] = []
-    desired = {f"infisical.{domain}": infisical_ip, f"hermes.{domain}": hermes_ip}
+    desired = {f"infisical.{domain}": infisical_ip}
     if hermes_ip:
-        desired[f"control.hermes.{domain}"] = hermes_ip
+        desired[hermes_domain or f"hermes.{domain}"] = hermes_ip
+        desired[hermes_control_domain or f"control.hermes.{domain}"] = hermes_ip
     if searxng_ip:
         desired[f"searxng.apps.{domain}"] = searxng_ip
     for name, address in desired.items():
@@ -920,6 +923,11 @@ def migrate(values_dir: Path) -> list[str]:
         if "searxng_onramp" in optional_services and "HERMES_WEB_SEARXNG_URL" not in env_entries:
             set_env(env_lines, env_entries, "HERMES_WEB_SEARXNG_URL", f"https://searxng.apps.{domain}")
             changes.append("added HERMES_WEB_SEARXNG_URL for SearXNG onramp")
+        hermes_control_match = re.search(
+            r"^\s*hermes_control_domain:\s*[\"']?([^\"'\s]+)",
+            inventory_text,
+            re.MULTILINE,
+        )
         changes.extend(
             ensure_dns_records(
                 values_dir / "dns-records.local.json",
@@ -929,6 +937,8 @@ def migrate(values_dir: Path) -> list[str]:
                 tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0]
                 if "searxng_onramp" in optional_services
                 else "",
+                tfvars_scalar_value(tfvars_lines, "hermes_server_name"),
+                hermes_control_match.group(1) if hermes_control_match else "",
             )
         )
 

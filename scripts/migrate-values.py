@@ -932,8 +932,12 @@ def migrate(values_dir: Path) -> list[str]:
             ensure_dns_records(
                 values_dir / "dns-records.local.json",
                 domain,
-                tfvars_scalar_value(tfvars_lines, "infisical_lan_ip"),
-                tfvars_scalar_value(tfvars_lines, "hermes_lan_ip"),
+                tfvars_scalar_value(tfvars_lines, "infisical_lan_ip")
+                if "infisical" in optional_services
+                else "",
+                tfvars_scalar_value(tfvars_lines, "hermes_lan_ip")
+                if "hermes" in optional_services
+                else "",
                 tfvars_scalar_value(tfvars_lines, "onramp_host_ipv4_address").split("/", 1)[0]
                 if "searxng_onramp" in optional_services
                 else "",

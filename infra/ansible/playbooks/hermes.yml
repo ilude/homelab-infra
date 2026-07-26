@@ -19,4 +19,6 @@
   gather_facts: true
   become: true
   roles:
+    - role: lxc_credentials
+      when: hermes_runtime.type | default('lxc') == 'lxc'
     - hermes

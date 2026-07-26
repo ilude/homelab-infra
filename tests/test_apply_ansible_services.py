@@ -24,6 +24,16 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
         self.assertEqual(waves[0], ["technitium", "forgejo", "onramp_host", "hermes"])
         self.assertEqual(waves[1], ["forgejo_runner", "searxng_onramp"])
 
+    def test_tfvars_root_password_overrides_environment_value(self) -> None:
+        if importlib.util.find_spec("hcl2") is None:
+            self.skipTest("python-hcl2 is provided by the project tooling image")
+        with tempfile.TemporaryDirectory() as temp:
+            tfvars = Path(temp) / "terraform.tfvars"
+            tfvars.write_text('lxc_root_password = "desired-password-value"\n', encoding="utf-8")
+            env = {"TF_VAR_lxc_root_password": "stale-password-value"}
+            apply_ansible_services.refresh_root_password_from_tfvars(tfvars, env)
+            self.assertEqual(env["TF_VAR_lxc_root_password"], "desired-password-value")
+
     def test_run_service_keeps_service_playbooks_sequential(self) -> None:
         commands: list[list[str]] = []
 

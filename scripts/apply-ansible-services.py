@@ -85,6 +85,20 @@ def refresh_env_from_file(env_file: Path, env: dict[str, str]) -> None:
     env.update(load_env_file(env_file))
 
 
+def refresh_root_password_from_tfvars(tfvars_file: Path, env: dict[str, str]) -> None:
+    if not tfvars_file.exists():
+        return
+    try:
+        import hcl2
+    except ModuleNotFoundError:
+        return
+    with tfvars_file.open(encoding="utf-8") as handle:
+        values = hcl2.load(handle)
+    password = values.get("lxc_root_password")
+    if isinstance(password, str) and password:
+        env["TF_VAR_lxc_root_password"] = password
+
+
 def bootstrap_technitium_token(env_file: Path, log_path: Path, env: dict[str, str], runner: RunCommand) -> int:
     rc = runner(
         ["python", "scripts/bootstrap-technitium-api-token.py", "--env-file", str(env_file)],
@@ -225,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
     print(f"Ansible service apply mode: {args.mode}; started {timestamp}; logs: {log_dir}", flush=True)
     base_env = dict(os.environ)
+    refresh_root_password_from_tfvars(context.path("terraform.tfvars"), base_env)
 
     if args.mode == "sequential":
         results = run_sequential(services, inventories, log_dir, env_file, base_env)

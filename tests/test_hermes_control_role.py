@@ -32,6 +32,8 @@ class HermesControlRoleTests(unittest.TestCase):
             "preflight",
             "install",
             "hermes_control_install_dir",
+            "Align Hermes Control systemd units with the configured Hermes user",
+            "Allow Hermes Control installer checkout for the runtime user",
             "Flush Hermes Control service changes before readiness checks",
             "bridge socket accepts connections",
             "Verify authenticated Hermes Control diagnostics",

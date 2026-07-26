@@ -160,7 +160,7 @@ variable "lxc_template_download_timeout_seconds" {
 }
 
 variable "lxc_root_password" {
-  description = "Initial root password for the LXC. Store only in terraform.tfvars or environment injection."
+  description = "Initial and Ansible-managed root password for LXCs. Store only in terraform.tfvars or environment injection."
   type        = string
   sensitive   = true
 }

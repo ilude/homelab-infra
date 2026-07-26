@@ -19,4 +19,6 @@
   gather_facts: false
   become: true
   roles:
+    - role: lxc_credentials
+      when: technitium_runtime.type | default('lxc') == 'lxc'
     - technitium

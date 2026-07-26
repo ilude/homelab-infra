@@ -89,6 +89,49 @@
     - Restart Hermes Control API
     - Restart Hermes Control bridge
 
+- name: Ensure Hermes Control installer target is traversable
+  ansible.builtin.file:
+    path: "{{ hermes_control_install_dir }}"
+    state: directory
+    owner: "{{ hermes_runtime_user }}"
+    group: "{{ hermes_runtime_user }}"
+    mode: '0750'
+
+- name: Read Hermes Control installer Git safe directories
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - "{{ hermes_runtime_user }}"
+      - --
+      - git
+      - config
+      - --global
+      - --get-all
+      - safe.directory
+  register: hermes_control_safe_directories
+  changed_when: false
+  failed_when: false
+
+- name: Allow Hermes Control installer checkout for the runtime user
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - "{{ hermes_runtime_user }}"
+      - --
+      - git
+      - config
+      - --global
+      - --add
+      - safe.directory
+      - "{{ item }}"
+  loop:
+    - "{{ hermes_control_install_dir }}"
+    - "{{ hermes_control_install_dir }}/.git"
+  when: item not in hermes_control_safe_directories.stdout_lines
+  changed_when: true
+
 - name: Run Hermes Control installer preflight
   ansible.builtin.command:
     argv:
@@ -128,6 +171,18 @@
     - Restart Hermes Control API
     - Restart Hermes Control bridge
     - Restart hermes gateway
+
+- name: Align Hermes Control systemd units with the configured Hermes user
+  ansible.builtin.replace:
+    path: "/etc/systemd/system/{{ item }}"
+    regexp: '^(User|Group)=.*$'
+    replace: '\\1={{ hermes_runtime_user }}'
+  loop:
+    - hermes-control-bridge.service
+    - hermes-mobile-control-api.service
+  notify:
+    - Restart Hermes Control API
+    - Restart Hermes Control bridge
 
 - name: Enforce Hermes Control infrastructure environment policy
   ansible.builtin.template:

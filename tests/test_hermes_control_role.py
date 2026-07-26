@@ -9,8 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 PARENT_TASKS = ROOT / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml"
 CONTROL_TASKS = ROOT / "infra" / "ansible" / "roles" / "hermes_control" / "tasks" / "main.yml"
-CONTROL_API_ENV = ROOT / "infra" / "ansible" / "roles" / "hermes_control" / "templates" / "api.env.j2"
-CONTROL_BRIDGE_ENV = ROOT / "infra" / "ansible" / "roles" / "hermes_control" / "templates" / "bridge.env.j2"
+CONTROL_API_ENV = ROOT / "infra" / "ansible" / "roles" / "hermes_control" / "templates" / "control-api.env.j2"
 CONTROL_PLUGIN_ENV = ROOT / "infra" / "ansible" / "roles" / "hermes_control" / "templates" / "plugin.env.j2"
 GATEWAY_UNIT = ROOT / "infra" / "ansible" / "roles" / "hermes" / "templates" / "hermes-gateway.service.j2"
 CADDYFILE = ROOT / "infra" / "ansible" / "roles" / "hermes" / "templates" / "Caddyfile.j2"
@@ -29,18 +28,20 @@ class HermesControlRoleTests(unittest.TestCase):
             "ansible.builtin.git:",
             "version: \"{{ hermes_control_source_ref }}\"",
             "hermes_control_source_ref is match('^[0-9a-f]{40}$')",
-            "plugins",
+            ".venv/bin/hermes-control\"",
+            "preflight",
             "install",
-            "file://{{ hermes_control_checkout_path }}",
+            "hermes_control_install_dir",
             "Flush Hermes Control service changes before readiness checks",
             "bridge socket accepts connections",
             "Verify authenticated Hermes Control diagnostics",
         ):
             self.assertIn(fragment, text)
         self.assertIn("no_log: true", text)
-        self.assertIn("changed_when: true\n  notify: Restart hermes gateway", text)
+        self.assertIn(".venv/bin/hermes-control", text)
+        self.assertIn("changed_when: true\n  no_log: true\n  notify:", text)
         self.assertIn("CONTROL_API_REQUIRE_TASK_APPROVAL=1", CONTROL_API_ENV.read_text(encoding="utf-8"))
-        self.assertIn("EnvironmentFile=-/etc/hermes-control/plugin.env", GATEWAY_UNIT.read_text(encoding="utf-8"))
+        self.assertIn("EnvironmentFile=-/etc/hermes-mobile-control/plugin.env", GATEWAY_UNIT.read_text(encoding="utf-8"))
 
     def test_restore_stops_are_inside_failure_safe_block(self) -> None:
         restore = (ROOT / "infra" / "ansible" / "playbooks" / "service-state-restore.yml").read_text(encoding="utf-8")
@@ -58,13 +59,14 @@ class HermesControlRoleTests(unittest.TestCase):
 
     def test_control_environment_views_keep_tokens_scoped(self) -> None:
         api = CONTROL_API_ENV.read_text(encoding="utf-8")
-        bridge = CONTROL_BRIDGE_ENV.read_text(encoding="utf-8")
+        bridge = CONTROL_API_ENV.read_text(encoding="utf-8")
         plugin = CONTROL_PLUGIN_ENV.read_text(encoding="utf-8")
         self.assertIn("CONTROL_API_TOKEN={{ hermes_control_api_token }}", api)
         self.assertIn("CONTROL_API_HERMES_PLUGIN_TOKEN={{ hermes_control_bridge_token }}", api)
         self.assertIn("HERMES_CONTROL_EXTENSION_TOKEN={{ hermes_control_bridge_token }}", bridge)
         self.assertNotIn("hermes_control_bridge_token", plugin)
         self.assertIn("CONTROL_API_TOKEN={{ hermes_control_api_token }}", plugin)
+        self.assertIn("hermes-mobile-control-api", CONTROL_TASKS.read_text(encoding="utf-8"))
 
     def test_operations_doc_covers_deployed_verification_and_recovery(self) -> None:
         operations = OPERATIONS_DOC.read_text(encoding="utf-8")

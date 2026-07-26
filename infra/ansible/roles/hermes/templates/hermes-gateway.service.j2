@@ -19,7 +19,7 @@ Environment="HERMES_HOME=/home/{{ hermes_runtime_user | default('anvil') }}/.her
 Environment="HERMES_OPERATOR_REPO_PATH={{ hermes_repo_path | default('/srv/homelab-infra') }}"
 Environment="HERMES_DISABLE_LAZY_INSTALLS=1"
 {% if hermes_control_enabled | default(false) | bool %}
-EnvironmentFile=-/etc/hermes-control/plugin.env
+EnvironmentFile=-/etc/hermes-mobile-control/plugin.env
 {% endif %}
 
 Restart=always

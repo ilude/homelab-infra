@@ -1,4 +1,3 @@
----
 - name: Validate Hermes Control required variables
   ansible.builtin.assert:
     that:
@@ -14,97 +13,150 @@
       Hermes Control requires an immutable source commit, private hostname,
       independent API and bridge tokens, loopback-only API binding, and mandatory approval.
 
-- name: Install Hermes Control source at reviewed commit
+- name: Check for legacy Hermes Control API unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/hermes-control-api.service
+  register: hermes_control_legacy_api_unit
+
+- name: Stop legacy Hermes Control API service
+  ansible.builtin.systemd:
+    name: hermes-control-api
+    state: stopped
+    enabled: false
+  when: hermes_control_legacy_api_unit.stat.exists
+  failed_when: false
+
+- name: Check out Hermes Control at the reviewed revision
   ansible.builtin.git:
     repo: "{{ hermes_control_source_url }}"
-    dest: "{{ hermes_control_checkout_path }}"
+    dest: "{{ hermes_control_source_checkout_path }}"
     version: "{{ hermes_control_source_ref }}"
     single_branch: true
     update: true
   register: hermes_control_source
   become: true
-  notify:
-    - Restart hermes control API
-    - Restart hermes control bridge
+  no_log: true
 
 - name: Verify Hermes Control source revision
   ansible.builtin.command:
-    argv: [git, -C, "{{ hermes_control_checkout_path }}", rev-parse, HEAD]
+    argv: [git, -C, "{{ hermes_control_source_checkout_path }}", rev-parse, HEAD]
   register: hermes_control_checked_out_ref
   changed_when: false
   failed_when: hermes_control_checked_out_ref.stdout | trim != hermes_control_source_ref
 
-- name: Install Hermes Control virtual environment
-  ansible.builtin.pip:
-    requirements: "{{ hermes_control_checkout_path }}/requirements.txt"
-    virtualenv: "{{ hermes_control_checkout_path }}/.venv"
-    virtualenv_command: python3 -m venv
-  notify:
-    - Restart hermes control API
-    - Restart hermes control bridge
+- name: Create Hermes Control installer virtual environment
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -m
+      - venv
+      - "{{ hermes_control_source_checkout_path }}/.venv"
+  args:
+    creates: "{{ hermes_control_source_checkout_path }}/.venv/bin/python"
 
-- name: Ensure Hermes Control state and configuration directories exist
+- name: Install Hermes Control installer CLI in source checkout
+  ansible.builtin.command:
+    argv:
+      - "{{ hermes_control_source_checkout_path }}/.venv/bin/python"
+      - -m
+      - pip
+      - install
+      - --disable-pip-version-check
+      - -r
+      - "{{ hermes_control_source_checkout_path }}/requirements.txt"
+      - "{{ hermes_control_source_checkout_path }}"
+  args:
+    chdir: "{{ hermes_control_source_checkout_path }}"
+  changed_when: true
+
+- name: Ensure Hermes Control installer configuration directory exists
   ansible.builtin.file:
-    path: "{{ item.path }}"
+    path: "{{ hermes_control_config_dir }}"
     state: directory
-    owner: "{{ hermes_runtime_user }}"
+    owner: root
     group: "{{ hermes_runtime_user }}"
-    mode: "{{ item.mode }}"
-  loop:
-    - {path: /etc/hermes-control, mode: '0750'}
-    - {path: "{{ hermes_control_state_dir }}", mode: '0750'}
+    mode: '0750'
 
-- name: Install Hermes Control secret environment files
+- name: Pre-seed Hermes Control installer environment
   ansible.builtin.template:
-    src: "{{ item }}.j2"
-    dest: "/etc/hermes-control/{{ item }}"
+    src: control-api.env.j2
+    dest: "{{ hermes_control_config_dir }}/control-api.env"
     owner: root
     group: "{{ hermes_runtime_user }}"
     mode: '0640'
-  loop: [api.env, bridge.env, plugin.env]
   no_log: true
   notify:
-    - Restart hermes control API
-    - Restart hermes control bridge
-    - Restart hermes gateway
+    - Restart Hermes Control API
+    - Restart Hermes Control bridge
 
-- name: Install Hermes Control systemd units
-  ansible.builtin.template:
-    src: "{{ item }}.j2"
-    dest: "/etc/systemd/system/{{ item }}"
-    owner: root
-    group: root
-    mode: '0644'
-  loop: [hermes-control-api.service, hermes-control-bridge.service]
-  notify:
-    - Restart hermes control API
-    - Restart hermes control bridge
-
-- name: Install and enable Hermes Control plugin from local reviewed checkout
+- name: Run Hermes Control installer preflight
   ansible.builtin.command:
     argv:
-      - runuser
-      - -u
+      - "{{ hermes_control_source_checkout_path }}/.venv/bin/hermes-control"
+      - --root
+      - "{{ hermes_control_source_checkout_path }}"
+      - --hermes-user
       - "{{ hermes_runtime_user }}"
-      - --
-      - env
-      - "HERMES_HOME=/home/{{ hermes_runtime_user }}/.hermes"
-      - /usr/local/bin/hermes
-      - plugins
+      - preflight
+  environment:
+    HERMES_CONTROL_INSTALL_DIR: "{{ hermes_control_install_dir }}"
+    HERMES_CONTROL_CONFIG_DIR: "{{ hermes_control_config_dir }}"
+    HERMES_CONTROL_STATE_DIR: "{{ hermes_control_state_dir }}"
+  args:
+    chdir: "{{ hermes_control_source_checkout_path }}"
+  changed_when: false
+
+- name: Run Hermes Control installer
+  ansible.builtin.command:
+    argv:
+      - "{{ hermes_control_source_checkout_path }}/.venv/bin/hermes-control"
+      - --root
+      - "{{ hermes_control_source_checkout_path }}"
+      - --hermes-user
+      - "{{ hermes_runtime_user }}"
       - install
-      - "file://{{ hermes_control_checkout_path }}"
-      - --force
-      - --enable
+  environment:
+    HERMES_CONTROL_INSTALL_DIR: "{{ hermes_control_install_dir }}"
+    HERMES_CONTROL_CONFIG_DIR: "{{ hermes_control_config_dir }}"
+    HERMES_CONTROL_STATE_DIR: "{{ hermes_control_state_dir }}"
+  args:
+    chdir: "{{ hermes_control_source_checkout_path }}"
+  register: hermes_control_install
   changed_when: true
+  no_log: true
+  notify:
+    - Restart Hermes Control API
+    - Restart Hermes Control bridge
+    - Restart hermes gateway
+
+- name: Enforce Hermes Control infrastructure environment policy
+  ansible.builtin.template:
+    src: control-api.env.j2
+    dest: "{{ hermes_control_config_dir }}/control-api.env"
+    owner: root
+    group: "{{ hermes_runtime_user }}"
+    mode: '0640'
+  no_log: true
+  notify:
+    - Restart Hermes Control API
+    - Restart Hermes Control bridge
+
+- name: Install Hermes gateway Control plugin environment
+  ansible.builtin.template:
+    src: plugin.env.j2
+    dest: "{{ hermes_control_config_dir }}/plugin.env"
+    owner: root
+    group: "{{ hermes_runtime_user }}"
+    mode: '0640'
+  no_log: true
   notify: Restart hermes gateway
 
-- name: Enable Hermes Control services
-  ansible.builtin.systemd:
-    name: "{{ item }}"
-    enabled: true
-    state: started
-    daemon_reload: true
-  loop: [hermes-control-bridge, hermes-control-api]
+- name: Remove legacy Hermes Control API unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/hermes-control-api.service
+    state: absent
+  when: hermes_control_legacy_api_unit.stat.exists
+  notify: Reload systemd
 
 - name: Flush Hermes Control service changes before readiness checks
   ansible.builtin.meta: flush_handlers
@@ -112,7 +164,7 @@
 - name: Verify Hermes Control services are active
   ansible.builtin.command:
     argv: [systemctl, is-active, "{{ item }}"]
-  loop: [hermes-control-bridge, hermes-control-api]
+  loop: [hermes-control-bridge, hermes-mobile-control-api]
   register: hermes_control_service_active
   changed_when: false
   retries: 6
@@ -125,7 +177,7 @@
       - python3
       - -c
       - >-
-        import socket; socket_path = "{{ hermes_control_extension_socket }}";
+        import socket; socket_path = "{{ hermes_control_plugin_socket }}";
         client = socket.socket(socket.AF_UNIX); client.settimeout(2);
         client.connect(socket_path); client.close()
   changed_when: false

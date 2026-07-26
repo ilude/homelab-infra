@@ -75,6 +75,9 @@ class HermesRuntimeContractTests(unittest.TestCase):
         self.assertIn("groups: docker", self.main)
         self.assertIn("install -d -m 0755 -o", self.main)
 
+    def test_github_cli_is_installed_in_the_hermes_guest(self) -> None:
+        self.assertIn('docker.io gh git', self.main)
+
     def test_managed_runtime_uses_hashed_wheels_and_legacy_fallback_is_scoped(self) -> None:
         self.assertIn("Detect Hermes managed wheel runtime support", self.main)
         self.assertIn("Reject unsupported Hermes runtime without explicit legacy opt-in", self.main)

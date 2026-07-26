@@ -91,7 +91,7 @@
     argv:
       - bash
       - -lc
-      - "set -euo pipefail; packages=\"build-essential ca-certificates caddy curl docker.io git gnupg jq openssh-client python3 python3-pip python3-venv rsync sudo tar unzip xz-utils\"; missing=0; for package in ${packages}; do\n  dpkg-query -W \"${package}\" >/dev/null 2>&1 || missing=1;\ndone; if [[ \"${missing}\" -eq 1 ]]; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};\nfi; systemctl enable --now docker"  # yamllint disable-line rule:line-length
+      - "set -euo pipefail; packages=\"build-essential ca-certificates caddy curl docker.io gh git gnupg jq openssh-client python3 python3-pip python3-venv rsync sudo tar unzip xz-utils\"; missing=0; for package in ${packages}; do\n  dpkg-query -W \"${package}\" >/dev/null 2>&1 || missing=1;\ndone; if [[ \"${missing}\" -eq 1 ]]; then\n  DEBIAN_FRONTEND=noninteractive apt-get update;\n  DEBIAN_FRONTEND=noninteractive apt-get install -y ${packages};\nfi; systemctl enable --now docker"  # yamllint disable-line rule:line-length
   changed_when: false
 - name: Grant Hermes runtime user access to Docker
   ansible.builtin.user:

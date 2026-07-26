@@ -148,6 +148,27 @@ class TfvarsInventoryTests(unittest.TestCase):
         self.assertEqual(hostvars["ansible_user"], "root")
         self.assertNotIn("ansible_become", hostvars)
 
+    def test_hermes_ssh_keys_are_promoted_from_lxc_keys(self) -> None:
+        keys = [
+            "ssh-ed25519 AAAAhermes-test-ed25519",
+            "ssh-rsa AAAAhermes-test-rsa",
+        ]
+
+        inventory = tfvars_inventory.build_inventory(
+            {
+                "hermes_container_vmid": 111,
+                "hermes_lan_ip": "192.0.2.71",
+                "lxc_ssh_public_keys": keys,
+            },
+            ["hermes"],
+        )
+
+        self.assertEqual(inventory["all"]["vars"]["hermes_ssh_public_keys"], keys)
+        self.assertEqual(
+            inventory["_meta"]["hostvars"]["hermes_lxc"]["hermes_ssh_public_keys"],
+            keys,
+        )
+
     def test_service_runtime_is_promoted_to_service_play_vars(self) -> None:
         runtime = {"type": "vm"}
         inventory = tfvars_inventory.build_inventory(

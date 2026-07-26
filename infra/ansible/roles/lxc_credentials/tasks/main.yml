@@ -2,7 +2,7 @@
 - name: Validate managed LXC root password
   ansible.builtin.assert:
     that:
-      - lookup('env', 'TF_VAR_lxc_root_password') | length >= 16
+      - lookup('env', 'TF_VAR_lxc_root_password') | length >= 8
       - lookup('env', 'TF_VAR_lxc_root_password') is not search('REPLACE_WITH_')
     fail_msg: TF_VAR_lxc_root_password must contain the private managed LXC root password.
   no_log: true

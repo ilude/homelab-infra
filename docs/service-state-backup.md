@@ -78,8 +78,8 @@ both files when this repo starts managing a new stateful service.
 - Before writing a backup, the CLI restricts `values/service-backups/` on Windows to the current user, SYSTEM, and Administrators with inheritable ACLs. POSIX hosts enforce mode `0700`. Missing host permission tools fail closed instead of writing an exposed archive.
 - Run backups before rebuilding or replacing a service host. `just apply` verifies the newest archive checksum and manifest for every affected stateful service and requires it to be no older than 24 hours.
 - A destructive plan affecting multiple stateful services is blocked by default. Use `INFRA_TARGET_SERVICE=<service> just plan` for the canary rollout, verify its direct endpoint and state, then create the next plan.
-- Review and commit/push the private `values/` repo after a successful backup if
-  you want the archive stored in the private remote.
+- Backup archives are not git-tracked. Use a separate mechanism for off-site
+  archive storage and durability.
 - Restore is normally explicit and service-scoped. Hermes is the exception during
   guarded bootstrap: when a normal private backup exists and live state is absent
   or empty, the role validates and restores the newest complete `.hermes` archive

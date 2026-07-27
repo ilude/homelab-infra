@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This contract defines the boundary between `homelab-infra`, `onramp-vNext`, and Hermes for general Docker application services. It keeps this repository focused on durable infrastructure while allowing Hermes to operate across infrastructure and app-platform workflows.
+This contract defines the boundary between `homelab-infra`, `onramp-vNext`, and Hermes for general Docker application services. It keeps this repository focused on durable infrastructure while allowing Hermes to operate across infrastructure and app-platform workflows. Cross-repository architecture decisions are governed by the 2026-07-26 Homelab Platform Architecture PRD, held in the Onclave repository at `docs/PRDS/2026-07-26-homelab-platform-architecture-PRD.md`.
 
 The selected default direction is option 3: `homelab-infra remains the durable infrastructure substrate`, `onramp-vNext owns Docker app services`, and `Hermes operates across both` through approved repo-native commands. The current SearXNG pilot is a temporary exception: `homelab-infra` owns `searxng_onramp` until the service is handed back to Onramp.
 
@@ -13,6 +13,16 @@ The selected default direction is option 3: `homelab-infra remains the durable i
 `onramp-vNext` owns Docker app services by default. That includes application catalog entries, Compose or Podman workload definitions, app lifecycle, app-level health checks, and app-specific configuration that does not require infrastructure resource ownership. Onclave and Menos are app workloads under this ownership model, not first-class infrastructure services.
 
 Hermes is the operator cockpit. It may summarize status, run approved validation and planning commands, and guide the operator through approval gates. Hermes must not become a third source of truth for infrastructure or app deployment state.
+
+## Provisioning Ownership
+
+`homelab-infra` owns all Proxmox guest provisioning, including LXC and VM creation, sizing, addressing, and OpenTofu state. `onramp-vNext` targets hosts that already exist and does not create guests. Its public-MVP scope item `onramp host provision proxmox` is withdrawn.
+
+Provisioning cannot be split between control planes because OpenTofu holds the state and will not see resources created externally.
+
+## Catalog Ownership
+
+`onramp-vNext` is the service catalog. `onclave` is the alpha incubator for AI tooling and services. Services proven there are promoted into the `onramp-vNext` catalog as official entries. Incubating services carry no stability expectation.
 
 ## DNS Contract
 
@@ -32,7 +42,7 @@ Onclave is an explicit protocol exception to loopback-only HTTP publishing: AMQP
 
 Infrastructure secrets, Proxmox credentials, DNS API tokens, OpenTofu state, and private inventory belong in the ignored `values/` repo or approved local secret stores. They must not be copied into tracked public files.
 
-Onramp app secrets belong to the app-platform secret mechanism selected by `onramp-vNext`. Hermes may reference whether required secrets are configured, but it must not print secret values, tokens, private domains, private hostnames, or private IP addresses.
+Bitwarden Secrets Manager is the single backend for Onramp app secrets. Infisical is one provider, not the source of truth. Services declare the secret names they require, not where those secrets live. Hermes may reference whether required secrets are configured, but it must not print secret values, tokens, private domains, private hostnames, or private IP addresses.
 
 ## State Contract
 
@@ -56,13 +66,15 @@ Podman-in-LXC is experimental. It may be tested for lightweight workloads, but i
 
 SearXNG is classified as an Onramp app-platform service by default. It is useful beyond Hermes, is naturally packaged as an app workload, and should not force this repository to add a first-class LXC for every plugin backend.
 
-Current exception: `homelab-infra` temporarily owns the `searxng_onramp` service. It depends on `onramp_host`, deploys SearXNG with rootless Podman, binds the app only on loopback, publishes HTTPS through Caddy on the onramp host, adds Technitium DNS input, and renders `HERMES_WEB_SEARXNG_URL` for Hermes. This exception should be removed or migrated when Onramp takes over the app definition.
+Current exception: `homelab-infra` temporarily owns the `searxng_onramp` service. It depends on `onramp_host`, deploys SearXNG with rootless Podman, binds the app only on loopback, publishes HTTPS through Caddy on the onramp host, adds Technitium DNS input, and renders `HERMES_WEB_SEARXNG_URL` for Hermes. The exception exits when `onramp-vNext` can receive workloads. At that point, SearXNG is evicted to `onramp-vNext`, and the `searxng_onramp` Ansible role is deleted, not generalized.
 
 ## App Workload Decisions
 
 Onclave and Menos deploy as app workloads on the homelab-managed `onramp_host`. Their source repository owns the host-agnostic app definitions and image contracts; this repository owns the selected host, private DNS inputs, secret delivery, and the role that consumes those definitions. The consumption path must use digest-pinned images and the app definition's declared environment contract.
 
 The Onclave source repository publishes reusable app definitions and immutable image contracts for Onclave and Menos. `onclave_onramp` and `menos_onramp` verify and consume those definitions, apply consumer-owned networking and storage bindings, and keep source and image references digest-pinned. Do not replace these paths with mutable images, local source builds, or duplicate Compose definitions.
+
+The `onclave_onramp` and `menos_onramp` services are temporary exceptions. They exit when `onramp-vNext` can receive workloads. At that point, Onclave and Menos are evicted to `onramp-vNext`, and both Ansible roles are deleted, not generalized.
 
 Menos exposes only its API through the onramp host's shared Caddy instance. PostgreSQL, MinIO, Ollama, SearXNG, and Docling remain internal to the workload network. Service-state archives cover the Compose definition, private environment, authorized keys, and Caddy configuration. PostgreSQL logical dumps and MinIO payloads remain separate host-local bulk recovery artifacts. PostgreSQL backup and restore helpers are checksum-verified from the same immutable Onclave revision as the app definition and execute database tools inside the internal PostgreSQL container without placing credentials in host command arguments.
 

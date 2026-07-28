@@ -70,7 +70,9 @@ class ParseEnvTests(unittest.TestCase):
         self.assertEqual(values["TAILSCALE_AUTH_KEY"], "tskey-example-placeholder")
 
     def test_onclave_rabbitmq_keys_are_rejected(self) -> None:
-        path = self.write_env("RABBITMQ_DEFAULT_PASS=placeholder-secret\n")
+        path = self.write_env(
+            "RABBITMQ_DEFAULT_PASS=placeholder-secret\n"  # public-safety: allow-secret
+        )
         try:
             with self.assertRaises(parse_env_script.EnvError):
                 parse_env_script.parse_env(path)

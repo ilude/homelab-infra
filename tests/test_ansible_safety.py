@@ -20,6 +20,9 @@ DIRECT_ACCESS_PLAYBOOK = (
 VM_DIRECT_ACCESS_PLAYBOOK = (
     REPO / "infra" / "ansible" / "playbooks" / "vm-direct-access-ready.yml"
 )
+ONCLAVE_ONRAMP_PLAYBOOK = (
+    REPO / "infra" / "ansible" / "playbooks" / "onclave-onramp.yml"
+)
 ZFS_DATASET_TASKS = REPO / "infra" / "ansible" / "tasks" / "zfs-dataset.yml"
 ONRAMP_HOST_TASKS = (
     REPO / "infra" / "ansible" / "roles" / "onramp_host" / "tasks" / "main.yml"
@@ -142,7 +145,8 @@ class AnsibleSafetyTests(unittest.TestCase):
         for unit in ROOTLESS_ONRAMP_UNITS:
             source = unit.read_text(encoding="utf-8")
             self.assertIn(
-                "RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}",
+                "RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} "
+                "{{ onramp_host_deploy_dir }}",
                 source,
                 str(unit),
             )
@@ -365,7 +369,10 @@ class AnsibleSafetyTests(unittest.TestCase):
     def test_lxc_ready_checks_configured_node_before_pct(self) -> None:
         names = task_names(LXC_READY_TASKS)
         guard = "Fail when PVE inventory target does not match configured node"
-        first_pct = "Wait for LXC to report running {{ lxc_ready_name | default(lxc_ready_vmid) }}"
+        first_pct = (
+            "Wait for LXC to report running "
+            "{{ lxc_ready_name | default(lxc_ready_vmid) }}"
+        )
         self.assertLess(names.index(guard), names.index(first_pct))
         guard_task = task_by_name(LXC_READY_TASKS, guard)
         self.assertNotIn("when", guard_task)
@@ -408,12 +415,14 @@ class AnsibleSafetyTests(unittest.TestCase):
                 marker_name,
             )
         self.assertIn(
-            'GOBIN="${tmp}/bin" GOTOOLCHAIN=local GOPROXY=proxy.golang.org,direct GOSUMDB=sum.golang.org\n'
+            'GOBIN="${tmp}/bin" GOTOOLCHAIN=local '
+            "GOPROXY=proxy.golang.org,direct GOSUMDB=sum.golang.org\n"
             '        "${tmp}/go/bin/go" install',
             text,
         )
         self.assertIn(
-            'PATH="${tmp}/go/bin:${PATH}" GOTOOLCHAIN=local GOPROXY=proxy.golang.org,direct GOSUMDB=sum.golang.org\n'
+            'PATH="${tmp}/go/bin:${PATH}" GOTOOLCHAIN=local '
+            "GOPROXY=proxy.golang.org,direct GOSUMDB=sum.golang.org\n"
             '        "${tmp}/bin/xcaddy" build',
             text,
         )
@@ -428,7 +437,8 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         expected = (
             'awk \'$1 == "dep" && $2 == "github.com/caddy-dns/cloudflare" && '
-            '$3 == "v{{ caddy_build_cloudflare_version }}" { found=1 } END { exit !found }'
+            '$3 == "v{{ caddy_build_cloudflare_version }}" '
+            "{ found=1 } END { exit !found }"
         )
         for name in (
             "Check installed Caddy build marker",
@@ -485,12 +495,14 @@ class AnsibleSafetyTests(unittest.TestCase):
         text = path.read_text(encoding="utf-8")
         self.assertIn("trixie.noarmor.gpg", text)
         self.assertIn(
-            "checksum: sha256:3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39",
+            "checksum: sha256:"
+            "3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39",
             text,
         )
         self.assertIn("trixie.tailscale-keyring.list", text)
         self.assertIn(
-            "checksum: sha256:5a1b21b30892bf22fb5d7c4f52fefe9b65efda2100e82abba2e0849da2a2264b",
+            "checksum: sha256:"
+            "5a1b21b30892bf22fb5d7c4f52fefe9b65efda2100e82abba2e0849da2a2264b",
             text,
         )
         self.assertIn("tailscale-archive-keyring.gpg", text)
@@ -512,7 +524,9 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertNotRegex(
                 text,
                 r"curl[^\n]*\n\s+-o\b",
-                f"{path} has curl URL and -o split across YAML lines; folded blocks preserve the newline here, causing curl to stream binary to Ansible stdout",
+                f"{path} has curl URL and -o split across YAML lines; folded "
+                "blocks preserve the newline here, causing curl to stream binary "
+                "to Ansible stdout",
             )
 
     def test_browser_facing_service_roles_have_http_smoke_checks(self) -> None:
@@ -528,9 +542,15 @@ class AnsibleSafetyTests(unittest.TestCase):
 
     def test_lightweight_service_roles_fail_on_active_checks(self) -> None:
         checks = {
-            "infra/ansible/roles/forgejo_runner/tasks/main.yml": "Verify Forgejo runner service is active",
-            "infra/ansible/roles/onramp_host/tasks/main.yml": "Verify rootless Podman user namespace as deploy user",
-            "infra/ansible/roles/tailscale_client/tasks/main.yml": "Verify tailscaled service is active",
+            "infra/ansible/roles/forgejo_runner/tasks/main.yml": (
+                "Verify Forgejo runner service is active"
+            ),
+            "infra/ansible/roles/onramp_host/tasks/main.yml": (
+                "Verify rootless Podman user namespace as deploy user"
+            ),
+            "infra/ansible/roles/tailscale_client/tasks/main.yml": (
+                "Verify tailscaled service is active"
+            ),
         }
         for rel_path, task_name in checks.items():
             task = task_by_name(REPO / rel_path, task_name)
@@ -585,11 +605,17 @@ class AnsibleSafetyTests(unittest.TestCase):
 
     def test_secret_files_are_direct_final_destinations_with_modes(self) -> None:
         checks = {
-            "infra/ansible/roles/infisical/tasks/main.yml": "/etc/infisical/infisical.env",
+            "infra/ansible/roles/infisical/tasks/main.yml": (
+                "/etc/infisical/infisical.env"
+            ),
             "infra/ansible/roles/hermes/tasks/main.yml": "/etc/hermes-dashboard.env",
             "infra/ansible/roles/caddy_proxy/tasks/main.yml": "/etc/caddy/env",
-            "infra/ansible/roles/forgejo_runner/tasks/main.yml": "/etc/forgejo-runner/config.yml",
-            "infra/ansible/roles/searxng_onramp/tasks/main.yml": "{{ searxng_onramp_base_dir }}/settings.yml",
+            "infra/ansible/roles/forgejo_runner/tasks/main.yml": (
+                "/etc/forgejo-runner/config.yml"
+            ),
+            "infra/ansible/roles/searxng_onramp/tasks/main.yml": (
+                "{{ searxng_onramp_base_dir }}/settings.yml"
+            ),
         }
         for rel_path, dest in checks.items():
             tasks = load_tasks(REPO / rel_path)
@@ -830,31 +856,38 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         conditions = task["ansible.builtin.assert"]["that"]
         self.assertIn(
-            "menos_onramp_rendered_definition.services.ollama.environment.OLLAMA_KEEP_ALIVE == '-1'",
+            "menos_onramp_rendered_definition.services.ollama.environment."
+            "OLLAMA_KEEP_ALIVE == '-1'",
             conditions,
         )
         self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].configs | default([]) | length == 0",
+            "menos_onramp_rendered_definition.services['menos-api'].configs "
+            "| default([]) | length == 0",
             conditions,
         )
         self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].volumes == ['./authorized_keys:/keys/authorized_keys:ro,Z']",
+            "menos_onramp_rendered_definition.services['menos-api'].volumes == "
+            "['./authorized_keys:/keys/authorized_keys:ro,Z']",
             conditions,
         )
         self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].environment.UNIFIED_PIPELINE_MODEL == menos_onramp_unified_pipeline_model",
+            "menos_onramp_rendered_definition.services['menos-api'].environment."
+            "UNIFIED_PIPELINE_MODEL == menos_onramp_unified_pipeline_model",
             conditions,
         )
         self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[0] == 'CMD-SHELL'",
+            "menos_onramp_rendered_definition.services['menos-api'].healthcheck."
+            "test[0] == 'CMD-SHELL'",
             conditions,
         )
         self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[1] is match('^python -c ')",
+            "menos_onramp_rendered_definition.services['menos-api'].healthcheck."
+            "test[1] is match('^python -c ')",
             conditions,
         )
         self.assertIn(
-            "'urllib.request.urlopen' in menos_onramp_rendered_definition.services['menos-api'].healthcheck.test[1]",
+            "'urllib.request.urlopen' in menos_onramp_rendered_definition."
+            "services['menos-api'].healthcheck.test[1]",
             conditions,
         )
 
@@ -882,6 +915,53 @@ class AnsibleSafetyTests(unittest.TestCase):
         compile(inline_script, "menos-embedding-model", "exec")
         self.assertTrue(task.get("no_log"))
         self.assertIn('"downloaded": true', task["changed_when"])
+
+    def test_onclave_onramp_consumes_host_rendered_bws_secrets(self) -> None:
+        plays = yaml.safe_load(ONCLAVE_ONRAMP_PLAYBOOK.read_text(encoding="utf-8"))
+        deployment = plays[-1]
+        tasks = {task["name"]: task for task in deployment["pre_tasks"]}
+        resolve_task = tasks["Resolve host-rendered Onclave BWS secrets"]
+        facts = resolve_task["ansible.builtin.set_fact"]
+        self.assertIn(
+            "lookup('env', 'RABBITMQ_DEFAULT_USER')",
+            facts["onclave_rabbitmq_default_user"],
+        )
+        self.assertIn(
+            "lookup('env', 'RABBITMQ_DEFAULT_PASS')",
+            facts["onclave_rabbitmq_default_pass"],
+        )
+        self.assertTrue(resolve_task["no_log"])
+
+        run_infra = (REPO / "scripts" / "run-infra.sh").read_text(encoding="utf-8")
+        self.assertIn("scripts/onclave-bws-env.py", run_infra)
+        renderer = (REPO / "scripts" / "onclave-bws-env.py").read_text(encoding="utf-8")
+        self.assertIn('"bws",', renderer)
+        self.assertIn('"secret",', renderer)
+        self.assertIn('"list",', renderer)
+
+    def test_onclave_onramp_reconciles_persisted_rabbitmq_password(self) -> None:
+        role_tasks = (
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "onclave_onramp"
+            / "tasks"
+            / "main.yml"
+        )
+        verify = task_by_name(
+            role_tasks, "Verify persisted RabbitMQ password matches BWS"
+        )
+        self.assertIn("authenticate_user", verify["ansible.builtin.command"]["argv"])
+        self.assertFalse(verify["changed_when"])
+        self.assertFalse(verify["failed_when"])
+        self.assertTrue(verify["no_log"])
+        reconcile = task_by_name(
+            role_tasks, "Reconcile persisted RabbitMQ password from BWS"
+        )
+        self.assertIn("change_password", reconcile["ansible.builtin.command"]["argv"])
+        self.assertEqual(reconcile["when"], "onclave_onramp_rabbitmq_auth.rc != 0")
+        self.assertTrue(reconcile["no_log"])
 
     def test_onramp_default_http_ports_do_not_collide(self) -> None:
         onclave_defaults = yaml.safe_load(
@@ -923,7 +1003,8 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         text = compose.read_text(encoding="utf-8")
         self.assertIn(
-            "{{ searxng_onramp_bind_address }}:{{ searxng_onramp_container_port }}:8080",
+            "{{ searxng_onramp_bind_address }}:"
+            "{{ searxng_onramp_container_port }}:8080",
             text,
         )
         self.assertNotIn(

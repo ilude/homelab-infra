@@ -147,6 +147,48 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
 
+- name: Verify persisted RabbitMQ password matches BWS
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - "{{ onclave_onramp_compose_provider_command }}"
+      - -f
+      - "{{ onclave_onramp_base_dir }}/compose.yaml"
+      - exec
+      - -T
+      - rabbitmq
+      - rabbitmqctl
+      - authenticate_user
+      - "{{ onclave_rabbitmq_default_user }}"
+      - "{{ onclave_rabbitmq_default_pass }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_rabbitmq_auth
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Reconcile persisted RabbitMQ password from BWS
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - "{{ onclave_onramp_compose_provider_command }}"
+      - -f
+      - "{{ onclave_onramp_base_dir }}/compose.yaml"
+      - exec
+      - -T
+      - rabbitmq
+      - rabbitmqctl
+      - change_password
+      - "{{ onclave_rabbitmq_default_user }}"
+      - "{{ onclave_rabbitmq_default_pass }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  when: onclave_onramp_rabbitmq_auth.rc != 0
+  no_log: true
+
 - name: Allow approved clients to reach Onclave AMQP
   ansible.builtin.command:
     argv:

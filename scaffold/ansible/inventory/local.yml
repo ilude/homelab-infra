@@ -104,8 +104,8 @@ all:
     onclave_core_image_repository: ghcr.io/traefikturkey/onclave-core
     onclave_core_image_tag: 0db510370c02c6deaf34c5b22d0d769216e94c68
     onclave_core_image_digest: sha256:307ca8627385fe06636a8a6619cf36e637bf352a787c6beee4bb2042438f0de5
-    onclave_rabbitmq_default_user: "{{ lookup('env', 'RABBITMQ_DEFAULT_USER') }}"
-    onclave_rabbitmq_default_pass: "{{ lookup('env', 'RABBITMQ_DEFAULT_PASS') }}"
+    onclave_bws_project_id: REPLACE_WITH_BWS_PROJECT_ID
+    onclave_bws_api_server: https://vault.example.internal/api
     menos_server_name: menos.example.internal
     menos_source_git_sha: 7c620a088755a3dab99741f7d8bde54bce8d85db
     menos_app_definition_url: https://raw.githubusercontent.com/traefikturkey/onclave/7c620a088755a3dab99741f7d8bde54bce8d85db/deploy/app/menos/compose.yaml

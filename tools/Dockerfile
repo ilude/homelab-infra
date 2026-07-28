@@ -4,6 +4,8 @@ ARG OPENTOFU_VERSION=1.12.3
 ARG OPENTOFU_LINUX_AMD64_SHA256=46b48c3438c65cf479fc076c9281422ffa2f493548d1e813d154c835c5986a08
 ARG TFLINT_VERSION=0.63.1
 ARG TFLINT_LINUX_AMD64_SHA256=8441a7d97df20431f19c9b9d27ff4c63e308c964e86660bc7cc0cf7bbe0725e8
+ARG BWS_VERSION=1.0.0
+ARG BWS_LINUX_AMD64_SHA256=9077fb7b336a62abc8194728fea8753afad8b0baa3a18723fc05fc02fdb53568
 ARG PIP_VERSION=26.1.2
 
 COPY tools/requirements.txt /tmp/requirements.txt
@@ -37,6 +39,12 @@ RUN apt-get update \
     && unzip /tmp/tflint.zip -d /usr/local/bin tflint \
     && chmod 0755 /usr/local/bin/tflint \
     && rm -f /tmp/tflint.zip \
+    && curl -fsSL -o /tmp/bws.zip \
+        "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${BWS_VERSION}/bws-x86_64-unknown-linux-gnu-${BWS_VERSION}.zip" \
+    && printf '%s  %s\n' "${BWS_LINUX_AMD64_SHA256}" /tmp/bws.zip | sha256sum -c - \
+    && unzip /tmp/bws.zip -d /usr/local/bin bws \
+    && chmod 0755 /usr/local/bin/bws \
+    && rm -f /tmp/bws.zip \
     && python3 -m venv /opt/ansible \
     && /opt/ansible/bin/pip install --no-cache-dir --upgrade "pip==${PIP_VERSION}" \
     && /opt/ansible/bin/pip install --no-cache-dir -r /tmp/requirements.txt \

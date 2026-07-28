@@ -15,6 +15,7 @@ export INFRA_GIT_COMMIT="${INFRA_GIT_COMMIT:-$(git rev-parse HEAD 2>/dev/null ||
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/run-infra.XXXXXX")"
 chmod 0700 "${tmp_dir}"
 compose_env_file="${tmp_dir}/env"
+bws_env_file="${tmp_dir}/onclave-bws.env"
 cleanup() {
   rm -rf -- "${tmp_dir}"
 }
@@ -23,6 +24,11 @@ trap cleanup EXIT HUP INT TERM
 # Convert values/.env to a sanitized Docker env file. Do not source it directly.
 umask 077
 scripts/python.sh scripts/parse-env.py --env-file "${env_file}" >"${compose_env_file}"
+if [[ "$*" == *"apply-ansible-services.py"* ]]; then
+  python scripts/onclave-bws-env.py \
+    --inventory "${values_dir}/ansible/inventory/local.yml" >"${bws_env_file}"
+  cat "${bws_env_file}" >>"${compose_env_file}"
+fi
 chmod 0600 "${compose_env_file}"
 
 docker compose run --rm --env-from-file "${compose_env_file}" infra "$@"

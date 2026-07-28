@@ -7,7 +7,7 @@ The optional `onramp_host` service creates a Debian 13 VM substrate for rootless
 - Enable host only: add `onramp_host` to `settings.local.json` services and fill the private `values/terraform.tfvars` onramp-host fields.
 - Enable Infisical onramp: add both `onramp_host` and `infisical_onramp`, then set the Infisical private secrets and point `infisical_server_name` DNS at the onramp host.
 - Enable temporary SearXNG: add both `onramp_host` and `searxng_onramp`, then set `SEARXNG_SECRET_KEY`, `HERMES_WEB_SEARXNG_URL`, `searxng_server_name`, and `searxng_public_url` in private values.
-- Enable Onclave: add both `onramp_host` and `onclave_onramp`, then set the app/image pins, RabbitMQ credentials, HTTP server names, and Technitium records in private values. AMQP is the only LAN-published app port; its firewall sources inherit the approved onramp-host CIDRs.
+- Enable Onclave: add both `onramp_host` and `onclave_onramp`, store the RabbitMQ credentials in the configured Bitwarden Secrets Manager project, then set the BWS project/server configuration, app/image pins, HTTP server names, and Technitium records in private values. AMQP is the only LAN-published app port; its firewall sources inherit the approved onramp-host CIDRs.
 - Enable Menos: add both `onramp_host` and `menos_onramp`, then set six image pins, required credentials, authorized public keys, the Menos server name, and its Technitium record. Only the API is loopback-bound behind Caddy; dependency ports remain internal.
 - Disable SearXNG only: remove `searxng_onramp`, remove or update its DNS/Hermes private values, then run a reviewed `just plan` before any apply.
 - Disable host: remove `onramp_host` from `settings.local.json` services, then run a reviewed `just plan` before any apply.
@@ -30,11 +30,11 @@ Onramp services use the shared system Caddy instance from `onramp_host`. The bas
 
 Onclave private values are:
 
-- `values/.env`: `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS`
-- `values/ansible/inventory/local.yml`: source Compose checksum, digest-pinned RabbitMQ and core images, and Onclave/RabbitMQ server names
+- Bitwarden Secrets Manager: `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS`
+- `values/ansible/inventory/local.yml`: BWS project/API server configuration, source Compose checksum, digest-pinned RabbitMQ and core images, and Onclave/RabbitMQ server names
 - `values/dns-records.local.json`: Onclave and RabbitMQ names mapped to the onramp-host IP
 
-The role verifies the source Compose checksum, keeps AMQP published for approved LAN clients, binds both HTTP surfaces to loopback behind shared Caddy, and stores RabbitMQ/core data below the service deployment directory for backup coverage.
+The controller receives only `BITWARDEN_ACCESS_KEY` from the operator environment and resolves the Onclave secrets before running the role. The bootstrap credential is not copied to the managed host. The role verifies the source Compose checksum, keeps AMQP published for approved LAN clients, binds both HTTP surfaces to loopback behind shared Caddy, and stores RabbitMQ/core data below the service deployment directory for backup coverage.
 
 Menos private values are:
 

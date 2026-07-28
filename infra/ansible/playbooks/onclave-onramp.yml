@@ -7,5 +7,12 @@
   hosts: onramp_host
   gather_facts: true
   become: true
+  pre_tasks:
+    - name: Resolve host-rendered Onclave BWS secrets
+      ansible.builtin.set_fact:
+        onclave_rabbitmq_default_user: "{{ lookup('env', 'RABBITMQ_DEFAULT_USER') }}"
+        onclave_rabbitmq_default_pass: "{{ lookup('env', 'RABBITMQ_DEFAULT_PASS') }}"
+      no_log: true
+
   roles:
     - onclave_onramp

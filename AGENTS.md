@@ -72,7 +72,7 @@ Forgejo Actions deployment monitoring helpers exist as private workflow plumbing
 - Keep service orchestration in Ansible and resource declaration in OpenTofu. Do not use OpenTofu `local-exec` for host or service configuration; add an Ansible playbook/role and wire it into `just apply` in the correct order.
 - No breadcrumbs, comment-only placeholder files, dead wrappers, or permanent duplicate knobs. When behavior moves, update only the affected migration, scaffold, documentation, and test surfaces for existing `values/` repos, and remove the old surface. Do not add or modify unaffected surfaces solely for completeness.
 - Prefer small Python helpers for local data transformation and Ansible/OpenTofu integration over shell glue. Keep shell wrappers only when they are a narrow tooling boundary.
-- Generated secrets belong in `values/.env`, must be idempotent, and must never be printed in logs or responses.
+- Onclave application secrets belong in Bitwarden Secrets Manager. `BITWARDEN_ACCESS_KEY` is the controller bootstrap credential and must not be copied to managed hosts. Keep only non-secret BWS project and server configuration in `values/`; do not retain Onclave credentials in `values/.env`. Other generated secrets belong in `values/.env`, must be idempotent, and must never be printed in logs or responses.
 
 ## Workflow
 

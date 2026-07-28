@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E501 - exact inventory records and immutable pins must remain intact.
 """Migrate private values files to the current layout."""
 
 from __future__ import annotations
@@ -18,12 +19,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from envfile import (
     EnvEntry,
     EnvFileError,
-    parse_env_lines as parse_envfile_lines,
-    parse_scalar as envfile_parse_scalar,
     read_lines,
     remove_env,
     set_env,
     write_lines,
+)
+from envfile import (
+    parse_env_lines as parse_envfile_lines,
+)
+from envfile import (
+    parse_scalar as envfile_parse_scalar,
 )
 
 GENERATED_SECRET_KEYS = {
@@ -54,7 +59,6 @@ SECRET_KEYS = {
     "HERMES_DASHBOARD_BASIC_AUTH_SECRET",
     "HERMES_WEB_SEARXNG_URL",
     "SEARXNG_SECRET_KEY",
-    "RABBITMQ_DEFAULT_PASS",
     "MENOS_SURREALDB_PASSWORD",
     "MENOS_POSTGRES_PASSWORD",
     "MENOS_S3_ACCESS_KEY",
@@ -1218,6 +1222,11 @@ def migrate_legacy_inventory(
     inventory_text: str, tfvars_lines: list[str]
 ) -> tuple[str, list[str]]:
     changes: list[str] = []
+    for key in ("onclave_rabbitmq_default_user", "onclave_rabbitmq_default_pass"):
+        pattern = re.compile(rf"(?m)^\s*{re.escape(key)}:\s*.*\n?")
+        inventory_text, count = pattern.subn("", inventory_text)
+        if count:
+            changes.append(f"removed {key}; Onclave secrets now come from BWS")
     inventory_text, item_changes = remove_legacy_pve_inventory_block(inventory_text)
     changes.extend(item_changes)
     inventory_text, item_changes = migrate_searxng_inventory_image(
@@ -1246,6 +1255,10 @@ def migrate(values_dir: Path) -> list[str]:
 
     env_entries = parse_env_lines(env_lines, env_path)
     optional_services = enabled_optional_services(values_dir)
+    if "onclave_onramp" in optional_services:
+        for key in ("RABBITMQ_DEFAULT_USER", "RABBITMQ_DEFAULT_PASS"):
+            if remove_env(env_lines, env_entries, key):
+                changes.append(f"removed {key}; Onclave secrets now come from BWS")
     changes.extend(
         migrate_local_values(env_lines, env_entries, tfvars_lines, optional_services)
     )
@@ -1307,18 +1320,6 @@ def migrate(values_dir: Path) -> list[str]:
             if key not in env_entries:
                 set_env(env_lines, env_entries, key, generator())
                 changes.append(f"generated {key}")
-        if "onclave_onramp" in optional_services:
-            if "RABBITMQ_DEFAULT_USER" not in env_entries:
-                set_env(env_lines, env_entries, "RABBITMQ_DEFAULT_USER", "onclave")
-                changes.append("added RABBITMQ_DEFAULT_USER for Onclave")
-            if "RABBITMQ_DEFAULT_PASS" not in env_entries:
-                set_env(
-                    env_lines,
-                    env_entries,
-                    "RABBITMQ_DEFAULT_PASS",
-                    secrets.token_urlsafe(32),
-                )
-                changes.append("generated RABBITMQ_DEFAULT_PASS")
         if "menos_onramp" in optional_services:
             for key, generator in {
                 "MENOS_POSTGRES_PASSWORD": lambda: secrets.token_urlsafe(32),
@@ -1341,8 +1342,8 @@ def migrate(values_dir: Path) -> list[str]:
                 {
                     "onclave_server_name": f"    onclave_server_name: onclave.{domain}",
                     "onclave_rabbitmq_server_name": f"    onclave_rabbitmq_server_name: rabbitmq.{domain}",
-                    "onclave_rabbitmq_default_user": "    onclave_rabbitmq_default_user: \"{{ lookup('env', 'RABBITMQ_DEFAULT_USER') }}\"",
-                    "onclave_rabbitmq_default_pass": "    onclave_rabbitmq_default_pass: \"{{ lookup('env', 'RABBITMQ_DEFAULT_PASS') }}\"",
+                    "onclave_bws_project_id": "    onclave_bws_project_id: REPLACE_WITH_BWS_PROJECT_ID",
+                    "onclave_bws_api_server": "    onclave_bws_api_server: https://vault.example.internal/api",
                 },
                 "Onclave inventory",
             )

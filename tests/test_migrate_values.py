@@ -17,6 +17,28 @@ spec.loader.exec_module(migrate_values)
 
 
 class MigrateValuesTests(unittest.TestCase):
+    def test_removes_legacy_onclave_env_secret_inventory_vars(self) -> None:
+        inventory = (
+            "all:\n  vars:\n"
+            "    onclave_rabbitmq_default_user: \"{{ lookup('env', 'RABBITMQ_DEFAULT_USER') }}\"\n"
+            "    onclave_rabbitmq_default_pass: \"{{ lookup('env', 'RABBITMQ_DEFAULT_PASS') }}\"\n"
+            "    retained: true\n"
+        )
+
+        updated, changes = migrate_values.migrate_legacy_inventory(inventory, [])
+
+        self.assertNotIn("onclave_rabbitmq_default_user", updated)
+        self.assertNotIn("onclave_rabbitmq_default_pass", updated)
+        self.assertIn("retained: true", updated)
+        self.assertIn(
+            "removed onclave_rabbitmq_default_user; Onclave secrets now come from BWS",
+            changes,
+        )
+        self.assertIn(
+            "removed onclave_rabbitmq_default_pass; Onclave secrets now come from BWS",
+            changes,
+        )
+
     def test_removes_only_recognized_legacy_pve_inventory_block(self) -> None:
         inventory = (
             "---\nall:\n  hosts:\n    pve:\n"

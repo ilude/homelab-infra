@@ -1,0 +1,151 @@
+---
+- name: Validate SeaweedFS state backend variables
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version | int >= 13
+      - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_host_deploy_user != 'root'
+      - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
+      - seaweedfs_server_name is match('^[A-Za-z0-9.-]+$')
+      - seaweedfs_s3_endpoint == 'https://' + seaweedfs_server_name
+      - seaweedfs_s3_bucket is match('^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$')
+      - seaweedfs_s3_key is match('^[A-Za-z0-9._/-]+$')
+      - seaweedfs_s3_region is match('^[a-z0-9-]+$')
+      - seaweedfs_state_noncurrent_days | int > seaweedfs_lock_noncurrent_days | int
+      - seaweedfs_lock_noncurrent_days | int > 0
+      - seaweedfs_s3_access_key | length >= 16
+      - seaweedfs_s3_secret_key | length >= 32
+      - seaweedfs_onramp_image is match('^docker\.io/chrislusf/seaweedfs:4\.41@sha256:[0-9a-f]{64}$')
+    fail_msg: "SeaweedFS requires a pinned image, HTTPS endpoint, dedicated bucket, and BWS-resolved credentials."
+  no_log: true
+
+- name: Ensure SeaweedFS persistent directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ seaweedfs_onramp_base_dir }}"
+      mode: "0700"
+    - path: "{{ seaweedfs_onramp_data_dir }}"
+      mode: "0700"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
+      mode: "0750"
+
+- name: Install protected SeaweedFS S3 identity config
+  ansible.builtin.template:
+    src: s3.json.j2
+    dest: "{{ seaweedfs_onramp_base_dir }}/s3.json"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  no_log: true
+  notify: Restart seaweedfs state
+
+- name: Install SeaweedFS compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ seaweedfs_onramp_base_dir }}/docker-compose.yml"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  notify: Restart seaweedfs state
+
+- name: Resolve SeaweedFS deploy user UID
+  ansible.builtin.command:
+    argv:
+      - id
+      - -u
+      - "{{ onramp_host_deploy_user }}"
+  register: seaweedfs_onramp_deploy_user_uid
+  changed_when: false
+
+- name: Install SeaweedFS rootless systemd unit
+  ansible.builtin.template:
+    src: seaweedfs-state.service.j2
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/seaweedfs-state.service"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  notify: Restart seaweedfs state
+
+- name: Enable SeaweedFS rootless systemd unit
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: seaweedfs-state.service
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ seaweedfs_onramp_deploy_user_uid.stdout | trim }}"
+
+- name: Install SeaweedFS Caddy site snippet
+  ansible.builtin.template:
+    src: seaweedfs.caddy.j2
+    dest: /etc/caddy/sites.d/seaweedfs.caddy
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart caddy
+
+- name: Validate SeaweedFS Caddy config
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
+  changed_when: false
+
+- name: Flush SeaweedFS and Caddy restarts before checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify SeaweedFS rootless service is active
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - is-active
+      - seaweedfs-state.service
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ seaweedfs_onramp_deploy_user_uid.stdout | trim }}"
+  register: seaweedfs_onramp_service_active
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: seaweedfs_onramp_service_active.rc == 0
+
+- name: Verify SeaweedFS S3 endpoint is locally reachable
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ seaweedfs_onramp_s3_port }}/"
+    status_code:
+      - 200
+      - 403
+    return_content: false
+  register: seaweedfs_onramp_s3_check
+  retries: 24
+  delay: 5
+  until: seaweedfs_onramp_s3_check.status in [200, 403]
+
+- name: Verify SeaweedFS HTTPS route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ seaweedfs_server_name }}:443:127.0.0.1"
+      - "https://{{ seaweedfs_server_name }}/"
+  register: seaweedfs_onramp_https_check
+  changed_when: false
+  failed_when: seaweedfs_onramp_https_check.rc not in [0, 22]

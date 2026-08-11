@@ -1,0 +1,36 @@
+{
+  "families": {
+    "HOMELAB_ENV": {
+      "path": "values/.env",
+      "format": "dotenv",
+      "encoding": "text"
+    },
+    "HOMELAB_TERRAFORM_TFVARS": {
+      "path": "values/terraform.tfvars",
+      "format": "hcl",
+      "encoding": "text"
+    },
+    "HOMELAB_ANSIBLE_INVENTORY": {
+      "path": "values/ansible/inventory/local.yml",
+      "format": "yaml",
+      "encoding": "gzip-base64"
+    },
+    "HOMELAB_DNS_RECORDS": {
+      "path": "values/dns-records.local.json",
+      "format": "json",
+      "encoding": "text"
+    },
+    "HOMELAB_SETTINGS": {
+      "path": "settings.local.json",
+      "format": "settings",
+      "encoding": "text"
+    }
+  },
+  "runtime_keys": [
+    "SEAWEEDFS_S3_ACCESS_KEY",
+    "SEAWEEDFS_S3_SECRET_KEY",
+    "HOMELAB_TOFU_STATE_PASSPHRASE",
+    "RABBITMQ_DEFAULT_USER",
+    "RABBITMQ_DEFAULT_PASS"
+  ]
+}

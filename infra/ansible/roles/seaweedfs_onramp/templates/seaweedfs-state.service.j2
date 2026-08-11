@@ -1,0 +1,17 @@
+[Unit]
+Description=SeaweedFS OpenTofu state backend
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ seaweedfs_onramp_data_dir }}
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ seaweedfs_onramp_base_dir }}
+ExecStart={{ seaweedfs_onramp_compose_provider_command }} -f {{ seaweedfs_onramp_base_dir }}/docker-compose.yml up -d
+ExecStop={{ seaweedfs_onramp_compose_provider_command }} -f {{ seaweedfs_onramp_base_dir }}/docker-compose.yml down
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target

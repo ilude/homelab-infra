@@ -1,0 +1,47 @@
+---
+- name: Run verified direct access handoff for the onramp VM
+  ansible.builtin.import_playbook: vm-direct-access-ready.yml
+  vars:
+    direct_vm_access_target_group: onramp_host
+
+- name: Deploy the SeaweedFS OpenTofu state backend
+  hosts: onramp_host
+  gather_facts: true
+  become: true
+  pre_tasks:
+    - name: Resolve controller-only SeaweedFS BWS credentials
+      ansible.builtin.set_fact:
+        seaweedfs_s3_access_key: "{{ lookup('env', 'SEAWEEDFS_S3_ACCESS_KEY') }}"
+        seaweedfs_s3_secret_key: "{{ lookup('env', 'SEAWEEDFS_S3_SECRET_KEY') }}"
+      no_log: true
+
+  roles:
+    - seaweedfs_onramp
+
+  post_tasks:
+    - name: Configure and verify the versioned state bucket
+      become: false
+      delegate_to: localhost
+      ansible.builtin.command:
+        argv:
+          - python
+          - scripts/seaweedfs-state.py
+          - ensure
+          - --endpoint
+          - "{{ seaweedfs_s3_endpoint }}"
+          - --bucket
+          - "{{ seaweedfs_s3_bucket }}"
+          - --state-key
+          - "{{ seaweedfs_s3_key }}"
+          - --region
+          - "{{ seaweedfs_s3_region }}"
+          - --state-noncurrent-days
+          - "{{ seaweedfs_state_noncurrent_days | string }}"
+          - --lock-noncurrent-days
+          - "{{ seaweedfs_lock_noncurrent_days | string }}"
+      args:
+        chdir: /workspace
+      environment:
+        AWS_ACCESS_KEY_ID: "{{ seaweedfs_s3_access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ seaweedfs_s3_secret_key }}"
+      no_log: true

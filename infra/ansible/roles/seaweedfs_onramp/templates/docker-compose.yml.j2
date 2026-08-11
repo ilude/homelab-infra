@@ -1,0 +1,17 @@
+---
+services:
+  seaweedfs:
+    image: {{ seaweedfs_onramp_image }}
+    container_name: seaweedfs-state
+    restart: unless-stopped
+    user: "0:0"
+    command:
+      - server
+      - -dir=/data
+      - -s3
+      - -s3.config=/etc/seaweedfs/s3.json
+    volumes:
+      - {{ seaweedfs_onramp_data_dir }}:/data:Z
+      - ./s3.json:/etc/seaweedfs/s3.json:ro,Z
+    ports:
+      - "127.0.0.1:{{ seaweedfs_onramp_s3_port }}:8333"

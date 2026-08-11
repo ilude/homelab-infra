@@ -1,0 +1,53 @@
+---
+argument_specs:
+  main:
+    short_description: "Deploy a minimal persistent SeaweedFS S3 state backend on the onramp host."
+    options:
+      onramp_host_deploy_user:
+        type: str
+        required: true
+        description: "Rootless Podman deploy user inherited from onramp host setup."
+      onramp_host_deploy_dir:
+        type: str
+        required: true
+        description: "Base deployment directory on the persistent onramp host filesystem."
+      seaweedfs_server_name:
+        type: str
+        required: true
+        description: "HTTPS server name exposed through the shared onramp Caddy instance."
+      seaweedfs_s3_endpoint:
+        type: str
+        required: true
+        description: "Controller-facing HTTPS endpoint for the SeaweedFS S3 API."
+      seaweedfs_s3_bucket:
+        type: str
+        required: true
+        description: "Dedicated OpenTofu state bucket name."
+      seaweedfs_s3_key:
+        type: str
+        required: true
+        description: "Object key used for authoritative OpenTofu state."
+      seaweedfs_s3_region:
+        type: str
+        required: true
+        description: "S3 signing region used by clients."
+      seaweedfs_state_noncurrent_days:
+        type: int
+        required: true
+        description: "Retention period for noncurrent state object versions."
+      seaweedfs_lock_noncurrent_days:
+        type: int
+        required: true
+        description: "Short retention period for noncurrent lock object versions."
+      seaweedfs_s3_access_key:
+        type: str
+        required: true
+        description: "BWS-resolved S3 access key rendered only into the protected server config."
+      seaweedfs_s3_secret_key:
+        type: str
+        required: true
+        description: "BWS-resolved S3 secret key rendered only into the protected server config."
+      seaweedfs_onramp_image:
+        type: str
+        required: false
+        description: "Immutable SeaweedFS 4.41 multi-architecture image reference."

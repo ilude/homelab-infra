@@ -1,0 +1,6 @@
+---
+seaweedfs_onramp_image: docker.io/chrislusf/seaweedfs:4.41@sha256:43b768cd62b00d132439cda881b93fd1adebf1b315e996e794087743821d771d
+seaweedfs_onramp_base_dir: "{{ onramp_host_deploy_dir }}/seaweedfs"
+seaweedfs_onramp_data_dir: /srv/seaweedfs-state
+seaweedfs_onramp_s3_port: 8333
+seaweedfs_onramp_compose_provider_command: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"

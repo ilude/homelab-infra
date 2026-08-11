@@ -12,11 +12,11 @@ settings.local.json
 *.tfplan.meta.json
 *.tfvars
 !*.tfvars.example
-!scaffold/terraform.tfvars
+!tests/fixtures/site-config/terraform.tfvars
 
 # Local DNS inventory
 dns-records.local.json
-!scaffold/dns-records.local.json
+!tests/fixtures/site-config/dns-records.local.json
 
 # Nested site values repo
 values/
@@ -25,7 +25,7 @@ values/
 .env
 .env.*
 !.env.example
-!scaffold/.env.example
+!tests/fixtures/site-config/.env
 
 # Local Ansible inventories outside the private values repo
 ansible/inventory/local.yml

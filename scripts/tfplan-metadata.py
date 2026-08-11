@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Create and verify metadata for a saved OpenTofu plan."""
+
 from __future__ import annotations
 
 import argparse
@@ -13,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DEFAULT_MAX_AGE_HOURS = 24
 DEFAULT_BACKUP_MAX_AGE_HOURS = 24
 INPUT_GLOBS = (
@@ -28,12 +29,7 @@ INPUT_GLOBS = (
     "compose.yaml",
     "tools/**/*",
     "ansible.cfg",
-    "values/terraform.tfvars",
-    "values/dns-records.local.json",
-    "values/ansible/inventory/local.yml",
-    "values/.env",
     "settings.example.json",
-    "settings.local.json",
 )
 
 
@@ -118,14 +114,24 @@ def enabled_stateful_services_by_module(repo: Path) -> dict[str, list[str]]:
     except (OSError, json.JSONDecodeError) as error:
         raise MetadataError(f"cannot read service registry: {registry_path}") from error
     services = registry.get("services", {})
-    settings_path = repo / "settings.local.json"
+    settings_path = Path(
+        os.environ.get("INFRA_SETTINGS_FILE", repo / "settings.local.json")
+    )
     try:
-        local_settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.is_file() else {}
+        local_settings = (
+            json.loads(settings_path.read_text(encoding="utf-8"))
+            if settings_path.is_file()
+            else {}
+        )
     except json.JSONDecodeError as error:
-        raise MetadataError(f"cannot parse operator settings: {settings_path}") from error
+        raise MetadataError(
+            f"cannot parse operator settings: {settings_path}"
+        ) from error
     enabled = local_settings.get("services", registry.get("default_services", []))
     if not isinstance(services, dict) or not isinstance(enabled, list):
-        raise MetadataError("service registry or operator settings has an invalid service list")
+        raise MetadataError(
+            "service registry or operator settings has an invalid service list"
+        )
 
     result: dict[str, list[str]] = {}
     for service in enabled:
@@ -179,9 +185,14 @@ def backup_evidence(repo: Path, service: str) -> dict[str, Any]:
         return {"valid": False, "error": str(error)}
     if manifest.get("target") != service or manifest.get("archive_kind") != "backup":
         return {"valid": False, "error": "backup manifest target or kind is invalid"}
-    age_hours = (datetime.now(timezone.utc).timestamp() - archive.stat().st_mtime) / 3600
+    age_hours = (
+        datetime.now(timezone.utc).timestamp() - archive.stat().st_mtime
+    ) / 3600
     if age_hours > DEFAULT_BACKUP_MAX_AGE_HOURS:
-        return {"valid": False, "error": f"backup is older than {DEFAULT_BACKUP_MAX_AGE_HOURS} hours"}
+        return {
+            "valid": False,
+            "error": f"backup is older than {DEFAULT_BACKUP_MAX_AGE_HOURS} hours",
+        }
     return {
         "valid": True,
         "archive": archive.relative_to(repo).as_posix(),
@@ -190,11 +201,22 @@ def backup_evidence(repo: Path, service: str) -> dict[str, Any]:
     }
 
 
-def summarize_plan(plan_json: dict[str, Any], repo: Path | None = None) -> dict[str, Any]:
-    counts = {"create": 0, "update": 0, "replace": 0, "delete": 0, "read": 0, "no_op": 0}
+def summarize_plan(
+    plan_json: dict[str, Any], repo: Path | None = None
+) -> dict[str, Any]:
+    counts = {
+        "create": 0,
+        "update": 0,
+        "replace": 0,
+        "delete": 0,
+        "read": 0,
+        "no_op": 0,
+    }
     destructive_changes: list[dict[str, Any]] = []
     stateful_changes: list[dict[str, Any]] = []
-    stateful_by_module = enabled_stateful_services_by_module(repo) if repo is not None else {}
+    stateful_by_module = (
+        enabled_stateful_services_by_module(repo) if repo is not None else {}
+    )
     for change in plan_json.get("resource_changes", []):
         if not isinstance(change, dict):
             continue
@@ -236,7 +258,11 @@ def summarize_plan(plan_json: dict[str, Any], repo: Path | None = None) -> dict[
             {change["stateful_target"] for change in stateful_changes}
         ),
         "stateful_services": sorted(
-            {service for change in stateful_changes for service in change["stateful_services"]}
+            {
+                service
+                for change in stateful_changes
+                for service in change["stateful_services"]
+            }
         ),
     }
 
@@ -254,7 +280,9 @@ def format_plan_summary(summary: dict[str, Any]) -> str:
     if destructive_changes:
         lines.append("Destructive changes:")
         for item in destructive_changes[:20]:
-            lines.append(f"  - {item.get('address', 'unknown')}: {item.get('actions', 'delete')}")
+            lines.append(
+                f"  - {item.get('address', 'unknown')}: {item.get('actions', 'delete')}"
+            )
         remaining = len(destructive_changes) - 20
         if remaining > 0:
             lines.append(f"  ... and {remaining} more")
@@ -264,7 +292,9 @@ def format_plan_summary(summary: dict[str, Any]) -> str:
     stateful_targets = summary.get("stateful_targets", [])
     if stateful_targets:
         lines.append(f"Stateful infrastructure targets: {', '.join(stateful_targets)}")
-        lines.append(f"Affected stateful services: {', '.join(summary.get('stateful_services', []))}")
+        lines.append(
+            f"Affected stateful services: {', '.join(summary.get('stateful_services', []))}"
+        )
         if len(stateful_targets) > 1:
             lines.append(
                 "Stateful batch is blocked. Create a targeted plan with "
@@ -303,8 +333,11 @@ def create_metadata(
         "summary": summary,
         "stateful_backup_evidence": backups,
         "inputs": matching_inputs(repo),
+        "config_snapshot_sha256": os.environ.get("INFRA_CONFIG_SNAPSHOT_SHA256", ""),
     }
-    metadata.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    metadata.write_text(
+        json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return data
 
 
@@ -316,7 +349,9 @@ def validate_summary(summary: Any) -> dict[str, Any]:
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
     for key in ("create", "update", "replace", "delete"):
         if not isinstance(counts.get(key), int):
-            raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
+            raise MetadataError(
+                "Saved tfplan metadata is invalid. Run `just plan` again."
+            )
     if not isinstance(summary.get("destructive"), bool):
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
     if not isinstance(summary.get("destructive_changes"), list):
@@ -342,12 +377,18 @@ def load_metadata(metadata: Path) -> dict[str, Any]:
     try:
         data = json.loads(metadata.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
-        raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.") from error
+        raise MetadataError(
+            "Saved tfplan metadata is invalid. Run `just plan` again."
+        ) from error
     if data.get("schema_version") != SCHEMA_VERSION:
-        raise MetadataError("Saved tfplan metadata is unsupported. Run `just plan` again.")
+        raise MetadataError(
+            "Saved tfplan metadata is unsupported. Run `just plan` again."
+        )
     if not isinstance(data.get("plan", {}).get("sha256"), str):
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
     if not isinstance(data.get("inputs"), dict):
+        raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
+    if not isinstance(data.get("config_snapshot_sha256"), str):
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
     if not isinstance(data.get("stateful_backup_evidence"), dict):
         raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.")
@@ -369,7 +410,9 @@ def verify_metadata(
     try:
         expires_at = datetime.fromisoformat(data["expires_at"])
     except (KeyError, TypeError, ValueError) as error:
-        raise MetadataError("Saved tfplan metadata is invalid. Run `just plan` again.") from error
+        raise MetadataError(
+            "Saved tfplan metadata is invalid. Run `just plan` again."
+        ) from error
     if datetime.now(timezone.utc) > expires_at:
         raise MetadataError("Saved tfplan is expired. Run `just plan` again.")
 
@@ -381,6 +424,9 @@ def verify_metadata(
     current_inputs = matching_inputs(repo)
     if expected_inputs != current_inputs:
         raise MetadataError("Saved tfplan inputs changed. Run `just plan` again.")
+    current_snapshot_hash = os.environ.get("INFRA_CONFIG_SNAPSHOT_SHA256", "")
+    if data["config_snapshot_sha256"] != current_snapshot_hash:
+        raise MetadataError("Saved BWS configuration changed. Run `just plan` again.")
 
     expected_commit = data.get("git_commit")
     current_commit = git_commit(repo)
@@ -404,11 +450,17 @@ def verify_metadata(
     stateful_services = summary["stateful_services"]
     expected_backups = data["stateful_backup_evidence"]
     if set(expected_backups) != set(stateful_services):
-        raise MetadataError("Saved tfplan backup evidence is invalid. Run `just plan` again.")
+        raise MetadataError(
+            "Saved tfplan backup evidence is invalid. Run `just plan` again."
+        )
     for service in stateful_services:
         expected = expected_backups[service]
         if not isinstance(expected, dict) or not expected.get("valid"):
-            reason = expected.get("error", "backup evidence is invalid") if isinstance(expected, dict) else "backup evidence is invalid"
+            reason = (
+                expected.get("error", "backup evidence is invalid")
+                if isinstance(expected, dict)
+                else "backup evidence is invalid"
+            )
             raise MetadataError(
                 f"Stateful service {service} has no current verified backup: {reason}. "
                 f"Run `scripts/service-state.sh backup {service}`, then rerun `just plan`."

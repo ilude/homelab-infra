@@ -4,6 +4,7 @@ Public-safe documentation for this homelab infrastructure runbook.
 
 ## Operator and platform docs
 
+- [BWS configuration and SeaweedFS state](bws-seaweedfs-state.md) covers controller bootstrap, temporary configuration snapshots, encrypted remote state, locking, and recovery.
 - [Hermes operator pilot PRD](hermes-operator-pilot-prd.md) defines the Hermes cockpit requirements, safety boundaries, and SearXNG pilot classification.
 - [Managed service-state backup and restore](service-state-backup.md) covers private `values/` backups for Hermes memory/soul state and other managed service state.
 - [Forgejo bind-mount lifecycle](forgejo-bind-mount.md) documents the SSH/pct-managed recovery boundary and fail-closed ownership contract.

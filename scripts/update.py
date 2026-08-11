@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Update pinned tool and service versions after a release-age hold period."""
+
 from __future__ import annotations
 
 import argparse
@@ -26,19 +27,29 @@ from typing import Callable
 DEFAULT_MIN_AGE_HOURS = 48
 OCI_MIN_AGE_HOURS = 168
 USER_AGENT = "homelab-infra-update/1.0"
-OCI_REFERENCE_RE = re.compile(r"^(docker\.io)/([a-z0-9][a-z0-9._/-]*):([^@\s]+)@sha256:([0-9a-f]{64})$")
+OCI_REFERENCE_RE = re.compile(
+    r"^(docker\.io)/([a-z0-9][a-z0-9._/-]*):([^@\s]+)@sha256:([0-9a-f]{64})$"
+)
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
 }
-OCI_MANIFEST_ACCEPT = ", ".join((*OCI_INDEX_MEDIA_TYPES, "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"))
+OCI_MANIFEST_ACCEPT = ", ".join(
+    (
+        *OCI_INDEX_MEDIA_TYPES,
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    )
+)
 OCI_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 HERMES_LOCK_PACKAGE_COUNT = 79
 HERMES_LOCK_REQUIREMENT_RE = re.compile(
     r"(?m)^[a-z0-9][a-z0-9_.-]*(?:\[[^]]+\])?==[^ \t\\]+"
     r"(?: \\| --hash=sha256:[0-9a-f]{64}(?:\s+#.*)?)$"
 )
-HERMES_CUSTOM_ARTIFACT_DIR = Path("values/artifacts/hermes")
+CONFIG_VALUES_DIR = Path(os.environ.get("VALUES_DIR", "values"))
+PRIVATE_VALUES_DIR = Path(os.environ.get("PRIVATE_VALUES_DIR", "values"))
+HERMES_CUSTOM_ARTIFACT_DIR = PRIVATE_VALUES_DIR / "artifacts" / "hermes"
 HERMES_MAX_WHEEL_BYTES = 128 * 1024 * 1024
 HERMES_MAX_MANIFEST_BYTES = 1024 * 1024
 HERMES_MAX_METADATA_ENTRY_BYTES = 2 * 1024 * 1024
@@ -154,16 +165,71 @@ class GoToolchainTarget:
 
 
 OCI_TARGETS = (
-    OciTarget("Infisical image", Path("values/ansible/inventory/local.yml"), r"(?m)^(\s*infisical_container_image:\s*)(\S+)\s*$", r"\g<1>{reference}", "infisical/infisical", r"v0\.161\.\d+", "docker.io/infisical/infisical:v0.161.11@sha256:efe2d4fe5f37fb250ce5956ecc4734cc9ab1b50629d97cf7793d54200a18642b", "infisical"),
-    OciTarget("PostgreSQL image", Path("values/ansible/inventory/local.yml"), r"(?m)^(\s*infisical_postgres_image:\s*)(\S+)\s*$", r"\g<1>{reference}", "library/postgres", r"16\.\d+-alpine[\w.-]*", "docker.io/library/postgres:16.14-alpine3.22@sha256:786dab398303b8ce7cb76b407bb21ef2e4dfbbbd4c6abcf3d29b3130467ffdbc", "infisical"),
-    OciTarget("Redis image", Path("values/ansible/inventory/local.yml"), r"(?m)^(\s*infisical_redis_image:\s*)(\S+)\s*$", r"\g<1>{reference}", "library/redis", r"7\.4\.\d+-alpine", "docker.io/library/redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99", "infisical"),
-    OciTarget("SearXNG image", Path("values/terraform.tfvars"), r'(?m)^(\s*searxng_container_image\s*=\s*")([^"\s]+)("\s*)$', r"\g<1>{reference}\g<3>", "searxng/searxng", r"2026\.7\.2-[0-9a-f]+", "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb", "searxng"),
-    OciTarget("Tooling Debian image", Path("tools/Dockerfile"), r"(?m)^(FROM\s+)(\S+)\s*$", r"\g<1>{reference}", "library/debian", r"bookworm-\d{8}-slim", "docker.io/library/debian:bookworm-20260623-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df", "tools-debian"),
+    OciTarget(
+        "Infisical image",
+        CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
+        r"(?m)^(\s*infisical_container_image:\s*)(\S+)\s*$",
+        r"\g<1>{reference}",
+        "infisical/infisical",
+        r"v0\.161\.\d+",
+        "docker.io/infisical/infisical:v0.161.11@sha256:efe2d4fe5f37fb250ce5956ecc4734cc9ab1b50629d97cf7793d54200a18642b",
+        "infisical",
+    ),
+    OciTarget(
+        "PostgreSQL image",
+        CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
+        r"(?m)^(\s*infisical_postgres_image:\s*)(\S+)\s*$",
+        r"\g<1>{reference}",
+        "library/postgres",
+        r"16\.\d+-alpine[\w.-]*",
+        "docker.io/library/postgres:16.14-alpine3.22@sha256:786dab398303b8ce7cb76b407bb21ef2e4dfbbbd4c6abcf3d29b3130467ffdbc",
+        "infisical",
+    ),
+    OciTarget(
+        "Redis image",
+        CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
+        r"(?m)^(\s*infisical_redis_image:\s*)(\S+)\s*$",
+        r"\g<1>{reference}",
+        "library/redis",
+        r"7\.4\.\d+-alpine",
+        "docker.io/library/redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+        "infisical",
+    ),
+    OciTarget(
+        "SearXNG image",
+        CONFIG_VALUES_DIR / "terraform.tfvars",
+        r'(?m)^(\s*searxng_container_image\s*=\s*")([^"\s]+)("\s*)$',
+        r"\g<1>{reference}\g<3>",
+        "searxng/searxng",
+        r"2026\.7\.2-[0-9a-f]+",
+        "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb",
+        "searxng",
+    ),
+    OciTarget(
+        "SeaweedFS image",
+        Path("infra/ansible/roles/seaweedfs_onramp/defaults/main.yml"),
+        r"(?m)^(seaweedfs_onramp_image:\s*)(\S+)\s*$",
+        r"\g<1>{reference}",
+        "chrislusf/seaweedfs",
+        r"4\.\d+",
+        "docker.io/chrislusf/seaweedfs:4.41@sha256:43b768cd62b00d132439cda881b93fd1adebf1b315e996e794087743821d771d",
+        "seaweedfs",
+    ),
+    OciTarget(
+        "Tooling Debian image",
+        Path("tools/Dockerfile"),
+        r"(?m)^(FROM\s+)(\S+)\s*$",
+        r"\g<1>{reference}",
+        "library/debian",
+        r"bookworm-\d{8}-slim",
+        "docker.io/library/debian:bookworm-20260623-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df",
+        "tools-debian",
+    ),
 )
 
 HERMES_DISCOVERY = HermesDiscoveryTarget(
     name="Hermes Agent PyPI wheel",
-    path=Path("values/ansible/inventory/local.yml"),
+    path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
     release_url="https://api.github.com/repos/NousResearch/hermes-agent/releases?per_page=100",
     tag_ref_url_template="https://api.github.com/repos/NousResearch/hermes-agent/git/ref/tags/{tag}",
     managed_version="0.18.0",
@@ -174,7 +240,7 @@ HERMES_DISCOVERY = HermesDiscoveryTarget(
 
 CADDY_CLOUDFLARE_TAG = TagPinTarget(
     name="Caddy Cloudflare module",
-    path=Path("values/ansible/inventory/local.yml"),
+    path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
     pattern=r'(?m)^(\s*caddy_build_cloudflare_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
     replacement=r"\g<1>{version}\g<3>",
     tags_url="https://api.github.com/repos/caddy-dns/cloudflare/tags?per_page=100",
@@ -184,7 +250,7 @@ CADDY_CLOUDFLARE_TAG = TagPinTarget(
 
 CADDY_GO_TOOLCHAIN = GoToolchainTarget(
     name="Caddy Go toolchain",
-    path=Path("values/ansible/inventory/local.yml"),
+    path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
     releases_url="https://go.dev/dl/?mode=json",
     commit_url_template="https://api.github.com/repos/golang/go/commits/go{version}",
     managed_version="1.25.1",
@@ -194,7 +260,7 @@ CADDY_GO_TOOLCHAIN = GoToolchainTarget(
 
 TECHNITIUM_DISCOVERY = DiscoveryTarget(
     name="Technitium portable release",
-    path=Path("values/ansible/inventory/local.yml"),
+    path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
     version_pattern=r'(?m)^(\s*technitium_discovery_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
     version_replacement=r"\g<1>{version}\g<3>",
     checksum_pattern=r"(?m)^(\s*technitium_portable_sha256:\s*)([0-9a-f]+)\s*$",
@@ -212,7 +278,7 @@ TECHNITIUM_DISCOVERY = DiscoveryTarget(
 TARGETS = (
     Target(
         name="Caddy",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*caddy_build_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://api.github.com/repos/caddyserver/caddy/releases/latest",
@@ -220,7 +286,7 @@ TARGETS = (
     ),
     Target(
         name="xcaddy",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*caddy_build_xcaddy_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://api.github.com/repos/caddyserver/xcaddy/releases/latest",
@@ -228,7 +294,7 @@ TARGETS = (
     ),
     Target(
         name="Tailscale",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*tailscale_client_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://api.github.com/repos/tailscale/tailscale/releases/latest",
@@ -258,7 +324,7 @@ TARGETS = (
     ),
     Target(
         name="Forgejo",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*forgejo_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://codeberg.org/api/v1/repos/forgejo/forgejo/releases/latest",
@@ -267,11 +333,13 @@ TARGETS = (
         checksum_asset_template="forgejo-{version}-linux-amd64.sha256",
         checksum_file_template="forgejo-{version}-linux-amd64",
         managed_default_version="12.0.4",
-        managed_default_checksums=("59fb6129e0396dc3502be60950438a03d227bb5691ee08b02dd38794f3d25a2a",),
+        managed_default_checksums=(
+            "59fb6129e0396dc3502be60950438a03d227bb5691ee08b02dd38794f3d25a2a",
+        ),
     ),
     Target(
         name="Forgejo runner",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*forgejo_runner_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://code.forgejo.org/api/v1/repos/forgejo/runner/releases/latest",
@@ -279,7 +347,13 @@ TARGETS = (
         checksum_replacement=r"\g<1>{checksum}",
         checksum_asset_template="forgejo-runner-{version}-linux-amd64.sha256",
         checksum_file_template="forgejo-runner-{version}-linux-amd64",
-        extra_checksums=((r"(?m)^(\s*forgejo_runner_sha256_arm64:\s*)([^\s]+)$", "forgejo-runner-{version}-linux-arm64", r"\g<1>{checksum}"),),
+        extra_checksums=(
+            (
+                r"(?m)^(\s*forgejo_runner_sha256_arm64:\s*)([^\s]+)$",
+                "forgejo-runner-{version}-linux-arm64",
+                r"\g<1>{checksum}",
+            ),
+        ),
         extra_checksum_asset_templates=("forgejo-runner-{version}-linux-arm64.sha256",),
         managed_default_version="12.7.3",
         managed_default_checksums=(
@@ -289,7 +363,7 @@ TARGETS = (
     ),
     Target(
         name="Docker Compose plugin",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*forgejo_runner_compose_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://api.github.com/repos/docker/compose/releases/latest",
@@ -297,7 +371,13 @@ TARGETS = (
         checksum_replacement=r"\g<1>{checksum}",
         checksum_asset_template="checksums.txt",
         checksum_file_template="docker-compose-linux-x86_64",
-        extra_checksums=((r"(?m)^(\s*forgejo_runner_compose_sha256_arm64:\s*)([^\s]+)$", "docker-compose-linux-aarch64", r"\g<1>{checksum}"),),
+        extra_checksums=(
+            (
+                r"(?m)^(\s*forgejo_runner_compose_sha256_arm64:\s*)([^\s]+)$",
+                "docker-compose-linux-aarch64",
+                r"\g<1>{checksum}",
+            ),
+        ),
         managed_default_version="5.3.0",
         managed_default_checksums=(
             "fffb010206c952ee5e45d0cd05dc88d3ca063c4634d40eaad6b72677c4c7bbf0",
@@ -306,7 +386,7 @@ TARGETS = (
     ),
     Target(
         name="Hermes Docker Compose plugin",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*hermes_compose_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://api.github.com/repos/docker/compose/releases/latest",
@@ -314,7 +394,13 @@ TARGETS = (
         checksum_replacement=r"\g<1>{checksum}",
         checksum_asset_template="checksums.txt",
         checksum_file_template="docker-compose-linux-x86_64",
-        extra_checksums=((r"(?m)^(\s*hermes_compose_sha256_arm64:\s*)([^\s]+)$", "docker-compose-linux-aarch64", r"\g<1>{checksum}"),),
+        extra_checksums=(
+            (
+                r"(?m)^(\s*hermes_compose_sha256_arm64:\s*)([^\s]+)$",
+                "docker-compose-linux-aarch64",
+                r"\g<1>{checksum}",
+            ),
+        ),
         managed_default_version="5.3.0",
         managed_default_checksums=(
             "fffb010206c952ee5e45d0cd05dc88d3ca063c4634d40eaad6b72677c4c7bbf0",
@@ -323,7 +409,7 @@ TARGETS = (
     ),
     Target(
         name="Infisical Docker Compose plugin",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*infisical_compose_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://api.github.com/repos/docker/compose/releases/latest",
@@ -331,7 +417,13 @@ TARGETS = (
         checksum_replacement=r"\g<1>{checksum}",
         checksum_asset_template="checksums.txt",
         checksum_file_template="docker-compose-linux-x86_64",
-        extra_checksums=((r"(?m)^(\s*infisical_compose_sha256_arm64:\s*)([^\s]+)$", "docker-compose-linux-aarch64", r"\g<1>{checksum}"),),
+        extra_checksums=(
+            (
+                r"(?m)^(\s*infisical_compose_sha256_arm64:\s*)([^\s]+)$",
+                "docker-compose-linux-aarch64",
+                r"\g<1>{checksum}",
+            ),
+        ),
         managed_default_version="5.3.0",
         managed_default_checksums=(
             "fffb010206c952ee5e45d0cd05dc88d3ca063c4634d40eaad6b72677c4c7bbf0",
@@ -340,7 +432,7 @@ TARGETS = (
     ),
     Target(
         name="just",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*forgejo_runner_just_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://api.github.com/repos/casey/just/releases/latest",
@@ -348,7 +440,13 @@ TARGETS = (
         checksum_replacement=r"\g<1>{checksum}",
         checksum_asset_template="SHA256SUMS",
         checksum_file_template="just-{version}-x86_64-unknown-linux-musl.tar.gz",
-        extra_checksums=((r"(?m)^(\s*forgejo_runner_just_sha256_arm64:\s*)([^\s]+)$", "just-{version}-aarch64-unknown-linux-musl.tar.gz", r"\g<1>{checksum}"),),
+        extra_checksums=(
+            (
+                r"(?m)^(\s*forgejo_runner_just_sha256_arm64:\s*)([^\s]+)$",
+                "just-{version}-aarch64-unknown-linux-musl.tar.gz",
+                r"\g<1>{checksum}",
+            ),
+        ),
         managed_default_version="1.55.1",
         managed_default_checksums=(
             "b0ef600f0df20d5ae91ae931627c499fc52b477ffe5f5ea7b7b3ec616b16c778",
@@ -357,7 +455,7 @@ TARGETS = (
     ),
     Target(
         name="Hermes just",
-        path=Path("values/ansible/inventory/local.yml"),
+        path=CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
         pattern=r'(?m)^(\s*hermes_just_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         replacement=r"\g<1>{version}\g<3>",
         release_url="https://api.github.com/repos/casey/just/releases/latest",
@@ -365,7 +463,13 @@ TARGETS = (
         checksum_replacement=r"\g<1>{checksum}",
         checksum_asset_template="SHA256SUMS",
         checksum_file_template="just-{version}-x86_64-unknown-linux-musl.tar.gz",
-        extra_checksums=((r"(?m)^(\s*hermes_just_sha256_arm64:\s*)([^\s]+)$", "just-{version}-aarch64-unknown-linux-musl.tar.gz", r"\g<1>{checksum}"),),
+        extra_checksums=(
+            (
+                r"(?m)^(\s*hermes_just_sha256_arm64:\s*)([^\s]+)$",
+                "just-{version}-aarch64-unknown-linux-musl.tar.gz",
+                r"\g<1>{checksum}",
+            ),
+        ),
         managed_default_version="1.55.1",
         managed_default_checksums=(
             "b0ef600f0df20d5ae91ae931627c499fc52b477ffe5f5ea7b7b3ec616b16c778",
@@ -417,10 +521,16 @@ def fetch_url(
                 try:
                     declared_length = int(content_length)
                 except ValueError as error:
-                    raise UpdateError(f"response from {url} has an invalid Content-Length") from error
-                if declared_length < 0 or (max_bytes is not None and declared_length > max_bytes):
+                    raise UpdateError(
+                        f"response from {url} has an invalid Content-Length"
+                    ) from error
+                if declared_length < 0 or (
+                    max_bytes is not None and declared_length > max_bytes
+                ):
                     raise UpdateError(f"response from {url} exceeds {max_bytes} bytes")
-            data = response.read() if max_bytes is None else response.read(max_bytes + 1)
+            data = (
+                response.read() if max_bytes is None else response.read(max_bytes + 1)
+            )
             if max_bytes is not None and len(data) > max_bytes:
                 raise UpdateError(f"response from {url} exceeds {max_bytes} bytes")
             return data
@@ -428,7 +538,9 @@ def fetch_url(
         raise UpdateError(f"failed to fetch {url}: {error}") from error
 
 
-def fetch_release(url: str, opener: Callable[[str], bytes] | None = None) -> dict[str, object]:
+def fetch_release(
+    url: str, opener: Callable[[str], bytes] | None = None
+) -> dict[str, object]:
     raw = fetch_url(url, opener)
     try:
         data = json.loads(raw.decode("utf-8"))
@@ -454,7 +566,9 @@ def release_from_payload(target: Target, payload: dict[str, object]) -> Release:
     if tag is None:
         raise UpdateError(f"{target.name}: release payload does not include tag_name")
     if published is None:
-        raise UpdateError(f"{target.name}: release payload does not include published_at")
+        raise UpdateError(
+            f"{target.name}: release payload does not include published_at"
+        )
     return Release(
         version=normalize_version(tag, target.strip_prefix),
         published_at=parse_timestamp(published),
@@ -486,9 +600,7 @@ def is_managed_default(target: Target, current: str, text: str) -> bool:
     if current != target.managed_default_version:
         return False
     patterns = tuple(
-        pattern
-        for pattern in (target.checksum_pattern,)
-        if pattern is not None
+        pattern for pattern in (target.checksum_pattern,) if pattern is not None
     ) + tuple(pattern for pattern, _file_name, _replacement in target.extra_checksums)
     if len(patterns) != len(target.managed_default_checksums):
         raise UpdateError(f"{target.name}: incomplete managed-default checksum policy")
@@ -512,7 +624,9 @@ def replace_once(pattern: str, replacement: str, text: str, target: Target) -> s
 def release_asset_url(release: Release, asset_name: str) -> str:
     assets = release.payload.get("assets")
     if not isinstance(assets, list):
-        raise UpdateError(f"release payload for {release.version} does not include assets")
+        raise UpdateError(
+            f"release payload for {release.version} does not include assets"
+        )
     for asset in assets:
         if not isinstance(asset, dict):
             continue
@@ -524,21 +638,29 @@ def release_asset_url(release: Release, asset_name: str) -> str:
     raise UpdateError(f"release {release.version} does not include asset {asset_name}")
 
 
-def release_identity(release: Release) -> tuple[str, datetime, str, tuple[tuple[str, str, int | None], ...]]:
+def release_identity(
+    release: Release,
+) -> tuple[str, datetime, str, tuple[tuple[str, str, int | None], ...]]:
     assets = release.payload.get("assets", [])
     if not isinstance(assets, list):
         raise UpdateError(f"release payload for {release.version} has invalid assets")
     identity: list[tuple[str, str, int | None]] = []
     for asset in assets:
         if not isinstance(asset, dict):
-            raise UpdateError(f"release payload for {release.version} has invalid asset")
+            raise UpdateError(
+                f"release payload for {release.version} has invalid asset"
+            )
         name = asset.get("name")
         url = asset.get("browser_download_url")
         asset_id = asset.get("id")
         if not isinstance(name, str) or not name or not isinstance(url, str) or not url:
-            raise UpdateError(f"release payload for {release.version} has unidentified asset")
+            raise UpdateError(
+                f"release payload for {release.version} has unidentified asset"
+            )
         if asset_id is not None and not isinstance(asset_id, int):
-            raise UpdateError(f"release payload for {release.version} has invalid asset id")
+            raise UpdateError(
+                f"release payload for {release.version} has invalid asset id"
+            )
         identity.append((name, url, asset_id))
     return release.version, release.published_at, release.url, tuple(sorted(identity))
 
@@ -549,7 +671,9 @@ def checksum_from_manifest(checksum_text: str, asset_name: str, file_name: str) 
         if len(fields) >= 2 and fields[1].lstrip("*") == file_name:
             checksum = fields[0].lower()
             if not re.fullmatch(r"[0-9a-f]{64}", checksum):
-                raise UpdateError(f"{asset_name} has an invalid SHA-256 for {file_name}")
+                raise UpdateError(
+                    f"{asset_name} has an invalid SHA-256 for {file_name}"
+                )
             return checksum
     raise UpdateError(f"{asset_name} does not include checksum for {file_name}")
 
@@ -565,21 +689,27 @@ def checksums_for_release(
     checksum_url = release_asset_url(release, asset_name)
     checksum_text = fetch_url(checksum_url, opener).decode("utf-8")
     primary = checksum_from_manifest(
-        checksum_text, asset_name, target.checksum_file_template.format(version=release.version)
+        checksum_text,
+        asset_name,
+        target.checksum_file_template.format(version=release.version),
     )
     if target.extra_checksum_asset_templates and len(
         target.extra_checksum_asset_templates
     ) != len(target.extra_checksums):
         raise UpdateError(f"{target.name}: incomplete extra checksum asset policy")
     extra = []
-    for index, (_pattern, file_template, _replacement) in enumerate(target.extra_checksums):
+    for index, (_pattern, file_template, _replacement) in enumerate(
+        target.extra_checksums
+    ):
         extra_asset_name = (
             target.extra_checksum_asset_templates[index].format(version=release.version)
             if target.extra_checksum_asset_templates
             else asset_name
         )
         extra_checksum_text = (
-            fetch_url(release_asset_url(release, extra_asset_name), opener).decode("utf-8")
+            fetch_url(release_asset_url(release, extra_asset_name), opener).decode(
+                "utf-8"
+            )
             if extra_asset_name != asset_name
             else checksum_text
         )
@@ -593,7 +723,13 @@ def checksums_for_release(
     return primary, tuple(extra)
 
 
-def replace_version(target: Target, text: str, release: Release, checksum: str | None, extra_checksums: tuple[str, ...] = ()) -> str:
+def replace_version(
+    target: Target,
+    text: str,
+    release: Release,
+    checksum: str | None,
+    extra_checksums: tuple[str, ...] = (),
+) -> str:
     updated = replace_once(
         target.pattern,
         target.replacement.format(version=release.version),
@@ -609,8 +745,12 @@ def replace_version(target: Target, text: str, release: Release, checksum: str |
             updated,
             target,
         )
-    for (pattern, _file_name, replacement), extra_checksum in zip(target.extra_checksums, extra_checksums):
-        updated = replace_once(pattern, replacement.format(checksum=extra_checksum), updated, target)
+    for (pattern, _file_name, replacement), extra_checksum in zip(
+        target.extra_checksums, extra_checksums
+    ):
+        updated = replace_once(
+            pattern, replacement.format(checksum=extra_checksum), updated, target
+        )
     return updated
 
 
@@ -623,7 +763,9 @@ def process_target(
 ) -> UpdateResult:
     current, text = read_current(target, root)
     if text is None:
-        return UpdateResult(target.name, target.path, None, None, "skip", "file not present")
+        return UpdateResult(
+            target.name, target.path, None, None, "skip", "file not present"
+        )
     if current is None:
         return UpdateResult(
             target.name,
@@ -710,7 +852,11 @@ def oci_json(response: OciResponse, context: str) -> dict[str, object]:
 
 def response_header(response: OciResponse, name: str) -> str:
     return next(
-        (value for key, value in response.headers.items() if key.lower() == name.lower()),
+        (
+            value
+            for key, value in response.headers.items()
+            if key.lower() == name.lower()
+        ),
         "",
     )
 
@@ -769,7 +915,11 @@ def oci_tags(
         next_url = urllib.parse.urljoin(url, match.group(1))
         parsed = urllib.parse.urlparse(next_url)
         expected = urllib.parse.urlparse(base)
-        if parsed.scheme != "https" or parsed.netloc != expected.netloc or not parsed.path.startswith(expected.path + "/tags/list"):
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc != expected.netloc
+            or not parsed.path.startswith(expected.path + "/tags/list")
+        ):
             raise UpdateError(f"{target.name}: unsafe registry pagination link")
         url = next_url
     return tags
@@ -805,15 +955,21 @@ def resolve_oci_tag(
     manifest_digest = descriptor["digest"]
     if not OCI_DIGEST_RE.fullmatch(manifest_digest):
         raise UpdateError(f"{target.name}: linux/amd64 manifest has invalid digest")
-    manifest_response = fetch(f"{base}/manifests/{manifest_digest}", OCI_MANIFEST_ACCEPT)
-    oci_digest(manifest_response, f"{target.name} linux/amd64 manifest", manifest_digest)
+    manifest_response = fetch(
+        f"{base}/manifests/{manifest_digest}", OCI_MANIFEST_ACCEPT
+    )
+    oci_digest(
+        manifest_response, f"{target.name} linux/amd64 manifest", manifest_digest
+    )
     manifest = oci_json(manifest_response, target.name)
     config = manifest.get("config")
     if not isinstance(config, dict) or not isinstance(config.get("digest"), str):
         raise UpdateError(f"{target.name}: linux/amd64 manifest has no config")
     if not OCI_DIGEST_RE.fullmatch(config["digest"]):
         raise UpdateError(f"{target.name}: linux/amd64 config has invalid digest")
-    config_response = fetch(f"{base}/blobs/{config['digest']}", "application/vnd.oci.image.config.v1+json")
+    config_response = fetch(
+        f"{base}/blobs/{config['digest']}", "application/vnd.oci.image.config.v1+json"
+    )
     oci_digest(config_response, f"{target.name} config", config["digest"])
     created = oci_json(config_response, target.name).get("created")
     if not isinstance(created, str):
@@ -835,33 +991,53 @@ def resolve_oci_reference(
         if re.fullmatch(target.tag_pattern, tag)
     }
     if not candidates:
-        raise UpdateError(f"{target.name}: no tag matches bounded series {target.tag_pattern}")
+        raise UpdateError(
+            f"{target.name}: no tag matches bounded series {target.tag_pattern}"
+        )
     tag = max(candidates, key=natural_tag_key)
     return resolve_oci_tag(target, tag, fetch)
 
 
 def fetch_oci_registry(url: str, accept: str) -> OciResponse:
-    request = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": USER_AGENT})
+    request = urllib.request.Request(
+        url, headers={"Accept": accept, "User-Agent": USER_AGENT}
+    )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return OciResponse(response.read(), dict(response.headers.items()))
     except urllib.error.HTTPError as error:
         challenge = error.headers.get("WWW-Authenticate", "")
-        match = re.match(r'Bearer realm="([^"]+)",service="([^"]+)",scope="([^"]+)"', challenge)
+        match = re.match(
+            r'Bearer realm="([^"]+)",service="([^"]+)",scope="([^"]+)"', challenge
+        )
         if not match:
             raise UpdateError(f"failed to fetch OCI registry {url}: {error}") from error
         realm, service, scope = match.groups()
         token_url = f"{realm}?service={urllib.parse.quote(service)}&scope={urllib.parse.quote(scope)}"
         try:
             with urllib.request.urlopen(token_url, timeout=30) as token_response:
-                token = oci_json(OciResponse(token_response.read(), dict(token_response.headers.items())), token_url).get("token")
+                token = oci_json(
+                    OciResponse(
+                        token_response.read(), dict(token_response.headers.items())
+                    ),
+                    token_url,
+                ).get("token")
             if not isinstance(token, str) or not token:
                 raise UpdateError(f"OCI token response for {url} has no token")
-            authenticated = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": USER_AGENT, "Authorization": f"Bearer {token}"})
+            authenticated = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": accept,
+                    "User-Agent": USER_AGENT,
+                    "Authorization": f"Bearer {token}",
+                },
+            )
             with urllib.request.urlopen(authenticated, timeout=30) as response:
                 return OciResponse(response.read(), dict(response.headers.items()))
         except urllib.error.URLError as nested:
-            raise UpdateError(f"failed to authenticate OCI registry {url}: {nested}") from nested
+            raise UpdateError(
+                f"failed to authenticate OCI registry {url}: {nested}"
+            ) from nested
 
 
 def process_oci_group(
@@ -884,17 +1060,33 @@ def process_oci_group(
 
     if not present:
         return [
-            UpdateResult(target.name, target.path, None, None, "skip", "OCI pin not present")
+            UpdateResult(
+                target.name, target.path, None, None, "skip", "OCI pin not present"
+            )
             for target in members
         ]
     if len(present) != len(members):
         return [
-            UpdateResult(target.name, target.path, None, None, "skip", f"incomplete operator pin group ({group})")
+            UpdateResult(
+                target.name,
+                target.path,
+                None,
+                None,
+                "skip",
+                f"incomplete operator pin group ({group})",
+            )
             for target in members
         ]
     if any(current != target.managed_default for target, current in present):
         return [
-            UpdateResult(target.name, target.path, current, None, "skip", f"custom operator pin group ({group})")
+            UpdateResult(
+                target.name,
+                target.path,
+                current,
+                None,
+                "skip",
+                f"custom operator pin group ({group})",
+            )
             for target, current in present
         ]
 
@@ -928,7 +1120,14 @@ def process_oci_group(
     ]
     if not changed:
         return [
-            UpdateResult(target.name, target.path, current, current, "current", "verified OCI index is current")
+            UpdateResult(
+                target.name,
+                target.path,
+                current,
+                current,
+                "current",
+                "verified OCI index is current",
+            )
             for target, current in present
         ]
 
@@ -988,7 +1187,11 @@ def technitium_releases(
     )
     stable: list[Release] = []
     for item in payload:
-        if not isinstance(item, dict) or item.get("draft") is not False or item.get("prerelease") is not False:
+        if (
+            not isinstance(item, dict)
+            or item.get("draft") is not False
+            or item.get("prerelease") is not False
+        ):
             continue
         published = item.get("published_at")
         if not isinstance(published, str) or not published:
@@ -1041,13 +1244,19 @@ def technitium_provenance(
     if object_type == "tag":
         object_url = ref_object.get("url")
         if not isinstance(object_url, str):
-            raise UpdateError(f"{target.name}: annotated tag {release.version} has no object URL")
+            raise UpdateError(
+                f"{target.name}: annotated tag {release.version} has no object URL"
+            )
         tag_object = fetch_release(object_url, opener).get("object")
         if not isinstance(tag_object, dict) or tag_object.get("type") != "commit":
-            raise UpdateError(f"{target.name}: annotated tag {release.version} does not resolve to a commit")
+            raise UpdateError(
+                f"{target.name}: annotated tag {release.version} does not resolve to a commit"
+            )
         commit = tag_object.get("sha")
     elif object_type != "commit":
-        raise UpdateError(f"{target.name}: tag {release.version} does not resolve to a commit")
+        raise UpdateError(
+            f"{target.name}: tag {release.version} does not resolve to a commit"
+        )
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise UpdateError(f"{target.name}: tag {release.version} has an invalid commit")
     return release_id, commit
@@ -1061,20 +1270,36 @@ def process_discovery_target(
 ) -> UpdateResult:
     path = root / target.path
     if not path.exists():
-        return UpdateResult(target.name, target.path, None, None, "skip", "file not present")
+        return UpdateResult(
+            target.name, target.path, None, None, "skip", "file not present"
+        )
     text = path.read_text(encoding="utf-8")
     version_match = re.search(target.version_pattern, text)
     checksum_match = re.search(target.checksum_pattern, text)
     artifact_path_match = re.search(target.artifact_path_pattern, text)
     if not version_match or not checksum_match or not artifact_path_match:
-        return UpdateResult(target.name, target.path, None, None, "skip", "incomplete operator pin group (technitium)")
+        return UpdateResult(
+            target.name,
+            target.path,
+            None,
+            None,
+            "skip",
+            "incomplete operator pin group (technitium)",
+        )
     current = version_match.group(2)
     if (
         current != target.managed_version
         or checksum_match.group(2) != target.managed_checksum
         or artifact_path_match.group(1).strip("\"'") != target.managed_artifact_path
     ):
-        return UpdateResult(target.name, target.path, current, None, "skip", "custom operator pin group (technitium)")
+        return UpdateResult(
+            target.name,
+            target.path,
+            current,
+            None,
+            "skip",
+            "custom operator pin group (technitium)",
+        )
 
     release_target = Target(
         target.name,
@@ -1109,7 +1334,9 @@ def process_discovery_target(
         or confirmed_checksum != checksum
         or confirmed_provenance != provenance
     ):
-        raise UpdateError(f"{target.name}: release or portable artifact changed during re-resolution")
+        raise UpdateError(
+            f"{target.name}: release or portable artifact changed during re-resolution"
+        )
     if path.read_text(encoding="utf-8") != text:
         raise UpdateError(f"{target.name}: pin file changed during resolution")
     updated = replace_once(
@@ -1145,10 +1372,12 @@ def hermes_release_version(release: Release) -> str:
         for asset in assets
         if isinstance(asset, dict)
         and isinstance(asset.get("name"), str)
-        and (match := re.fullmatch(
-            r"hermes_agent-([0-9]+[.][0-9]+[.][0-9]+)-py3-none-any[.]whl[.]sigstore[.]json",
-            asset["name"],
-        ))
+        and (
+            match := re.fullmatch(
+                r"hermes_agent-([0-9]+[.][0-9]+[.][0-9]+)-py3-none-any[.]whl[.]sigstore[.]json",
+                asset["name"],
+            )
+        )
     }
     if len(versions) != 1:
         raise UpdateError(
@@ -1169,7 +1398,9 @@ def hermes_releases(
         raise UpdateError(f"invalid JSON from {target.release_url}: {error}") from error
     if not isinstance(payload, list):
         raise UpdateError(f"unexpected release list from {target.release_url}")
-    release_target = Target(target.name, target.path, "", "", target.release_url, strip_prefix="")
+    release_target = Target(
+        target.name, target.path, "", "", target.release_url, strip_prefix=""
+    )
     stable = [
         release_from_payload(release_target, item)
         for item in payload
@@ -1214,7 +1445,9 @@ def hermes_pypi_artifact(
         None,
     )
     if artifact is None:
-        raise UpdateError(f"Hermes {version}: official universal wheel is absent from PyPI")
+        raise UpdateError(
+            f"Hermes {version}: official universal wheel is absent from PyPI"
+        )
     digests = artifact.get("digests")
     url = artifact.get("url")
     if (
@@ -1239,7 +1472,9 @@ def hermes_pypi_provenance(
     payload = fetch_release(url, opener)
     bundles = payload.get("attestation_bundles")
     if not isinstance(bundles, list):
-        raise UpdateError(f"Hermes {version}: PyPI provenance has no attestation bundles")
+        raise UpdateError(
+            f"Hermes {version}: PyPI provenance has no attestation bundles"
+        )
     for bundle in bundles:
         if not isinstance(bundle, dict):
             continue
@@ -1255,7 +1490,9 @@ def hermes_pypi_provenance(
         for attestation in attestations:
             try:
                 statement = json.loads(
-                    base64.b64decode(attestation["envelope"]["statement"], validate=True)
+                    base64.b64decode(
+                        attestation["envelope"]["statement"], validate=True
+                    )
                 )
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 continue
@@ -1286,10 +1523,14 @@ def hermes_tag_commit(
     if object_type == "tag":
         object_url = ref_object.get("url")
         if not isinstance(object_url, str):
-            raise UpdateError(f"{target.name}: annotated tag {release.version} has no object URL")
+            raise UpdateError(
+                f"{target.name}: annotated tag {release.version} has no object URL"
+            )
         tag_object = fetch_release(object_url, opener).get("object")
         if not isinstance(tag_object, dict) or tag_object.get("type") != "commit":
-            raise UpdateError(f"{target.name}: annotated tag does not resolve to a commit")
+            raise UpdateError(
+                f"{target.name}: annotated tag does not resolve to a commit"
+            )
         commit = tag_object.get("sha")
     elif object_type != "commit":
         raise UpdateError(f"{target.name}: tag does not resolve to a commit")
@@ -1301,7 +1542,9 @@ def hermes_tag_commit(
 def validate_hermes_lock(root: Path, version: str, checksum: str | None) -> None:
     path = root / "infra/ansible/roles/hermes/files" / f"requirements-{version}.lock"
     if not path.exists():
-        raise UpdateError(f"Hermes {version}: tracked transitive requirements lock is absent")
+        raise UpdateError(
+            f"Hermes {version}: tracked transitive requirements lock is absent"
+        )
     text = path.read_text(encoding="utf-8")
     requirements = HERMES_LOCK_REQUIREMENT_RE.findall(text)
     if len(requirements) != HERMES_LOCK_PACKAGE_COUNT:
@@ -1310,26 +1553,42 @@ def validate_hermes_lock(root: Path, version: str, checksum: str | None) -> None
             f"expected {HERMES_LOCK_PACKAGE_COUNT} for the approved dashboard and messaging extras"
         )
     blocks = re.split(r"(?m)(?=^[a-z0-9][a-z0-9_.-]*(?:\[[^]]+\])?==)", text)
-    requirement_blocks = [block for block in blocks if HERMES_LOCK_REQUIREMENT_RE.match(block)]
+    requirement_blocks = [
+        block for block in blocks if HERMES_LOCK_REQUIREMENT_RE.match(block)
+    ]
     if (
         "Debian 13 amd64, CPython 3.13" not in text
         or "--only-binary :all:" not in text
         or len(requirement_blocks) != len(requirements)
-        or any(not re.search(r"--hash=sha256:[0-9a-f]{64}", block) for block in requirement_blocks)
-        or re.search(r"(?m)^[^#\n]*(?:https?://|git\+|--find-links|--extra-index-url|--trusted-host)", text)
+        or any(
+            not re.search(r"--hash=sha256:[0-9a-f]{64}", block)
+            for block in requirement_blocks
+        )
+        or re.search(
+            r"(?m)^[^#\n]*(?:https?://|git\+|--find-links|--extra-index-url|--trusted-host)",
+            text,
+        )
     ):
-        raise UpdateError(f"Hermes {version}: tracked lock is not a complete official-PyPI wheel lock")
+        raise UpdateError(
+            f"Hermes {version}: tracked lock is not a complete official-PyPI wheel lock"
+        )
     has_requirement = any(
         line.startswith("hermes-agent[") and line.endswith(f"]=={version} \\")
         for line in text.splitlines()
     )
-    if not has_requirement or (checksum is not None and f"--hash=sha256:{checksum}" not in text):
-        raise UpdateError(f"Hermes {version}: tracked lock does not contain the official wheel pin")
+    if not has_requirement or (
+        checksum is not None and f"--hash=sha256:{checksum}" not in text
+    ):
+        raise UpdateError(
+            f"Hermes {version}: tracked lock does not contain the official wheel pin"
+        )
 
 
 def atomic_write_text(path: Path, text: str) -> None:
     """Durably replace a private pin file without exposing a partial pin group."""
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent, text=True
+    )
     temporary_path = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as file:
@@ -1373,7 +1632,9 @@ def resolve_hermes_release(
 
 
 def hermes_inventory_value(text: str, key: str) -> str | None:
-    matches = re.findall(rf"(?m)^\s*{re.escape(key)}:\s*[\"']?([^\s\"'#]+)[\"']?\s*$", text)
+    matches = re.findall(
+        rf"(?m)^\s*{re.escape(key)}:\s*[\"']?([^\s\"'#]+)[\"']?\s*$", text
+    )
     if len(matches) > 1:
         raise UpdateError(f"Hermes: duplicate inventory field {key}")
     return matches[0] if matches else None
@@ -1391,22 +1652,37 @@ def hermes_custom_config(text: str) -> tuple[str, str] | None:
     )
     if source == "official_pypi":
         if any(hermes_inventory_value(text, key) is not None for key in custom_fields):
-            raise UpdateError("Hermes: official_pypi source cannot include custom release fields")
+            raise UpdateError(
+                "Hermes: official_pypi source cannot include custom release fields"
+            )
         return None
     if source != "custom_github_release":
-        raise UpdateError("Hermes: artifact source must be official_pypi or custom_github_release")
-    if repository is None or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
-        raise UpdateError("Hermes: custom_github_release requires hermes_custom_repository owner/repo")
-    if tag_prefix is None or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", tag_prefix):
+        raise UpdateError(
+            "Hermes: artifact source must be official_pypi or custom_github_release"
+        )
+    if repository is None or not re.fullmatch(
+        r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository
+    ):
+        raise UpdateError(
+            "Hermes: custom_github_release requires hermes_custom_repository owner/repo"
+        )
+    if tag_prefix is None or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.-]*", tag_prefix
+    ):
         raise UpdateError("Hermes: custom_github_release tag prefix is invalid")
     output = tuple(hermes_inventory_value(text, key) for key in custom_fields[1:])
-    if any(value is not None for value in output) and any(value is None for value in output):
+    if any(value is not None for value in output) and any(
+        value is None for value in output
+    ):
         raise UpdateError("Hermes: custom release pin group is incomplete")
     return repository, tag_prefix
 
 
 def hermes_custom_release(
-    repository: str, tag_prefix: str, now: datetime, opener: Callable[[str], bytes] | None
+    repository: str,
+    tag_prefix: str,
+    now: datetime,
+    opener: Callable[[str], bytes] | None,
 ) -> tuple[Release, str]:
     url = f"https://api.github.com/repos/{repository}/releases?per_page=100"
     payload = fetch_json_value(url, opener)
@@ -1415,10 +1691,16 @@ def hermes_custom_release(
     if len(payload) == 100:
         raise UpdateError("Hermes: custom GitHub release pagination is unsupported")
     candidates: list[tuple[Release, str]] = []
-    pattern = re.compile(rf"^{re.escape(tag_prefix)}([0-9]+[.][0-9]+[.][0-9]+)[.]([1-9][0-9]*)$")
+    pattern = re.compile(
+        rf"^{re.escape(tag_prefix)}([0-9]+[.][0-9]+[.][0-9]+)[.]([1-9][0-9]*)$"
+    )
     release_target = Target("Hermes custom wheel", Path(), "", "", url, strip_prefix="")
     for item in payload:
-        if not isinstance(item, dict) or item.get("draft") is not False or item.get("prerelease") is not False:
+        if (
+            not isinstance(item, dict)
+            or item.get("draft") is not False
+            or item.get("prerelease") is not False
+        ):
             continue
         release = release_from_payload(release_target, item)
         match = pattern.fullmatch(release.version)
@@ -1427,10 +1709,18 @@ def hermes_custom_release(
     eligible = [item for item in candidates if item[0].published_at <= now]
     if not eligible:
         raise UpdateError("Hermes: no published custom release is eligible")
-    return max(eligible, key=lambda item: (natural_tag_key(item[1]), int(item[0].version.rsplit('.', 1)[1])))
+    return max(
+        eligible,
+        key=lambda item: (
+            natural_tag_key(item[1]),
+            int(item[0].version.rsplit(".", 1)[1]),
+        ),
+    )
 
 
-def hermes_custom_assets(repository: str, release: Release, version: str) -> tuple[str, str, str]:
+def hermes_custom_assets(
+    repository: str, release: Release, version: str
+) -> tuple[str, str, str]:
     filename = f"hermes_agent-{version}-py3-none-any.whl"
     required = (filename, f"{filename}.sha256")
     assets = release.payload.get("assets")
@@ -1443,38 +1733,72 @@ def hermes_custom_assets(repository: str, release: Release, version: str) -> tup
         name = asset["name"]
         url = asset.get("browser_download_url")
         expected = "https://github.com/{}/releases/download/{}/{}".format(
-            repository, urllib.parse.quote(release.version, safe=""), urllib.parse.quote(name, safe="")
+            repository,
+            urllib.parse.quote(release.version, safe=""),
+            urllib.parse.quote(name, safe=""),
         )
         if name in found or not isinstance(url, str) or url != expected:
-            raise UpdateError(f"Hermes {release.version}: custom release assets are malformed")
+            raise UpdateError(
+                f"Hermes {release.version}: custom release assets are malformed"
+            )
         found[name] = url
     if set(found) != set(required):
-        raise UpdateError(f"Hermes {release.version}: custom release assets are malformed")
+        raise UpdateError(
+            f"Hermes {release.version}: custom release assets are malformed"
+        )
     return filename, found[filename], found[f"{filename}.sha256"]
 
 
-def hermes_wheel_metadata(wheel: bytes, version: str, source: str) -> tuple[object, ...]:
+def hermes_wheel_metadata(
+    wheel: bytes, version: str, source: str
+) -> tuple[object, ...]:
     if len(wheel) > HERMES_MAX_WHEEL_BYTES:
-        raise UpdateError(f"Hermes: {source} wheel exceeds {HERMES_MAX_WHEEL_BYTES} bytes")
+        raise UpdateError(
+            f"Hermes: {source} wheel exceeds {HERMES_MAX_WHEEL_BYTES} bytes"
+        )
     try:
         with zipfile.ZipFile(io.BytesIO(wheel)) as archive:
             names = {
-                kind: [entry for entry in archive.infolist() if re.fullmatch(rf"[^/]+[.]dist-info/{kind}", entry.filename)]
+                kind: [
+                    entry
+                    for entry in archive.infolist()
+                    if re.fullmatch(rf"[^/]+[.]dist-info/{kind}", entry.filename)
+                ]
                 for kind in ("METADATA", "WHEEL")
             }
             if any(len(entries) != 1 for entries in names.values()):
-                raise UpdateError(f"Hermes: {source} wheel has no unique METADATA and WHEEL files")
-            if any(entry.file_size > HERMES_MAX_METADATA_ENTRY_BYTES for entries in names.values() for entry in entries):
-                raise UpdateError(f"Hermes: {source} wheel metadata entry exceeds {HERMES_MAX_METADATA_ENTRY_BYTES} bytes")
-            message = email.parser.BytesParser().parsebytes(archive.read(names["METADATA"][0]))
-            wheel_message = email.parser.BytesParser().parsebytes(archive.read(names["WHEEL"][0]))
+                raise UpdateError(
+                    f"Hermes: {source} wheel has no unique METADATA and WHEEL files"
+                )
+            if any(
+                entry.file_size > HERMES_MAX_METADATA_ENTRY_BYTES
+                for entries in names.values()
+                for entry in entries
+            ):
+                raise UpdateError(
+                    f"Hermes: {source} wheel metadata entry exceeds {HERMES_MAX_METADATA_ENTRY_BYTES} bytes"
+                )
+            message = email.parser.BytesParser().parsebytes(
+                archive.read(names["METADATA"][0])
+            )
+            wheel_message = email.parser.BytesParser().parsebytes(
+                archive.read(names["WHEEL"][0])
+            )
     except (OSError, zipfile.BadZipFile) as error:
         raise UpdateError(f"Hermes: {source} wheel is invalid") from error
     if message.get("Name") != "hermes-agent" or message.get("Version") != version:
-        raise UpdateError(f"Hermes: {source} wheel metadata does not match its release version")
+        raise UpdateError(
+            f"Hermes: {source} wheel metadata does not match its release version"
+        )
     return (
-        message["Name"], message["Version"],
-        tuple(sorted(" ".join(value.split()) for value in message.get_all("Requires-Dist", []))),
+        message["Name"],
+        message["Version"],
+        tuple(
+            sorted(
+                " ".join(value.split())
+                for value in message.get_all("Requires-Dist", [])
+            )
+        ),
         message.get("Requires-Python"),
         tuple(sorted(message.get_all("Provides-Extra", []))),
         tuple(sorted(wheel_message.get_all("Tag", []))),
@@ -1489,35 +1813,61 @@ def hermes_official_wheel_metadata(
         hermes_pypi_provenance(version, filename, checksum, opener)
     wheel = fetch_url(url, opener)
     if sha256(wheel).hexdigest() != checksum:
-        raise UpdateError(f"Hermes {version}: official PyPI wheel SHA-256 does not match metadata")
+        raise UpdateError(
+            f"Hermes {version}: official PyPI wheel SHA-256 does not match metadata"
+        )
     return hermes_wheel_metadata(wheel, version, "official PyPI")
 
 
-def hermes_custom_wheel_metadata(wheel: bytes, version: str, expected: tuple[object, ...]) -> None:
+def hermes_custom_wheel_metadata(
+    wheel: bytes, version: str, expected: tuple[object, ...]
+) -> None:
     if hermes_wheel_metadata(wheel, version, "custom") != expected:
-        raise UpdateError("Hermes: custom wheel metadata differs from the official wheel")
+        raise UpdateError(
+            "Hermes: custom wheel metadata differs from the official wheel"
+        )
 
 
 def hermes_custom_locks(root: Path, version: str, checksum: str) -> tuple[str, str]:
     path = root / "infra/ansible/roles/hermes/files" / f"requirements-{version}.lock"
     if not path.exists():
-        raise UpdateError(f"Hermes {version}: tracked transitive requirements lock is absent")
+        raise UpdateError(
+            f"Hermes {version}: tracked transitive requirements lock is absent"
+        )
     full = path.read_text(encoding="utf-8")
     validate_hermes_lock(root, version, checksum=None)
-    pattern = re.compile(rf"(?ms)^hermes-agent\[[^]]+\]=={re.escape(version)}.*?(?=^[a-z0-9][a-z0-9_.-]*(?:\[[^]]+\])?==|\Z)")
+    pattern = re.compile(
+        rf"(?ms)^hermes-agent\[[^]]+\]=={re.escape(version)}.*?(?=^[a-z0-9][a-z0-9_.-]*(?:\[[^]]+\])?==|\Z)"
+    )
     match = pattern.search(full)
     if match is None:
-        raise UpdateError(f"Hermes {version}: tracked lock does not contain the Hermes requirement block")
+        raise UpdateError(
+            f"Hermes {version}: tracked lock does not contain the Hermes requirement block"
+        )
     block = re.sub(r"(?m)^\s*--hash=sha256:[0-9a-f]{64}.*\n?", "", match.group())
-    block = re.sub(r"(?m)^(hermes-agent\[[^]]+\]==[^\\]+\\)\s*$", rf"\1\n    --hash=sha256:{checksum}", block)
+    block = re.sub(
+        r"(?m)^(hermes-agent\[[^]]+\]==[^\\]+\\)\s*$",
+        rf"\1\n    --hash=sha256:{checksum}",
+        block,
+    )
     if f"--hash=sha256:{checksum}" not in block:
         raise UpdateError(f"Hermes {version}: unable to replace the Hermes wheel hash")
-    return full[:match.start()] + block + full[match.end():], full[:match.start()] + full[match.end():]
+    return full[: match.start()] + block + full[match.end() :], full[
+        : match.start()
+    ] + full[match.end() :]
 
 
-def hermes_custom_tag_key(tag_prefix: str, tag: str) -> tuple[tuple[tuple[int, int | str], ...], int] | None:
-    match = re.fullmatch(rf"{re.escape(tag_prefix)}([0-9]+[.][0-9]+[.][0-9]+)[.]([1-9][0-9]*)", tag)
-    return (natural_tag_key(match.group(1)), int(match.group(2))) if match is not None else None
+def hermes_custom_tag_key(
+    tag_prefix: str, tag: str
+) -> tuple[tuple[tuple[int, int | str], ...], int] | None:
+    match = re.fullmatch(
+        rf"{re.escape(tag_prefix)}([0-9]+[.][0-9]+[.][0-9]+)[.]([1-9][0-9]*)", tag
+    )
+    return (
+        (natural_tag_key(match.group(1)), int(match.group(2)))
+        if match is not None
+        else None
+    )
 
 
 def hermes_custom_artifact_dir(root: Path, tag: str, checksum: str) -> Path:
@@ -1526,7 +1876,9 @@ def hermes_custom_artifact_dir(root: Path, tag: str, checksum: str) -> Path:
         current /= component
         if current.exists():
             if current.is_symlink() or not current.is_dir():
-                raise UpdateError("Hermes: custom artifact hierarchy must contain only directories, not symlinks")
+                raise UpdateError(
+                    "Hermes: custom artifact hierarchy must contain only directories, not symlinks"
+                )
         else:
             current.mkdir()
     directory = current / f"{urllib.parse.quote(tag, safe='')}-{checksum[:12]}"
@@ -1539,22 +1891,47 @@ def hermes_custom_artifact_dir(root: Path, tag: str, checksum: str) -> Path:
 
 
 def process_custom_hermes_discovery_target(
-    target: HermesDiscoveryTarget, root: Path, now: datetime, text: str, repository: str, tag_prefix: str,
+    target: HermesDiscoveryTarget,
+    root: Path,
+    now: datetime,
+    text: str,
+    repository: str,
+    tag_prefix: str,
     opener: Callable[[str], bytes] | None,
 ) -> UpdateResult:
-    fields = ("hermes_discovery_version", "hermes_discovery_tag", "hermes_discovery_commit", "hermes_discovery_wheel_sha256")
+    fields = (
+        "hermes_discovery_version",
+        "hermes_discovery_tag",
+        "hermes_discovery_commit",
+        "hermes_discovery_wheel_sha256",
+    )
     if any(hermes_inventory_value(text, key) is None for key in fields):
         raise UpdateError("Hermes: custom release discovery pin group is incomplete")
     release, version = hermes_custom_release(repository, tag_prefix, now, opener)
     current_tag = hermes_inventory_value(text, "hermes_discovery_tag")
-    current_group_complete = all(hermes_inventory_value(text, key) is not None for key in (
-        "hermes_custom_wheel_url", "hermes_custom_requirements_lock_path", "hermes_custom_dependencies_lock_path",
-    ))
-    current_key = hermes_custom_tag_key(tag_prefix, current_tag) if current_group_complete and current_tag is not None else None
+    current_group_complete = all(
+        hermes_inventory_value(text, key) is not None
+        for key in (
+            "hermes_custom_wheel_url",
+            "hermes_custom_requirements_lock_path",
+            "hermes_custom_dependencies_lock_path",
+        )
+    )
+    current_key = (
+        hermes_custom_tag_key(tag_prefix, current_tag)
+        if current_group_complete and current_tag is not None
+        else None
+    )
     selected_key = hermes_custom_tag_key(tag_prefix, release.version)
-    if current_key is not None and selected_key is not None and selected_key < current_key:
+    if (
+        current_key is not None
+        and selected_key is not None
+        and selected_key < current_key
+    ):
         raise UpdateError("Hermes: refusing custom release rollback")
-    filename, wheel_url, manifest_url = hermes_custom_assets(repository, release, version)
+    filename, wheel_url, manifest_url = hermes_custom_assets(
+        repository, release, version
+    )
     checksum = checksum_from_manifest(
         fetch_url(manifest_url, opener, HERMES_MAX_MANIFEST_BYTES).decode("utf-8"),
         f"{filename}.sha256",
@@ -1563,53 +1940,139 @@ def process_custom_hermes_discovery_target(
     wheel = fetch_url(wheel_url, opener, HERMES_MAX_WHEEL_BYTES)
     if sha256(wheel).hexdigest() != checksum:
         raise UpdateError("Hermes: custom wheel SHA-256 does not match its manifest")
-    expected_metadata = hermes_official_wheel_metadata(version, opener, verify_provenance=False)
+    expected_metadata = hermes_official_wheel_metadata(
+        version, opener, verify_provenance=False
+    )
     hermes_custom_wheel_metadata(wheel, version, expected_metadata)
-    tag_target = HermesDiscoveryTarget(target.name, target.path, "", f"https://api.github.com/repos/{repository}/git/ref/tags/{{tag}}", "", "", "", "")
+    tag_target = HermesDiscoveryTarget(
+        target.name,
+        target.path,
+        "",
+        f"https://api.github.com/repos/{repository}/git/ref/tags/{{tag}}",
+        "",
+        "",
+        "",
+        "",
+    )
     commit = hermes_tag_commit(tag_target, release, opener)
     full_lock, dependencies_lock = hermes_custom_locks(root, version, checksum)
-    confirmed_release, confirmed_version = hermes_custom_release(repository, tag_prefix, now, opener)
-    confirmed_filename, confirmed_wheel_url, confirmed_manifest_url = hermes_custom_assets(repository, confirmed_release, confirmed_version)
+    confirmed_release, confirmed_version = hermes_custom_release(
+        repository, tag_prefix, now, opener
+    )
+    confirmed_filename, confirmed_wheel_url, confirmed_manifest_url = (
+        hermes_custom_assets(repository, confirmed_release, confirmed_version)
+    )
     confirmed_checksum = checksum_from_manifest(
-        fetch_url(confirmed_manifest_url, opener, HERMES_MAX_MANIFEST_BYTES).decode("utf-8"),
+        fetch_url(confirmed_manifest_url, opener, HERMES_MAX_MANIFEST_BYTES).decode(
+            "utf-8"
+        ),
         f"{confirmed_filename}.sha256",
         confirmed_filename,
     )
     confirmed_wheel = fetch_url(confirmed_wheel_url, opener, HERMES_MAX_WHEEL_BYTES)
     if sha256(confirmed_wheel).hexdigest() != confirmed_checksum:
         raise UpdateError("Hermes: custom wheel SHA-256 does not match its manifest")
-    confirmed_metadata = hermes_official_wheel_metadata(confirmed_version, opener, verify_provenance=False)
+    confirmed_metadata = hermes_official_wheel_metadata(
+        confirmed_version, opener, verify_provenance=False
+    )
     hermes_custom_wheel_metadata(confirmed_wheel, confirmed_version, confirmed_metadata)
     confirmed_commit = hermes_tag_commit(tag_target, confirmed_release, opener)
-    confirmed_full, confirmed_dependencies = hermes_custom_locks(root, confirmed_version, confirmed_checksum)
-    if (release_identity(confirmed_release), confirmed_version, confirmed_checksum, confirmed_commit, confirmed_metadata, confirmed_full, confirmed_dependencies) != (release_identity(release), version, checksum, commit, expected_metadata, full_lock, dependencies_lock):
+    confirmed_full, confirmed_dependencies = hermes_custom_locks(
+        root, confirmed_version, confirmed_checksum
+    )
+    if (
+        release_identity(confirmed_release),
+        confirmed_version,
+        confirmed_checksum,
+        confirmed_commit,
+        confirmed_metadata,
+        confirmed_full,
+        confirmed_dependencies,
+    ) != (
+        release_identity(release),
+        version,
+        checksum,
+        commit,
+        expected_metadata,
+        full_lock,
+        dependencies_lock,
+    ):
         raise UpdateError("Hermes: custom release changed during re-resolution")
     if (root / target.path).read_text(encoding="utf-8") != text:
         raise UpdateError("Hermes: pin file changed during resolution")
     artifact_dir = hermes_custom_artifact_dir(root, release.version, checksum)
     full_path = artifact_dir / "requirements.lock"
     dependencies_path = artifact_dir / "requirements-dependencies.lock"
-    lock_base = f"/workspace/{HERMES_CUSTOM_ARTIFACT_DIR.as_posix()}/{artifact_dir.name}"
+    lock_base = (
+        f"/workspace/{HERMES_CUSTOM_ARTIFACT_DIR.as_posix()}/{artifact_dir.name}"
+    )
     replacements = {
-        "version": version, "tag": release.version, "commit": commit, "checksum": checksum,
-        "wheel_url": wheel_url, "requirements_lock_path": f"{lock_base}/requirements.lock",
+        "version": version,
+        "tag": release.version,
+        "commit": commit,
+        "checksum": checksum,
+        "wheel_url": wheel_url,
+        "requirements_lock_path": f"{lock_base}/requirements.lock",
         "dependencies_lock_path": f"{lock_base}/requirements-dependencies.lock",
     }
-    current_group = tuple(hermes_inventory_value(text, field) for field in (
-        "hermes_discovery_version", "hermes_discovery_tag", "hermes_discovery_commit", "hermes_discovery_wheel_sha256",
-        "hermes_custom_wheel_url", "hermes_custom_requirements_lock_path", "hermes_custom_dependencies_lock_path",
-    ))
-    resolved_group = tuple(replacements[key] for key in ("version", "tag", "commit", "checksum", "wheel_url", "requirements_lock_path", "dependencies_lock_path"))
-    if current_group == resolved_group and full_path.exists() and dependencies_path.exists() and not full_path.is_symlink() and not dependencies_path.is_symlink() and full_path.read_text(encoding="utf-8") == full_lock and dependencies_path.read_text(encoding="utf-8") == dependencies_lock:
-        return UpdateResult(target.name, target.path, version, version, "current", "current custom GitHub release is verified")
+    current_group = tuple(
+        hermes_inventory_value(text, field)
+        for field in (
+            "hermes_discovery_version",
+            "hermes_discovery_tag",
+            "hermes_discovery_commit",
+            "hermes_discovery_wheel_sha256",
+            "hermes_custom_wheel_url",
+            "hermes_custom_requirements_lock_path",
+            "hermes_custom_dependencies_lock_path",
+        )
+    )
+    resolved_group = tuple(
+        replacements[key]
+        for key in (
+            "version",
+            "tag",
+            "commit",
+            "checksum",
+            "wheel_url",
+            "requirements_lock_path",
+            "dependencies_lock_path",
+        )
+    )
+    if (
+        current_group == resolved_group
+        and full_path.exists()
+        and dependencies_path.exists()
+        and not full_path.is_symlink()
+        and not dependencies_path.is_symlink()
+        and full_path.read_text(encoding="utf-8") == full_lock
+        and dependencies_path.read_text(encoding="utf-8") == dependencies_lock
+    ):
+        return UpdateResult(
+            target.name,
+            target.path,
+            version,
+            version,
+            "current",
+            "current custom GitHub release is verified",
+        )
     atomic_write_if_changed(full_path, full_lock)
     atomic_write_if_changed(dependencies_path, dependencies_lock)
     updated = text
     replacement_target = Target(target.name, target.path, "", "", target.release_url)
     for key, value in replacements.items():
-        field = {"checksum": "hermes_discovery_wheel_sha256", "wheel_url": "hermes_custom_wheel_url", "requirements_lock_path": "hermes_custom_requirements_lock_path", "dependencies_lock_path": "hermes_custom_dependencies_lock_path"}.get(key, f"hermes_discovery_{key}")
+        field = {
+            "checksum": "hermes_discovery_wheel_sha256",
+            "wheel_url": "hermes_custom_wheel_url",
+            "requirements_lock_path": "hermes_custom_requirements_lock_path",
+            "dependencies_lock_path": "hermes_custom_dependencies_lock_path",
+        }.get(key, f"hermes_discovery_{key}")
         pattern = rf"(?m)^(\s*{field}:\s*)[^\n]*$"
-        updated = replace_once(pattern, rf"\g<1>{value}", updated, replacement_target) if re.search(pattern, updated) else updated.rstrip() + f"\n    {field}: {value}\n"
+        updated = (
+            replace_once(pattern, rf"\g<1>{value}", updated, replacement_target)
+            if re.search(pattern, updated)
+            else updated.rstrip() + f"\n    {field}: {value}\n"
+        )
     atomic_write_if_changed(root / target.path, updated)
     return UpdateResult(
         target.name,
@@ -1629,11 +2092,15 @@ def process_hermes_discovery_target(
 ) -> UpdateResult:
     path = root / target.path
     if not path.exists():
-        return UpdateResult(target.name, target.path, None, None, "skip", "file not present")
+        return UpdateResult(
+            target.name, target.path, None, None, "skip", "file not present"
+        )
     text = path.read_text(encoding="utf-8")
     custom = hermes_custom_config(text)
     if custom is not None:
-        return process_custom_hermes_discovery_target(target, root, now, text, *custom, opener)
+        return process_custom_hermes_discovery_target(
+            target, root, now, text, *custom, opener
+        )
     patterns = {
         "version": r'(?m)^(\s*hermes_discovery_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
         "tag": r'(?m)^(\s*hermes_discovery_tag:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
@@ -1642,7 +2109,14 @@ def process_hermes_discovery_target(
     }
     matches = {name: re.search(pattern, text) for name, pattern in patterns.items()}
     if any(match is None for match in matches.values()):
-        return UpdateResult(target.name, target.path, None, None, "skip", "incomplete operator pin group (hermes)")
+        return UpdateResult(
+            target.name,
+            target.path,
+            None,
+            None,
+            "skip",
+            "incomplete operator pin group (hermes)",
+        )
     current = matches["version"].group(2)  # type: ignore[union-attr]
     expected = (
         target.managed_version,
@@ -1650,9 +2124,18 @@ def process_hermes_discovery_target(
         target.managed_commit,
         target.managed_wheel_sha256,
     )
-    actual = tuple(matches[name].group(2) for name in ("version", "tag", "commit", "checksum"))  # type: ignore[union-attr]
+    actual = tuple(
+        matches[name].group(2) for name in ("version", "tag", "commit", "checksum")
+    )  # type: ignore[union-attr]
     if actual != expected:
-        return UpdateResult(target.name, target.path, current, None, "skip", "custom operator pin group (hermes)")
+        return UpdateResult(
+            target.name,
+            target.path,
+            current,
+            None,
+            "skip",
+            "custom operator pin group (hermes)",
+        )
 
     release, held = hermes_releases(target, now, opener)
     resolved = resolve_hermes_release(target, release, root, opener)
@@ -1662,7 +2145,14 @@ def process_hermes_discovery_target(
             if held is not None
             else ""
         )
-        return UpdateResult(target.name, target.path, current, current, "current", f"verified PyPI provenance and lock{held_detail}")
+        return UpdateResult(
+            target.name,
+            target.path,
+            current,
+            current,
+            "current",
+            f"verified PyPI provenance and lock{held_detail}",
+        )
 
     confirmed_release, _confirmed_held = hermes_releases(target, now, opener)
     confirmed = resolve_hermes_release(target, confirmed_release, root, opener)
@@ -1670,7 +2160,9 @@ def process_hermes_discovery_target(
         release_identity(confirmed_release) != release_identity(release)
         or confirmed != resolved
     ):
-        raise UpdateError(f"{target.name}: release, provenance, or wheel changed during re-resolution")
+        raise UpdateError(
+            f"{target.name}: release, provenance, or wheel changed during re-resolution"
+        )
     if path.read_text(encoding="utf-8") != text:
         raise UpdateError(f"{target.name}: pin file changed during resolution")
     replacements = {
@@ -1682,7 +2174,14 @@ def process_hermes_discovery_target(
     updated = text
     replacement_target = Target(target.name, target.path, "", "", target.release_url)
     for name in ("version", "tag", "commit", "checksum"):
-        updated = replace_once(patterns[name], rf"\g<1>{replacements[name]}\g<3>" if name in {"version", "tag"} else rf"\g<1>{replacements[name]}", updated, replacement_target)
+        updated = replace_once(
+            patterns[name],
+            rf"\g<1>{replacements[name]}\g<3>"
+            if name in {"version", "tag"}
+            else rf"\g<1>{replacements[name]}",
+            updated,
+            replacement_target,
+        )
     atomic_write_text(path, updated)
     return UpdateResult(
         target.name,
@@ -1729,7 +2228,11 @@ def resolve_tag_pin(
             continue
         match = re.fullmatch(r"v?(\d+[.]\d+[.]\d+)", item["name"])
         commit = item.get("commit")
-        if match is None or not isinstance(commit, dict) or not isinstance(commit.get("sha"), str):
+        if (
+            match is None
+            or not isinstance(commit, dict)
+            or not isinstance(commit.get("sha"), str)
+        ):
             continue
         candidates.append((match.group(1), commit["sha"]))
     if not candidates:
@@ -1750,20 +2253,35 @@ def process_tag_pin_target(
 ) -> UpdateResult:
     path = root / target.path
     if not path.exists():
-        return UpdateResult(target.name, target.path, None, None, "skip", "file not present")
+        return UpdateResult(
+            target.name, target.path, None, None, "skip", "file not present"
+        )
     text = path.read_text(encoding="utf-8")
     match = re.search(target.pattern, text)
     if match is None:
-        return UpdateResult(target.name, target.path, None, None, "skip", "version pin not present")
+        return UpdateResult(
+            target.name, target.path, None, None, "skip", "version pin not present"
+        )
     current = match.group(2)
     if current != target.managed_version:
-        return UpdateResult(target.name, target.path, current, None, "skip", "custom operator pin")
+        return UpdateResult(
+            target.name, target.path, current, None, "skip", "custom operator pin"
+        )
     version, commit, published = resolve_tag_pin(target, opener)
     if version == current:
-        return UpdateResult(target.name, target.path, current, version, "current", "latest semantic tag")
+        return UpdateResult(
+            target.name, target.path, current, version, "current", "latest semantic tag"
+        )
     age = now - published
     if age < timedelta(hours=OCI_MIN_AGE_HOURS):
-        return UpdateResult(target.name, target.path, current, version, "hold", f"tag commit age {age}; strict {OCI_MIN_AGE_HOURS}h hold")
+        return UpdateResult(
+            target.name,
+            target.path,
+            current,
+            version,
+            "hold",
+            f"tag commit age {age}; strict {OCI_MIN_AGE_HOURS}h hold",
+        )
     confirmed = resolve_tag_pin(target, opener)
     if confirmed != (version, commit, published):
         raise UpdateError(f"{target.name}: tag changed during re-resolution")
@@ -1777,7 +2295,14 @@ def process_tag_pin_target(
         replacement_target,
     )
     atomic_write_text(path, updated)
-    return UpdateResult(target.name, target.path, current, version, "updated", f"verified tag commit; strict {OCI_MIN_AGE_HOURS}h hold")
+    return UpdateResult(
+        target.name,
+        target.path,
+        current,
+        version,
+        "updated",
+        f"verified tag commit; strict {OCI_MIN_AGE_HOURS}h hold",
+    )
 
 
 def resolve_go_toolchain(
@@ -1788,7 +2313,11 @@ def resolve_go_toolchain(
     if not isinstance(payload, list):
         raise UpdateError(f"{target.name}: unexpected release payload")
     release = next(
-        (item for item in payload if isinstance(item, dict) and item.get("stable") is True),
+        (
+            item
+            for item in payload
+            if isinstance(item, dict) and item.get("stable") is True
+        ),
         None,
     )
     if not isinstance(release, dict) or not isinstance(release.get("version"), str):
@@ -1828,7 +2357,9 @@ def process_go_toolchain_target(
 ) -> UpdateResult:
     path = root / target.path
     if not path.exists():
-        return UpdateResult(target.name, target.path, None, None, "skip", "file not present")
+        return UpdateResult(
+            target.name, target.path, None, None, "skip", "file not present"
+        )
     text = path.read_text(encoding="utf-8")
     patterns = {
         "version": r'(?m)^(\s*caddy_build_go_version:\s*["\']?)([^"\'\s]+)(["\']?\s*)$',
@@ -1837,7 +2368,14 @@ def process_go_toolchain_target(
     }
     matches = {name: re.search(pattern, text) for name, pattern in patterns.items()}
     if any(match is None for match in matches.values()):
-        return UpdateResult(target.name, target.path, None, None, "skip", "incomplete Caddy Go pin group")
+        return UpdateResult(
+            target.name,
+            target.path,
+            None,
+            None,
+            "skip",
+            "incomplete Caddy Go pin group",
+        )
     current = matches["version"].group(2)  # type: ignore[union-attr]
     actual = tuple(matches[name].group(2) for name in ("version", "amd64", "arm64"))  # type: ignore[union-attr]
     expected = (
@@ -1846,13 +2384,34 @@ def process_go_toolchain_target(
         target.managed_sha256_arm64,
     )
     if actual != expected:
-        return UpdateResult(target.name, target.path, current, None, "skip", "custom operator pin group (Caddy Go)")
+        return UpdateResult(
+            target.name,
+            target.path,
+            current,
+            None,
+            "skip",
+            "custom operator pin group (Caddy Go)",
+        )
     resolved = resolve_go_toolchain(target, opener)
     if resolved[:3] == actual:
-        return UpdateResult(target.name, target.path, current, current, "current", "verified official Go release checksums")
+        return UpdateResult(
+            target.name,
+            target.path,
+            current,
+            current,
+            "current",
+            "verified official Go release checksums",
+        )
     age = now - resolved[3]
     if age < timedelta(hours=OCI_MIN_AGE_HOURS):
-        return UpdateResult(target.name, target.path, current, resolved[0], "hold", f"tag commit age {age}; strict {OCI_MIN_AGE_HOURS}h hold")
+        return UpdateResult(
+            target.name,
+            target.path,
+            current,
+            resolved[0],
+            "hold",
+            f"tag commit age {age}; strict {OCI_MIN_AGE_HOURS}h hold",
+        )
     confirmed = resolve_go_toolchain(target, opener)
     if confirmed != resolved:
         raise UpdateError(f"{target.name}: release changed during re-resolution")
@@ -1870,7 +2429,14 @@ def process_go_toolchain_target(
             replacement_target,
         )
     atomic_write_text(path, updated)
-    return UpdateResult(target.name, target.path, current, resolved[0], "updated", f"official Go checksums; strict {OCI_MIN_AGE_HOURS}h hold")
+    return UpdateResult(
+        target.name,
+        target.path,
+        current,
+        resolved[0],
+        "updated",
+        f"official Go checksums; strict {OCI_MIN_AGE_HOURS}h hold",
+    )
 
 
 def run(
@@ -1895,9 +2461,13 @@ def run(
 def print_results(results: list[UpdateResult]) -> None:
     for result in results:
         if result.status == "updated":
-            print(f"UPDATED {result.name}: {result.current} -> {result.latest} ({result.path})")
+            print(
+                f"UPDATED {result.name}: {result.current} -> {result.latest} ({result.path})"
+            )
         elif result.status == "hold":
-            print(f"HOLD    {result.name}: {result.current} -> {result.latest}; {result.detail}")
+            print(
+                f"HOLD    {result.name}: {result.current} -> {result.latest}; {result.detail}"
+            )
         elif result.status == "current":
             print(f"CURRENT {result.name}: {result.current}")
         else:

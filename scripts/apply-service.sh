@@ -7,10 +7,18 @@ if [[ $# -ne 1 || -z "$1" ]]; then
 fi
 
 service="$1"
+runtime_profile="config"
+case "${service}" in
+  seaweedfs_onramp) runtime_profile="seaweedfs" ;;
+  onclave_onramp) runtime_profile="onclave" ;;
+esac
 
-INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh python scripts/apply-ansible-services.py \
+# shellcheck disable=SC2016
+BWS_RUNTIME_PROFILE="${runtime_profile}" INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c '
+python scripts/apply-ansible-services.py \
   --mode sequential \
-  --service "${service}" \
-  --inventory values/ansible/inventory/local.yml \
+  --service "$1" \
+  --inventory "${VALUES_DIR}/ansible/inventory/local.yml" \
   --inventory infra/ansible/inventory/tfvars.py \
-  --env-file values/.env
+  --env-file "${VALUES_DIR}/.env"
+' bash "${service}"

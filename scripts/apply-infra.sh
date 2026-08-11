@@ -12,8 +12,8 @@ fi
 target_service="${INFRA_TARGET_SERVICE:-}"
 
 # shellcheck disable=SC2016
-INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c '
-python scripts/workspace-preflight.py --require-values
+BWS_RUNTIME_PROFILE=all INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c '
+python scripts/workspace-preflight.py --config-dir "${VALUES_DIR}"
 
 if [[ ! -f tfplan && ! -f tfplan.meta.json ]]; then
   printf "No saved infrastructure plan found. Run just plan, review the output, then run just apply.\n" >&2
@@ -40,7 +40,7 @@ done
 python scripts/tfplan-metadata.py verify --plan tfplan --metadata tfplan.meta.json "${verify_args[@]}"
 python scripts/tfplan-metadata.py summary --metadata tfplan.meta.json
 python scripts/settings.py summary
-storage_vars_args=()
+storage_vars_args=(--tfvars "${ANSIBLE_TFVARS_FILE}")
 if [[ -n "${target_service}" ]]; then
   storage_vars_args+=(--service "${target_service}")
 fi
@@ -52,13 +52,13 @@ trap "rm -f tfplan tfplan.meta.json ./*.tfplan ./*.tfplan.meta.json" EXIT
 storage_vars="$(python scripts/storage-vars.py "${storage_vars_args[@]}")"
 if python -c "import json, sys; raise SystemExit(0 if json.loads(sys.argv[1]).get(\"storage_datasets\") else 1)" "${storage_vars}"; then
   ansible-playbook \
-    -i values/ansible/inventory/local.yml \
+    -i "${VALUES_DIR}/ansible/inventory/local.yml" \
     -i infra/ansible/inventory/tfvars.py \
     -e "${storage_vars}" \
     infra/ansible/playbooks/storage-prep.yml
 fi
 
-tofu -chdir=infra/opentofu apply -state=../../values/terraform.tfstate ../../tfplan
+tofu -chdir=infra/opentofu apply ../../tfplan
 
 ansible_service_args=()
 if [[ -n "${target_service}" ]]; then
@@ -66,8 +66,8 @@ if [[ -n "${target_service}" ]]; then
 fi
 
 python scripts/apply-ansible-services.py \
-  --inventory values/ansible/inventory/local.yml \
+  --inventory "${VALUES_DIR}/ansible/inventory/local.yml" \
   --inventory infra/ansible/inventory/tfvars.py \
-  --env-file values/.env \
+  --env-file "${VALUES_DIR}/.env" \
   "${ansible_service_args[@]}"
 ' bash "${target_service}" "${destroy_verify_flag}" "${stateful_batch_verify_flag}"

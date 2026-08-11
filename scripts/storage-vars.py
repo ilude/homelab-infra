@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Emit Ansible vars for host storage that must exist before OpenTofu apply."""
+
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +18,9 @@ except ImportError as error:  # pragma: no cover - exercised in tooling containe
     print(f"missing python-hcl2 dependency: {error}", file=sys.stderr)
     raise SystemExit(1) from error
 
-DEFAULT_TFVARS = Path("values/terraform.tfvars")
+DEFAULT_TFVARS = Path(
+    os.environ.get("ANSIBLE_TFVARS_FILE", "tests/fixtures/site-config/terraform.tfvars")
+)
 
 STORAGE_SERVICES = {
     "forgejo": {
@@ -45,11 +49,17 @@ def load_tfvars(path: Path) -> dict[str, str | int]:
     return {
         key: value
         for key, value in data.items()
-        if any(key == field for fields in STORAGE_SERVICES.values() for field in fields.values())
+        if any(
+            key == field
+            for fields in STORAGE_SERVICES.values()
+            for field in fields.values()
+        )
     }
 
 
-def selected_services(enabled_services: list[str], requested_services: list[str] | None) -> list[str]:
+def selected_services(
+    enabled_services: list[str], requested_services: list[str] | None
+) -> list[str]:
     if not requested_services:
         return enabled_services
     unknown_services = sorted(set(requested_services) - set(enabled_services))
@@ -60,7 +70,9 @@ def selected_services(enabled_services: list[str], requested_services: list[str]
     return requested_services
 
 
-def build_storage_datasets(enabled_services: list[str], tfvars: dict[str, str | int]) -> list[dict[str, str | int]]:
+def build_storage_datasets(
+    enabled_services: list[str], tfvars: dict[str, str | int]
+) -> list[dict[str, str | int]]:
     datasets: list[dict[str, str | int]] = []
     for service in enabled_services:
         fields = STORAGE_SERVICES.get(service)
@@ -69,7 +81,9 @@ def build_storage_datasets(enabled_services: list[str], tfvars: dict[str, str | 
         required = [fields["dataset"], fields["mountpoint"]]
         missing = [name for name in required if name not in tfvars]
         if missing:
-            raise StorageVarsError(f"missing storage tfvars for {service}: {', '.join(missing)}")
+            raise StorageVarsError(
+                f"missing storage tfvars for {service}: {', '.join(missing)}"
+            )
         datasets.append(
             {
                 "name": service,

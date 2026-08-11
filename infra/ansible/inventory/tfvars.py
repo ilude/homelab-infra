@@ -22,10 +22,15 @@ except ImportError as error:  # pragma: no cover - exercised in tooling containe
     raise SystemExit(1) from error
 
 REPO = Path(__file__).resolve().parents[3]
-DEFAULT_TFVARS = REPO / "values" / "terraform.tfvars"
+DEFAULT_TFVARS = Path(
+    os.environ.get(
+        "ANSIBLE_TFVARS_FILE",
+        REPO / "tests" / "fixtures" / "site-config" / "terraform.tfvars",
+    )
+)
 DEFAULT_ANSIBLE_USER = "root"
 # This ephemeral trust store is shared by Ansible subprocesses during one
-# apply-container lifetime, but is never persisted in the private values repo.
+# apply-container lifetime and is never persisted in BWS or the excluded-data repo.
 DIRECT_LXC_KNOWN_HOSTS_FILE = "/tmp/homelab-infra/ansible/known_hosts"
 DIRECT_LXC_SSH_ARGS = (
     f"-o UserKnownHostsFile={DIRECT_LXC_KNOWN_HOSTS_FILE} "

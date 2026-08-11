@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check that generated workspace files are writable before plan/apply."""
+
 from __future__ import annotations
 
 import argparse
@@ -48,7 +49,7 @@ def check_no_state_lock(values: Path) -> None:
         )
 
 
-def run(root: Path, require_values: bool) -> None:
+def run(root: Path, require_values: bool, config_dir: Path | None = None) -> None:
     repo = root.resolve()
     check_directory_writable(repo)
     check_directory_writable(repo / "infra" / "opentofu")
@@ -56,23 +57,39 @@ def run(root: Path, require_values: bool) -> None:
     check_glob_writable(repo, "tfplan*")
     check_glob_writable(repo, "*.tfplan*")
 
-    values = repo / "values"
-    if require_values or values.exists():
+    values = (
+        config_dir
+        if config_dir is not None and config_dir.is_absolute()
+        else repo / (config_dir or Path("values"))
+    )
+    if require_values or config_dir is not None or values.exists():
         check_directory_writable(values)
-        check_glob_writable(values, "terraform.tfstate*")
-        check_glob_writable(values, "*.tfstate*")
-        check_file_writable(values / ".terraform.tfstate.lock.info")
-        check_no_state_lock(values)
+        for relative_path in (
+            ".env",
+            "terraform.tfvars",
+            "dns-records.local.json",
+            "ansible/inventory/local.yml",
+        ):
+            if config_dir is not None and not (values / relative_path).is_file():
+                raise PreflightError(
+                    f"missing configuration file: {values / relative_path}"
+                )
+        if config_dir is None:
+            check_glob_writable(values, "terraform.tfstate*")
+            check_glob_writable(values, "*.tfstate*")
+            check_file_writable(values / ".terraform.tfstate.lock.info")
+            check_no_state_lock(values)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--require-values", action="store_true")
+    parser.add_argument("--config-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     try:
-        run(args.root, args.require_values)
+        run(args.root, args.require_values, args.config_dir)
     except PreflightError as error:
         print(f"workspace preflight failed: {error}", file=sys.stderr)
         print(

@@ -10,10 +10,10 @@ usage() {
 Usage: scripts/values.sh <command> [args]
 
 Commands:
-  init [remote]      Create values/ from scaffold/ and git init it. If remote is supplied, add it as origin.
-  clone <remote>     Clone an existing private values repo into values/.
+  init [remote]      Create the excluded-data values repo from scaffold metadata.
+  clone <remote>     Clone an existing private excluded-data repo into values/.
   status             Show values/ git status.
-  check              Verify required values/ files exist.
+  check              Verify values/ is a Git repo with no obsolete configuration sources.
 
 Environment:
   VALUES_DIR              Override private values directory (default: values).
@@ -56,17 +56,14 @@ case "${command_name}" in
       install -d -m 0755 "${values_dir}"
     fi
     copy_if_missing "${template_dir}/README.md" "${values_dir}/README.md"
-    copy_if_missing "${template_dir}/.env.example" "${values_dir}/.env"
-    copy_if_missing "${template_dir}/terraform.tfvars" "${values_dir}/terraform.tfvars"
-    copy_if_missing "${template_dir}/dns-records.local.json" "${values_dir}/dns-records.local.json"
-    copy_if_missing "${template_dir}/ansible/inventory/local.yml" "${values_dir}/ansible/inventory/local.yml"
+    copy_if_missing "${template_dir}/.gitattributes" "${values_dir}/.gitattributes"
     if [[ ! -d "${values_dir}/.git" ]]; then
       git -C "${values_dir}" init
     fi
     if [[ -n "${remote}" ]] && ! git -C "${values_dir}" remote get-url origin >/dev/null 2>&1; then
       git -C "${values_dir}" remote add origin "${remote}"
     fi
-    printf 'Initialized %s. Edit values before planning/applying.\n' "${values_dir}"
+    printf 'Initialized %s for excluded backup and artifact data.\n' "${values_dir}"
     ;;
   clone)
     remote="${2:-}"
@@ -87,17 +84,21 @@ case "${command_name}" in
     ;;
   check)
     require_values
-    missing=0
-    for path in .env terraform.tfvars dns-records.local.json ansible/inventory/local.yml; do
-      if [[ ! -f "${values_dir}/${path}" ]]; then
-        printf 'Missing %s/%s\n' "${values_dir}" "${path}" >&2
-        missing=1
-      fi
-    done
-    if [[ "${missing}" -ne 0 ]]; then
+    if [[ ! -d "${values_dir}/.git" ]]; then
+      printf '%s is not a Git repository.\n' "${values_dir}" >&2
       exit 1
     fi
-    printf '%s contains required files.\n' "${values_dir}"
+    obsolete=0
+    for path in .env terraform.tfvars terraform.tfstate terraform.tfstate.backup dns-records.local.json ansible/inventory/local.yml; do
+      if [[ -e "${values_dir}/${path}" ]]; then
+        printf 'Obsolete BWS-managed source remains: %s/%s\n' "${values_dir}" "${path}" >&2
+        obsolete=1
+      fi
+    done
+    if [[ "${obsolete}" -ne 0 ]]; then
+      exit 1
+    fi
+    printf '%s contains excluded backup and artifact data only.\n' "${values_dir}"
     ;;
   -h|--help|help|'')
     usage

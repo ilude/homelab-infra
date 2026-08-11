@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Read-only Forgejo Actions monitor for the private values repository."""
+
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -14,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
-INVENTORY = "values/ansible/inventory/local.yml"
+INVENTORY = f"{os.environ.get('VALUES_DIR', 'tests/fixtures/site-config')}/ansible/inventory/local.yml"
 TFVARS_INVENTORY = "infra/ansible/inventory/tfvars.py"
 HOST = "pve_target"
 
@@ -34,7 +36,12 @@ TERMINAL = TERMINAL_OK | TERMINAL_BAD
 
 REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(?i)(authorization:\s*)(?:basic|bearer)?\s*[^\s]+"), r"\1<redacted>"),
-    (re.compile(r"(?i)\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|API_KEY)[A-Z0-9_]*)=([^\s]+)"), r"\1=<redacted>"),
+    (
+        re.compile(
+            r"(?i)\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|API_KEY)[A-Z0-9_]*)=([^\s]+)"
+        ),
+        r"\1=<redacted>",
+    ),
     (re.compile(r"\b[0-9a-fA-F]{40,}\b"), "<token>"),
     (re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9.])"), "<ip>"),
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "<email>"),
@@ -133,7 +140,11 @@ def run_ansible_shell(command: str) -> str:
     marker = ">>\n"
     if marker in result.stdout:
         return result.stdout.split(marker, 1)[1].strip()
-    lines = [line for line in result.stdout.splitlines() if not line.startswith(" Container ")]
+    lines = [
+        line
+        for line in result.stdout.splitlines()
+        if not line.startswith(" Container ")
+    ]
     if lines and " | " in lines[0]:
         return "\n".join(lines[1:]).strip()
     return "\n".join(lines).strip()
@@ -141,13 +152,12 @@ def run_ansible_shell(command: str) -> str:
 
 def run_pve_pct(command: str) -> str:
     guarded_command = (
-        'expected={{ proxmox_node_name | quote }}; '
+        "expected={{ proxmox_node_name | quote }}; "
         'actual="$(hostname -s 2>/dev/null || true)"; '
         'if [ "$actual" != "$expected" ]; then '
         'printf "%s\\n" "refusing pct command: connected host is not the configured Proxmox node" >&2; '
         "exit 1; "
-        "fi; "
-        + command
+        "fi; " + command
     )
     return run_ansible_shell(guarded_command)
 
@@ -164,7 +174,9 @@ def forgejo_sql(query: str) -> list[dict[str, Any]]:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as error:
-        raise MonitorError(f"failed to parse Forgejo SQLite JSON: {error}\n{redact(raw)}") from error
+        raise MonitorError(
+            f"failed to parse Forgejo SQLite JSON: {error}\n{redact(raw)}"
+        ) from error
 
 
 def latest_runs(limit: int) -> list[dict[str, Any]]:
@@ -183,7 +195,9 @@ def print_status(limit: int, as_json: bool) -> None:
     if as_json:
         print(json.dumps(rows, indent=2))
         return
-    print(f"{'RUN':>5}  {'STATUS':<9}  {'WORKFLOW':<16}  {'EVENT':<8}  {'AGE':>6}  {'DURATION':>9}  JOB")
+    print(
+        f"{'RUN':>5}  {'STATUS':<9}  {'WORKFLOW':<16}  {'EVENT':<8}  {'AGE':>6}  {'DURATION':>9}  JOB"
+    )
     for row in rows:
         run_status = status_name(row.get("status"))
         job_status = status_name(row.get("job_status"))
@@ -242,9 +256,13 @@ def print_runners(as_json: bool) -> None:
         "select id, name, owner_id, repo_id, last_online, last_active, agent_labels "
         "from action_runner order by id"
     )
-    service = run_pve_pct(
-        "pct exec {{ forgejo_runner_vmid | string }} -- systemctl is-active forgejo-runner || true"
-    ).splitlines()[-1].strip()
+    service = (
+        run_pve_pct(
+            "pct exec {{ forgejo_runner_vmid | string }} -- systemctl is-active forgejo-runner || true"
+        )
+        .splitlines()[-1]
+        .strip()
+    )
     if as_json:
         print(json.dumps({"service": service, "runners": rows}, indent=2))
         return
@@ -257,21 +275,19 @@ def print_runners(as_json: bool) -> None:
         elif int(row.get("owner_id") or 0):
             scope = "owner"
         labels = row.get("agent_labels") or "[]"
-        print(f"{row.get('id', '-'):>3}  {str(row.get('name', '-')):<20}  {scope:<8}  {age(row.get('last_online')):>9}  {labels}")
+        print(
+            f"{row.get('id', '-'):>3}  {str(row.get('name', '-')):<20}  {scope:<8}  {age(row.get('last_online')):>9}  {labels}"
+        )
 
 
 def print_logs(run: str, tail: int, unsafe: bool) -> None:
     run_id = run_id_or_latest(run)
-    command = (
-        "pct exec {{ forgejo_vmid | string }} -- bash -lc "
-        + shell_quote(
-            "path=$(find /var/lib/forgejo/data/actions_log -type f -name '"
-            + str(run_id)
-            + ".log.zst' | sort | tail -n1); "
-            "if [ -z \"$path\" ]; then echo 'log not found'; exit 1; fi; "
-            "zstdcat \"$path\" | tail -n "
-            + str(int(tail))
-        )
+    command = "pct exec {{ forgejo_vmid | string }} -- bash -lc " + shell_quote(
+        "path=$(find /var/lib/forgejo/data/actions_log -type f -name '"
+        + str(run_id)
+        + ".log.zst' | sort | tail -n1); "
+        "if [ -z \"$path\" ]; then echo 'log not found'; exit 1; fi; "
+        'zstdcat "$path" | tail -n ' + str(int(tail))
     )
     text = run_pve_pct(command)
     print(text if unsafe else redact(text))

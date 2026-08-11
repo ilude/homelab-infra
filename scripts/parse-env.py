@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse values/.env as data and emit sanitized environment records."""
+"""Parse a dotenv file as data and emit sanitized environment records."""
 
 from __future__ import annotations
 

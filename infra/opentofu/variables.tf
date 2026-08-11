@@ -1,5 +1,5 @@
 variable "enabled_services" {
-  description = "Services OpenTofu should build and maintain. Service selection is normally supplied from settings.local.json by just plan. Null uses infra/services.json default_services."
+  description = "Services OpenTofu should build and maintain. Service selection is normally supplied from the BWS HOMELAB_SETTINGS family by just plan. Null uses infra/services.json default_services."
   type        = list(string)
   default     = null
 }
@@ -226,7 +226,7 @@ variable "secondary_proxmox_insecure" {
 }
 
 variable "secondary_proxmox_api_token" {
-  description = "API token for the standalone secondary Proxmox provider. Store it only in private values or environment injection."
+  description = "API token for the standalone secondary Proxmox provider. Store it only in the BWS HOMELAB_ENV family or environment injection."
   type        = string
   default     = null
   sensitive   = true
@@ -1166,7 +1166,7 @@ variable "onramp_host_cloud_init_user" {
 }
 
 variable "onramp_host_ssh_public_keys" {
-  description = "SSH public keys authorized for the onramp-host cloud-init user. Store real keys in private values. Falls back to lxc_ssh_public_keys when empty."
+  description = "SSH public keys authorized for the onramp-host cloud-init user. Store real keys in the BWS HOMELAB_TERRAFORM_TFVARS family. Falls back to lxc_ssh_public_keys when empty."
   type        = list(string)
   default     = []
 }

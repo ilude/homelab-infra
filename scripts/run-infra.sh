@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-values_dir="${VALUES_DIR:-values}"
-env_file="${values_dir}/.env"
-if [[ ! -f "${env_file}" ]]; then
-  printf 'Missing %s. Run just setup or just setup <remote>.\n' "${env_file}" >&2
+settings_file="${INFRA_BWS_LOCATOR_FILE:-settings.local.json}"
+if [[ ! -f "${settings_file}" ]]; then
+  printf 'Missing %s. Configure the ignored BWS locator before running infrastructure commands.\n' "${settings_file}" >&2
+  exit 1
+fi
+if [[ -z "${BITWARDEN_ACCESS_KEY:-}" ]]; then
+  printf 'BITWARDEN_ACCESS_KEY is missing.\n' >&2
   exit 1
 fi
 
@@ -12,23 +15,19 @@ export INFRA_HOST_UID="${INFRA_HOST_UID:-$(scripts/host-id.sh uid)}"
 export INFRA_HOST_GID="${INFRA_HOST_GID:-$(scripts/host-id.sh gid)}"
 export INFRA_GIT_COMMIT="${INFRA_GIT_COMMIT:-$(git rev-parse HEAD 2>/dev/null || true)}"
 
-tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/run-infra.XXXXXX")"
-chmod 0700 "${tmp_dir}"
-compose_env_file="${tmp_dir}/env"
-bws_env_file="${tmp_dir}/onclave-bws.env"
-cleanup() {
-  rm -rf -- "${tmp_dir}"
-}
-trap cleanup EXIT HUP INT TERM
-
-# Convert values/.env to a sanitized Docker env file. Do not source it directly.
-umask 077
-scripts/python.sh scripts/parse-env.py --env-file "${env_file}" >"${compose_env_file}"
-if [[ "$*" == *"apply-ansible-services.py"* ]]; then
-  python scripts/onclave-bws-env.py \
-    --inventory "${values_dir}/ansible/inventory/local.yml" >"${bws_env_file}"
-  cat "${bws_env_file}" >>"${compose_env_file}"
+compose_args=(compose run --rm)
+if [[ ! -t 0 || ! -t 1 ]]; then
+  compose_args+=(-T)
 fi
-chmod 0600 "${compose_env_file}"
 
-docker compose run --rm --env-from-file "${compose_env_file}" infra "$@"
+runner_args=(
+  --settings "${settings_file}"
+  --runtime-profile "${BWS_RUNTIME_PROFILE:-config}"
+)
+if [[ "${BWS_WRITEBACK:-}" == "1" ]]; then
+  runner_args+=(--writeback)
+fi
+
+docker "${compose_args[@]}" infra python scripts/run-infra-container.py \
+  "${runner_args[@]}" \
+  -- "$@"

@@ -4,7 +4,7 @@
   connection: local
   gather_facts: false
   vars:
-    dns_records_file: "{{ lookup('env', 'DNS_RECORDS_FILE') | default('values/dns-records.local.json', true) }}"
+    dns_records_file: "{{ lookup('env', 'DNS_RECORDS_FILE') }}"
   tasks:
     - name: Validate Technitium DNS environment
       ansible.builtin.assert:

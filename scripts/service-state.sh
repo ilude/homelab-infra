@@ -139,7 +139,7 @@ enabled_supported_services() {
     if is_supported_service "${service}"; then
       printf '%s\n' "${service}"
     fi
-  done < <(scripts/python.sh scripts/settings.py services | tr -d '\r' | tr ' ' '\n')
+  done < <(scripts/run-infra.sh python scripts/settings.py services | tr -d '\r' | tr ' ' '\n')
 }
 
 run_playbook() {
@@ -154,7 +154,7 @@ run_playbook() {
   fi
   msys_env_conv_excl+="SERVICE_STATE_BACKUP_ROOT;SERVICE_STATE_RESTORE_FILE"
 
-  local inventory_args="-i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py"
+  local inventory_args="-i \"\${VALUES_DIR}/ansible/inventory/local.yml\" -i infra/ansible/inventory/tfvars.py"
   local refresh_direct_access=""
   local execution_resource
   execution_resource="$(jq -r --arg service "${service}" '.services[$service].execution_resource // ""' infra/services.json | tr -d '\r')"

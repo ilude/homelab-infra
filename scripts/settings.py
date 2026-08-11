@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any
 
 DEFAULT_SETTINGS = Path("settings.local.json")
@@ -280,7 +281,7 @@ def enable_service(path: Path, service: str) -> bool:
 def load_settings(path: Path | None = None) -> dict[str, Any]:
     resolved_path = path or settings_path()
     raw = load_raw(resolved_path)
-    unknown = sorted(set(raw) - {"values_repo", "services"})
+    unknown = sorted(set(raw) - {"bws", "values_repo", "services"})
     if unknown:
         raise SettingsError(
             f"{resolved_path}: unknown top-level keys: {', '.join(unknown)}"
@@ -302,8 +303,30 @@ def load_settings(path: Path | None = None) -> dict[str, Any]:
     if not isinstance(remote, str):
         raise SettingsError(f"{resolved_path}: values_repo.remote must be a string")
 
+    bws = raw.get("bws", {})
+    if bws is None:
+        bws = {}
+    if not isinstance(bws, dict):
+        raise SettingsError(f"{resolved_path}: bws must be an object")
+    unknown_bws_keys = sorted(set(bws) - {"project_id", "api_server"})
+    if unknown_bws_keys:
+        raise SettingsError(
+            f"{resolved_path}: unknown bws keys: {', '.join(unknown_bws_keys)}"
+        )
+    project_id = bws.get("project_id", "")
+    api_server = bws.get("api_server", "")
+    if bws:
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise SettingsError(f"{resolved_path}: bws.project_id must be a string")
+        if not isinstance(api_server, str):
+            raise SettingsError(f"{resolved_path}: bws.api_server must be a string")
+        parsed_server = urlparse(api_server)
+        if parsed_server.scheme not in {"http", "https"} or not parsed_server.netloc:
+            raise SettingsError(f"{resolved_path}: bws.api_server must be an HTTP URL")
+
     return {
         "path": resolved_path,
+        "bws": {"project_id": project_id, "api_server": api_server},
         "values_repo": {"remote": remote},
         "services": normalize_services(raw.get("services"), resolved_path),
     }
@@ -352,7 +375,14 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "summary":
         print(settings_summary(settings))
     elif args.command == "tofu-var":
-        print(json.dumps(settings["services"]))
+        tofu_services = [
+            service
+            for service in settings["services"]
+            if SERVICE_REGISTRY_DATA["services"][service].get(
+                "terraform_selection", True
+            )
+        ]
+        print(json.dumps(tofu_services))
     elif args.command == "tofu-target":
         try:
             print(tofu_target(settings, args.service))

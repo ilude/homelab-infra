@@ -1,17 +1,6 @@
 {
-  "values_repo": {
-    "remote": "git@git.example.internal:owner/homelab-infra-values.git"
-  },
-  "services": [
-    "technitium",
-    "technitium_secondary",
-    "forgejo",
-    "forgejo_runner",
-    "infisical_onramp",
-    "hermes",
-    "onramp_host",
-    "searxng_onramp",
-    "onclave_onramp",
-    "menos_onramp"
-  ]
+  "bws": {
+    "project_id": "00000000-0000-0000-0000-000000000000",
+    "api_server": "https://vault.example.internal/api"
+  }
 }

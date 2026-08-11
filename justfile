@@ -7,39 +7,30 @@ export INFRA_HOST_GID := `scripts/host-id.sh gid`
 default:
     @just --list
 
-# Fresh-checkout setup: build tools, create or clone values/, then show next files to edit
+# Fresh-checkout setup: build tools, verify BWS, and create or clone excluded private data
 setup remote="":
     docker compose build infra
     @scripts/python.sh scripts/settings.py validate >/dev/null
-    @selected_remote="$(scripts/discover-values-remote.sh "{{remote}}")"; \
-    if [[ -d values ]]; then \
+    @if [[ -d values ]]; then \
         scripts/values.sh check; \
-    elif [[ -n "${selected_remote}" ]]; then \
-        scripts/values.sh clone "${selected_remote}"; \
+    elif [[ -n "{{remote}}" ]]; then \
+        scripts/values.sh clone "{{remote}}"; \
+        scripts/values.sh check; \
     else \
         scripts/values.sh init; \
     fi
-    scripts/python.sh scripts/migrate-values.py
-    docker compose run --rm infra python scripts/workspace-preflight.py --require-values
-    @if [[ -t 0 && -t 1 ]]; then INFRA_COPY_SSH_KEYS=true docker compose run --rm infra bash scripts/bootstrap-pve-token.sh --if-needed; else printf 'Skipping Proxmox token bootstrap wizard because just setup is not interactive.\n'; fi
-    @if [[ -t 0 && -t 1 ]]; then scripts/python.sh scripts/bootstrap-domain.py --if-needed; else printf 'Skipping domain wizard because just setup is not interactive.\n'; fi
-    @printf '\nEdit these private values before running `just validate` and `just plan`:\n'
-    @printf '  values/.env\n  values/terraform.tfvars\n  values/dns-records.local.json\n  values/ansible/inventory/local.yml\n'
+    scripts/run-infra.sh python scripts/settings.py validate
+    @printf '\nBWS configuration is ready. values/ is retained only for excluded backups and artifacts.\n'
 
 # Show private values repo git status
 [private]
 status-values:
     scripts/values.sh status
 
-# Verify values/ contains required files
+# Verify values/ contains no obsolete BWS-managed configuration or state
 [private]
 check-values:
     scripts/values.sh check
-
-# Migrate older private values layouts to the current schema
-[private]
-migrate-values: check-values
-    scripts/python.sh scripts/migrate-values.py
 
 # Validate public-safety rules for tracked source and scaffold templates
 [private]
@@ -53,7 +44,7 @@ validate-public: validate-public-safety
 
 # Validate only private values wiring and data shape
 [private]
-validate-values: migrate-values
+validate-values: check-values
     scripts/validate-values.sh
 
 # Validate public source and private values wiring
@@ -61,7 +52,7 @@ validate: validate-public validate-values
 
 # Check upstream releases and update eligible pinned versions after the safety hold period
 update:
-    scripts/python.sh scripts/update.py
+    BWS_WRITEBACK=1 scripts/run-infra.sh python scripts/update.py
 
 # Show recent Forgejo Actions runs for the private values repo
 [private]
@@ -89,9 +80,9 @@ clean-plans:
     rm -f tfplan tfplan.meta.json *.tfplan *.tfplan.meta.json
 
 # Review infrastructure changes using private values; writes tfplan for `just apply`
-plan: migrate-values
+plan:
     scripts/plan-infra.sh
 
 # Apply reviewed infrastructure plan, then configure services with Ansible
-apply: migrate-values
+apply:
     scripts/apply-infra.sh

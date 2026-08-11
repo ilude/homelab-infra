@@ -10,8 +10,9 @@ docker compose config >/dev/null
 docker compose run --rm infra bash -euo pipefail -c '
 python scripts/workspace-preflight.py
 
+export TF_DATA_DIR=/tmp/homelab-validate-public-tofu
 tofu -chdir=infra/opentofu init -backend=false
-tofu fmt -check -recursive infra/opentofu scaffold/terraform.tfvars
+tofu fmt -check -recursive infra/opentofu tests/fixtures/site-config/terraform.tfvars
 tofu -chdir=infra/opentofu validate
 tflint --chdir=infra/opentofu --minimum-failure-severity=error
 
@@ -21,18 +22,18 @@ mapfile -t python_files < <(find infra/ansible scripts tests -type f -name "*.py
 python -m py_compile "${python_files[@]}"
 python infra/ansible/scripts/validate-service-state-archive.py --help >/dev/null
 
-python infra/ansible/scripts/apply-technitium-dns.py --check scaffold/dns-records.local.json
-python scripts/parse-env.py --env-file scaffold/.env.example >/dev/null
+python infra/ansible/scripts/apply-technitium-dns.py --check tests/fixtures/site-config/dns-records.local.json
+python scripts/parse-env.py --env-file tests/fixtures/site-config/.env >/dev/null
 python scripts/settings.py --settings settings.example.json validate >/dev/null
 python -m unittest discover -s tests -p "test_*.py"
 
-export ANSIBLE_TFVARS_FILE=scaffold/terraform.tfvars
+export ANSIBLE_TFVARS_FILE=tests/fixtures/site-config/terraform.tfvars
 export INFRA_SETTINGS_FILE=settings.example.json
 export PVE_HOST=proxmox.example.internal
 export SECONDARY_PVE_HOST=proxmox-secondary.example.internal
-ansible-inventory -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --list >/dev/null
+ansible-inventory -i tests/fixtures/site-config/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --list >/dev/null
 mapfile -t playbooks < <(python scripts/settings.py --settings settings.example.json ansible-playbooks --all)
-ansible-playbook -i scaffold/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check \
+ansible-playbook -i tests/fixtures/site-config/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check \
   infra/ansible/playbooks/site.yml \
   infra/ansible/playbooks/storage-prep.yml \
   infra/ansible/playbooks/service-state-backup.yml \

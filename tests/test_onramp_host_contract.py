@@ -7,7 +7,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 VARIABLES = REPO / "infra" / "opentofu" / "variables.tf"
 ONRAMP_HOST_TF = REPO / "infra" / "opentofu" / "onramp-host.tf"
-SCAFFOLD_TFVARS = REPO / "scaffold" / "terraform.tfvars"
+SITE_CONFIG_TFVARS = REPO / "tests" / "fixtures" / "site-config" / "terraform.tfvars"
 ONRAMP_HOST_TASKS = (
     REPO / "infra" / "ansible" / "roles" / "onramp_host" / "tasks" / "main.yml"
 )
@@ -63,7 +63,7 @@ class OnrampHostContractTests(unittest.TestCase):
             self.assertIn(f'variable "{name}"', text)
 
     def test_scaffold_onramp_host_vmid_and_address_are_unique(self) -> None:
-        text = SCAFFOLD_TFVARS.read_text(encoding="utf-8")
+        text = SITE_CONFIG_TFVARS.read_text(encoding="utf-8")
         vmids = re.findall(r"(?m)^\w+(?:_container)?_vmid\s*=\s*(\d+)", text)
         self.assertEqual(len(vmids), len(set(vmids)))
         addresses = [

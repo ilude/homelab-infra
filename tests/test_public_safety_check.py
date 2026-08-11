@@ -19,19 +19,26 @@ class PublicSafetyScanTests(unittest.TestCase):
         self.assertEqual(findings, [])
 
     def test_rfc1918_address_fails(self) -> None:
-        findings = public_safety.scan_ips("README.md", 1, "host 192.168.1.10")  # public-safety: allow-ip
+        unsafe_line = "host 192.168.1.10"  # public-safety: allow-ip
+        findings = public_safety.scan_ips("README.md", 1, unsafe_line)
         self.assertEqual(len(findings), 1)
 
     def test_cgnat_address_fails(self) -> None:
-        findings = public_safety.scan_ips("README.md", 1, "host 100.64.1.10")  # public-safety: allow-ip
+        unsafe_line = "host 100.64.1.10"  # public-safety: allow-ip
+        findings = public_safety.scan_ips("README.md", 1, unsafe_line)
         self.assertEqual(len(findings), 1)
 
     def test_ipv6_ula_fails(self) -> None:
-        findings = public_safety.scan_ips("README.md", 1, "host fd00::1")  # public-safety: allow-ip
+        unsafe_line = "host fd00::1"  # public-safety: allow-ip
+        findings = public_safety.scan_ips("README.md", 1, unsafe_line)
         self.assertEqual(len(findings), 1)
 
     def test_unspecified_and_loopback_addresses_pass(self) -> None:
-        for line in ("bind 0.0.0.0", "bind ::1", "bind 127.0.0.1"):  # public-safety: allow-ip
+        for line in (
+            "bind 0.0.0.0",
+            "bind ::1",
+            "bind 127.0.0.1",
+        ):  # public-safety: allow-ip
             findings = public_safety.scan_ips("README.md", 1, line)
             self.assertEqual(findings, [], line)
 
@@ -51,32 +58,42 @@ class PublicSafetyScanTests(unittest.TestCase):
 
     def test_placeholder_secret_assignment_passes(self) -> None:
         findings = public_safety.scan_secrets(
-            "scaffold/.env.example", 1, 'CF_DNS_API_TOKEN="REPLACE_ME"'
+            "tests/fixtures/site-config/.env", 1, 'CF_DNS_API_TOKEN="REPLACE_ME"'
         )
         self.assertEqual(findings, [])
 
     def test_real_secret_assignment_is_redacted(self) -> None:
-        secret_line = "TECHNITIUM_ADMIN_PASSWORD=" + "supersecretvalue"  # public-safety: allow-secret
+        secret_line = (
+            "TECHNITIUM_ADMIN_PASSWORD=" + "supersecretvalue"
+        )  # public-safety: allow-secret
         findings = public_safety.scan_secrets("README.md", 1, secret_line)
         self.assertEqual(len(findings), 1)
         self.assertIn("<redacted>", findings[0].message)
         self.assertNotIn("supersecretvalue", findings[0].message)
 
     def test_python_requirement_with_token_in_name_passes(self) -> None:
-        findings = public_safety.scan_secrets("tools/requirements.txt", 1, "pytokens==0.4.1")  # public-safety: allow-secret
+        findings = public_safety.scan_secrets(
+            "tools/requirements.txt", 1, "pytokens==0.4.1"
+        )  # public-safety: allow-secret
         self.assertEqual(findings, [])
 
     def test_python_secret_key_constant_passes(self) -> None:
-        findings = public_safety.scan_secrets("scripts/migrate-values.py", 1, "SECRET_KEYS = {")
+        findings = public_safety.scan_secrets(
+            "scripts/example.py", 1, "SECRET_KEYS = {"
+        )
         self.assertEqual(findings, [])
 
     def test_lowercase_python_token_variable_passes(self) -> None:
-        findings = public_safety.scan_secrets("scripts/migrate-values.py", 1, "new_token = value")
+        findings = public_safety.scan_secrets(
+            "scripts/example.py", 1, "new_token = value"
+        )
         self.assertEqual(findings, [])
 
     def test_private_key_header_fails(self) -> None:
         findings = public_safety.scan_secrets(
-            "README.md", 1, "-----BEGIN OPENSSH PRIVATE KEY-----"  # public-safety: allow-secret
+            "README.md",
+            1,
+            "-----BEGIN OPENSSH PRIVATE KEY-----",  # public-safety: allow-secret
         )
         self.assertEqual(len(findings), 1)
 

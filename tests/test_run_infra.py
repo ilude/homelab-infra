@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import stat
 import subprocess
@@ -11,15 +12,28 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 
-@unittest.skipIf(os.name == "nt", "run-infra.sh fake PATH test requires POSIX shell path semantics")
+@unittest.skipIf(
+    os.name == "nt", "run-infra.sh fake PATH test requires POSIX shell path semantics"
+)
 class RunInfraTests(unittest.TestCase):
-    def run_with_fake_docker(self, exit_code: int) -> tuple[subprocess.CompletedProcess[str], Path]:
+    def run_with_fake_docker(
+        self, exit_code: int, *, access_key: bool = True
+    ) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         root = Path(temp_dir.name)
-        values = root / "values"
-        values.mkdir()
-        (values / ".env").write_text("PVE_HOST=proxmox.example.internal\n", encoding="utf-8")
+        settings = root / "settings.local.json"
+        settings.write_text(
+            json.dumps(
+                {
+                    "bws": {
+                        "project_id": "project-id",
+                        "api_server": "https://bws.example.internal/api",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
         fakebin = root / "bin"
         fakebin.mkdir()
         record = root / "record"
@@ -29,21 +43,7 @@ class RunInfraTests(unittest.TestCase):
                 f"""
                 #!/usr/bin/env bash
                 set -euo pipefail
-                if printf '%s\n' "$@" | grep -qx -- "scripts/parse-env.py"; then
-                  printf 'PVE_HOST=proxmox.example.internal\n'
-                  exit 0
-                fi
-                env_file=""
-                while [[ $# -gt 0 ]]; do
-                  if [[ "$1" == "--env-from-file" ]]; then
-                    env_file="$2"
-                    break
-                  fi
-                  shift
-                done
-                test -f "$env_file"
-                mode="$(stat -c '%a' "$env_file")"
-                echo "$env_file $mode" > "{record}"
+                printf '%s\n' "$@" > "{record}"
                 exit {exit_code}
                 """
             ).strip()
@@ -55,10 +55,13 @@ class RunInfraTests(unittest.TestCase):
         env.update(
             {
                 "PATH": f"{fakebin}{os.pathsep}{env['PATH']}",
-                "VALUES_DIR": str(values),
-                "TMPDIR": str(root),
+                "INFRA_BWS_LOCATOR_FILE": str(settings),
             }
         )
+        if access_key:
+            env["BITWARDEN_ACCESS_KEY"] = "test-access-key"
+        else:
+            env.pop("BITWARDEN_ACCESS_KEY", None)
         result = subprocess.run(
             ["bash", "scripts/run-infra.sh", "true"],
             cwd=REPO,
@@ -67,17 +70,26 @@ class RunInfraTests(unittest.TestCase):
             capture_output=True,
             check=False,
         )
-        return result, root
+        return result, root, record
 
-    def test_temp_env_file_removed_on_success(self) -> None:
-        result, root = self.run_with_fake_docker(0)
+    def test_invokes_container_snapshot_runner_without_values_fallback(self) -> None:
+        result, _, record = self.run_with_fake_docker(0)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(list(root.glob("run-infra.*")))
+        arguments = record.read_text(encoding="utf-8").splitlines()
+        self.assertIn("scripts/run-infra-container.py", arguments)
+        self.assertIn("--settings", arguments)
+        self.assertNotIn("values/.env", arguments)
+        self.assertNotIn("--env-from-file", arguments)
 
-    def test_temp_env_file_removed_on_failure(self) -> None:
-        result, root = self.run_with_fake_docker(7)
+    def test_propagates_container_failure(self) -> None:
+        result, _, _ = self.run_with_fake_docker(7)
         self.assertEqual(result.returncode, 7)
-        self.assertFalse(list(root.glob("run-infra.*")))
+
+    def test_fails_closed_without_controller_access_key(self) -> None:
+        result, _, record = self.run_with_fake_docker(0, access_key=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("BITWARDEN_ACCESS_KEY is missing", result.stderr)
+        self.assertFalse(record.exists())
 
 
 if __name__ == "__main__":

@@ -932,12 +932,10 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertTrue(resolve_task["no_log"])
 
-        run_infra = (REPO / "scripts" / "run-infra.sh").read_text(encoding="utf-8")
-        self.assertIn("scripts/onclave-bws-env.py", run_infra)
-        renderer = (REPO / "scripts" / "onclave-bws-env.py").read_text(encoding="utf-8")
-        self.assertIn('"bws",', renderer)
-        self.assertIn('"secret",', renderer)
-        self.assertIn('"list",', renderer)
+        snapshot = (REPO / "scripts" / "bws-snapshot.py").read_text(encoding="utf-8")
+        self.assertIn('"onclave": RUNTIME_KEYS[3:]', snapshot)
+        self.assertIn('"RABBITMQ_DEFAULT_USER"', snapshot)
+        self.assertIn('"RABBITMQ_DEFAULT_PASS"', snapshot)
 
     def test_onclave_onramp_reconciles_persisted_rabbitmq_password(self) -> None:
         role_tasks = (

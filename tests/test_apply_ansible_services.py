@@ -18,7 +18,14 @@ spec.loader.exec_module(apply_ansible_services)
 class ApplyAnsibleServicesTests(unittest.TestCase):
     def test_dependency_waves_parallelize_independent_services(self) -> None:
         waves = apply_ansible_services.dependency_waves(
-            ["technitium", "forgejo", "forgejo_runner", "onramp_host", "searxng_onramp", "hermes"]
+            [
+                "technitium",
+                "forgejo",
+                "forgejo_runner",
+                "onramp_host",
+                "searxng_onramp",
+                "hermes",
+            ]
         )
 
         self.assertEqual(waves[0], ["technitium", "onramp_host"])
@@ -54,17 +61,25 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
             ["onramp_host", "infisical_onramp", "searxng_onramp", "hermes"]
         )
 
-        self.assertEqual(waves, [["onramp_host", "hermes"], ["infisical_onramp"], ["searxng_onramp"]])
+        self.assertEqual(
+            waves, [["onramp_host", "hermes"], ["infisical_onramp"], ["searxng_onramp"]]
+        )
 
     def test_recovery_selection_targets_only_enabled_services(self) -> None:
         self.assertEqual(
             apply_ansible_services.selected_services(["forgejo", "hermes"], ["hermes"]),
             ["hermes"],
         )
-        with self.assertRaisesRegex(apply_ansible_services.settings.SettingsError, "not enabled"):
+        with self.assertRaisesRegex(
+            apply_ansible_services.settings.SettingsError, "not enabled"
+        ):
             apply_ansible_services.selected_services(["forgejo"], ["hermes"])
-        with self.assertRaisesRegex(apply_ansible_services.settings.SettingsError, "duplicates"):
-            apply_ansible_services.selected_services(["forgejo"], ["forgejo", "forgejo"])
+        with self.assertRaisesRegex(
+            apply_ansible_services.settings.SettingsError, "duplicates"
+        ):
+            apply_ansible_services.selected_services(
+                ["forgejo"], ["forgejo", "forgejo"]
+            )
 
     def test_run_service_keeps_service_playbooks_sequential(self) -> None:
         commands: list[list[str]] = []
@@ -86,10 +101,19 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(
             commands,
-            [["ansible-playbook", "-i", "inventory.yml", "-i", "tfvars.py", "infra/ansible/playbooks/forgejo-runner.yml"]],
+            [
+                [
+                    "ansible-playbook",
+                    "-i",
+                    "inventory.yml",
+                    "-i",
+                    "tfvars.py",
+                    "infra/ansible/playbooks/forgejo-runner.yml",
+                ]
+            ],
         )
 
-    def test_technitium_dns_bootstraps_token_before_dns_sync(self) -> None:
+    def test_technitium_dns_uses_authoritative_bws_token(self) -> None:
         commands: list[list[str]] = []
 
         def runner(command: list[str], log_path: Path, env: dict[str, str]) -> int:
@@ -117,11 +141,30 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
         self.assertEqual(
             commands,
             [
-                ["ansible-playbook", "-i", "inventory.yml", "infra/ansible/playbooks/technitium.yml"],
-                ["ansible-playbook", "-i", "inventory.yml", "infra/ansible/playbooks/caddy-proxy.yml"],
-                ["python", "scripts/bootstrap-technitium-api-token.py", "--env-file", str(env_path)],
-                ["ansible-playbook", "-i", "inventory.yml", "infra/ansible/playbooks/technitium-cluster.yml"],
-                ["ansible-playbook", "-i", "inventory.yml", "infra/ansible/playbooks/technitium-dns.yml"],
+                [
+                    "ansible-playbook",
+                    "-i",
+                    "inventory.yml",
+                    "infra/ansible/playbooks/technitium.yml",
+                ],
+                [
+                    "ansible-playbook",
+                    "-i",
+                    "inventory.yml",
+                    "infra/ansible/playbooks/caddy-proxy.yml",
+                ],
+                [
+                    "ansible-playbook",
+                    "-i",
+                    "inventory.yml",
+                    "infra/ansible/playbooks/technitium-cluster.yml",
+                ],
+                [
+                    "ansible-playbook",
+                    "-i",
+                    "inventory.yml",
+                    "infra/ansible/playbooks/technitium-dns.yml",
+                ],
             ],
         )
 

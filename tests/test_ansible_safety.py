@@ -937,6 +937,141 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn('"RABBITMQ_DEFAULT_USER"', snapshot)
         self.assertIn('"RABBITMQ_DEFAULT_PASS"', snapshot)
 
+    def test_onclave_adopts_existing_menos_state_and_renders_unified_contract(self) -> None:
+        role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
+        role_tasks = role / "tasks" / "main.yml"
+        defaults = yaml.safe_load(
+            (role / "defaults" / "main.yml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            defaults["onclave_onramp_data_root"],
+            "{{ menos_onramp_base_dir | default(onramp_host_deploy_dir ~ '/menos') }}/data",
+        )
+        inspect = task_by_name(role_tasks, "Inspect adopted Menos state directories")
+        self.assertEqual(
+            inspect["loop"],
+            [
+                "{{ onclave_onramp_data_root }}/postgres",
+                "{{ onclave_onramp_data_root }}/minio",
+                "{{ onclave_onramp_data_root }}/ollama",
+            ],
+        )
+        self.assertNotIn("Create missing adopted Menos state directories", task_names(role_tasks))
+        render = task_by_name(
+            role_tasks, "Render unified Onclave app definition for the onramp host"
+        )
+        expression = render["ansible.builtin.set_fact"]["onclave_onramp_compose_content"]
+        self.assertIn("'onclave-core'", expression)
+        self.assertEqual(expression.count("'ports': []"), 5)
+        for mount in (
+            "onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U'",
+            "onclave_onramp_data_root ~ '/minio:/data:Z,U'",
+            "onclave_onramp_data_root ~ '/ollama:/root/.ollama:Z,U'",
+            "'./authorized_keys:/keys/authorized_keys:ro,Z'",
+        ):
+            self.assertIn(mount, expression)
+        self.assertIn("'configs': []", expression)
+        self.assertIn("'OLLAMA_KEEP_ALIVE': '-1'", expression)
+        self.assertIn("onclave_onramp_rootless_healthcheck", expression)
+
+        validate = task_by_name(
+            role_tasks, "Validate rendered unified Onclave network isolation"
+        )
+        conditions = validate["ansible.builtin.assert"]["that"]
+        self.assertIn(
+            "onclave_onramp_rendered_definition.services['onclave-core'].volumes == "
+            "['./data/onclave:/data:Z,U', './authorized_keys:/keys/authorized_keys:ro,Z']",
+            conditions,
+        )
+        self.assertIn(
+            "onclave_onramp_rendered_definition.services.postgres.volumes == "
+            "[onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U']",
+            conditions,
+        )
+
+    def test_onclave_env_maps_existing_menos_secret_sources_to_unified_contract(self) -> None:
+        role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
+        defaults = yaml.safe_load(
+            (role / "defaults" / "main.yml").read_text(encoding="utf-8")
+        )
+        template = (role / "templates" / "onclave.env.j2").read_text(encoding="utf-8")
+        self.assertEqual(
+            defaults["onclave_onramp_postgres_password"],
+            "{{ menos_postgres_password }}",
+        )
+        self.assertEqual(
+            defaults["onclave_onramp_s3_access_key"], "{{ menos_s3_access_key }}"
+        )
+        self.assertEqual(
+            defaults["onclave_onramp_openrouter_api_key"],
+            "{{ menos_openrouter_api_key }}",
+        )
+        for key in (
+            "POSTGRES_IMAGE={{ onclave_postgres_image }}",
+            "MINIO_IMAGE={{ onclave_minio_image }}",
+            "OLLAMA_IMAGE={{ onclave_ollama_image }}",
+            "SEARXNG_IMAGE={{ onclave_searxng_image }}",
+            "DOCLING_IMAGE={{ onclave_docling_image }}",
+            "ONCLAVE_AUTHORIZED_KEYS_FILE=./authorized_keys",
+            "POSTGRES_PASSWORD={{ onclave_onramp_postgres_password }}",
+            "S3_ACCESS_KEY={{ onclave_onramp_s3_access_key }}",
+            "S3_SECRET_KEY={{ onclave_onramp_s3_secret_key }}",
+            "SEARXNG_SECRET={{ onclave_onramp_searxng_secret }}",
+            "WEBSHARE_PROXY_USERNAME={{ onclave_onramp_webshare_proxy_username }}",
+            "WEBSHARE_PROXY_PASSWORD={{ onclave_onramp_webshare_proxy_password }}",
+            "YOUTUBE_API_KEY={{ onclave_onramp_youtube_api_key }}",
+            "OPENROUTER_API_KEY={{ onclave_onramp_openrouter_api_key }}",
+            "ANTHROPIC_API_KEY={{ onclave_onramp_anthropic_api_key }}",
+            "CALLBACK_URL={{ onclave_onramp_callback_url }}",
+            "CALLBACK_SECRET={{ onclave_onramp_callback_secret }}",
+            "ONCLAVE_VAULT_S3_BUCKET={{ onclave_onramp_s3_bucket }}",
+        ):
+            self.assertIn(key, template)
+
+    def test_onclave_unified_health_gate_checks_revision_and_dependencies(self) -> None:
+        role_tasks = (
+            REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "tasks" / "main.yml"
+        )
+        health = task_by_name(role_tasks, "Verify unified Onclave health and source revision")
+        ready = task_by_name(role_tasks, "Verify unified Onclave dependency readiness")
+        self.assertIn(
+            "onclave_onramp_health.json.git_sha | default('') == onclave_source_git_sha",
+            health["until"],
+        )
+        self.assertNotIn("broker.connected", str(health))
+        for condition in (
+            "onclave_onramp_ready.json.checks.postgres | default('') == 'ok'",
+            "onclave_onramp_ready.json.checks.s3 | default('') == 'ok'",
+            "onclave_onramp_ready.json.checks.ollama | default('') == 'ok'",
+        ):
+            self.assertIn(condition, ready["until"])
+        self.assertTrue(
+            task_by_name(role_tasks, "Verify unified Onclave HTTPS route locally").get(
+                "retries"
+            )
+        )
+
+    def test_onclave_installs_pinned_backup_helpers_and_runtime_warmup_checks(self) -> None:
+        role_tasks = (
+            REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "tasks" / "main.yml"
+        )
+        helpers = task_by_name(
+            role_tasks, "Install pinned unified Onclave PostgreSQL backup helpers"
+        )
+        self.assertEqual(
+            [item["name"] for item in helpers["loop"]],
+            ["backup-postgres.sh", "restore-postgres.sh"],
+        )
+        self.assertEqual(helpers["ansible.builtin.get_url"]["mode"], "0750")
+        model = task_by_name(role_tasks, "Ensure unified Onclave embedding model is available")
+        bucket = task_by_name(role_tasks, "Ensure unified Onclave managed MinIO bucket exists")
+        self.assertIn("/api/pull", command_text(model))
+        self.assertIn("/api/embeddings", command_text(model))
+        self.assertIn("bucketExists", command_text(bucket))
+        self.assertIn("makeBucket", command_text(bucket))
+        self.assertTrue(model.get("no_log"))
+        self.assertTrue(bucket.get("no_log"))
+
     def test_onclave_onramp_reconciles_persisted_rabbitmq_password(self) -> None:
         role_tasks = (
             REPO

@@ -1,5 +1,6 @@
 ---
 onclave_onramp_base_dir: "{{ onramp_host_deploy_dir }}/onclave"
+onclave_onramp_data_root: "{{ menos_onramp_base_dir | default(onramp_host_deploy_dir ~ '/menos') }}/data"
 onclave_onramp_compose_provider_command: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
 onclave_onramp_core_port: 18080
 onclave_onramp_management_port: 15672
@@ -11,3 +12,21 @@ onclave_onramp_queue_max_length: 1000
 onclave_onramp_heartbeat_stale_ms: 90000
 onclave_onramp_max_exchanges: 16
 onclave_onramp_max_total_tokens: 200000
+onclave_onramp_s3_bucket: menos
+onclave_onramp_s3_region: us-east-1
+onclave_onramp_openai_api_key: "{{ menos_onramp_openai_api_key | default('') }}"
+onclave_onramp_unified_pipeline_model: "{{ menos_onramp_unified_pipeline_model | default('') }}"
+onclave_onramp_callback_url: "{{ menos_onramp_callback_url | default('') }}"
+onclave_onramp_callback_secret: "{{ menos_onramp_callback_secret | default('') }}"
+onclave_onramp_authorized_keys: "{{ menos_authorized_keys }}"
+onclave_onramp_postgres_password: "{{ menos_postgres_password }}"
+onclave_onramp_postgres_database: "{{ menos_postgres_database }}"
+onclave_onramp_postgres_user: "{{ menos_postgres_user }}"
+onclave_onramp_s3_access_key: "{{ menos_s3_access_key }}"
+onclave_onramp_s3_secret_key: "{{ menos_s3_secret_key }}"
+onclave_onramp_searxng_secret: "{{ menos_searxng_secret }}"
+onclave_onramp_webshare_proxy_username: "{{ menos_webshare_proxy_username }}"
+onclave_onramp_webshare_proxy_password: "{{ menos_webshare_proxy_password }}"
+onclave_onramp_youtube_api_key: "{{ menos_youtube_api_key }}"
+onclave_onramp_openrouter_api_key: "{{ menos_openrouter_api_key }}"
+onclave_onramp_anthropic_api_key: "{{ menos_anthropic_api_key }}"

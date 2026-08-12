@@ -1,5 +1,5 @@
 ---
-- name: Validate Onclave onramp required variables
+- name: Validate unified Onclave onramp required variables
   ansible.builtin.assert:
     that:
       - ansible_distribution == "Debian"
@@ -9,14 +9,37 @@
       - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
       - onclave_server_name is match('^[A-Za-z0-9.-]+$')
       - onclave_rabbitmq_server_name is match('^[A-Za-z0-9.-]+$')
+      - onclave_source_git_sha is match('^[0-9a-f]{40}$')
       - onclave_app_definition_url is match('^https://raw.githubusercontent.com/[^/]+/[^/]+/[0-9a-f]{40}/')
+      - onclave_source_git_sha in onclave_app_definition_url
       - onclave_app_definition_sha256 is match('^[0-9a-f]{64}$')
+      - onclave_backup_script_sha256 is match('^[0-9a-f]{64}$')
+      - onclave_restore_script_sha256 is match('^[0-9a-f]{64}$')
       - onclave_rabbitmq_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - onclave_core_image_repository is match('^[A-Za-z0-9./_-]+$')
-      - onclave_core_image_tag is match('^[0-9a-f]{40}$')
+      - onclave_core_image_tag == onclave_source_git_sha
       - onclave_core_image_digest is match('^sha256:[0-9a-f]{64}$')
+      - onclave_postgres_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_minio_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_ollama_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_searxng_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_docling_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - onclave_rabbitmq_default_user is match('^[A-Za-z0-9_.-]+$')
       - onclave_rabbitmq_default_pass | length >= 24
+      - onclave_onramp_authorized_keys | length > 0
+      - "onclave_onramp_authorized_keys | select('match', '^ssh-ed25519 [A-Za-z0-9+/=]+(?: .*)?$') | list | length == onclave_onramp_authorized_keys | length"
+      - onclave_onramp_postgres_database is match('^[A-Za-z_][A-Za-z0-9_-]{0,62}$')
+      - onclave_onramp_postgres_user is match('^[A-Za-z_][A-Za-z0-9_-]{0,62}$')
+      - onclave_onramp_postgres_password | length >= 24
+      - onclave_onramp_s3_access_key | length > 0
+      - onclave_onramp_s3_secret_key | length >= 24
+      - onclave_onramp_searxng_secret | length >= 24
+      - onclave_onramp_webshare_proxy_username | length > 0
+      - onclave_onramp_webshare_proxy_password | length > 0
+      - onclave_onramp_youtube_api_key | length > 0
+      - onclave_onramp_openrouter_api_key | length > 0
+      - onclave_onramp_anthropic_api_key | length > 0
+      - onclave_onramp_data_root is match('^/[A-Za-z0-9_./:-]+$')
       - onclave_onramp_core_port | int > 0
       - onclave_onramp_core_port | int < 65536
       - onclave_onramp_management_port | int > 0
@@ -25,19 +48,19 @@
       - onclave_onramp_amqp_port | int < 65536
       - onclave_onramp_amqp_allowed_cidrs | length > 0
     fail_msg: >-
-      Onclave onramp requires the Debian 13 onramp host, immutable app and
-      image pins, private RabbitMQ credentials, valid DNS names, and approved
-      AMQP source CIDRs.
+      Unified Onclave requires the Debian 13 onramp host, immutable source and
+      image pins, existing Menos state, authorized public keys, private runtime
+      credentials, valid DNS names, and approved AMQP source CIDRs.
   no_log: true
 
-- name: Install Onclave onramp OS dependencies
+- name: Install unified Onclave onramp OS dependencies
   ansible.builtin.apt:
     name: "{{ onclave_onramp_required_packages }}"
     state: present
     update_cache: true
   when: onclave_onramp_required_packages | length > 0
 
-- name: Ensure Onclave deployment directories exist
+- name: Ensure unified Onclave deployment directories exist
   ansible.builtin.file:
     path: "{{ item.path }}"
     state: directory
@@ -46,6 +69,8 @@
     mode: "{{ item.mode }}"
   loop:
     - path: "{{ onclave_onramp_base_dir }}"
+      mode: "0750"
+    - path: "{{ onclave_onramp_base_dir }}/bin"
       mode: "0750"
     - path: "{{ onclave_onramp_base_dir }}/data"
       mode: "0750"
@@ -60,7 +85,24 @@
     - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
       mode: "0750"
 
-- name: Download pinned Onclave app definition
+- name: Inspect adopted Menos state directories
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ onclave_onramp_data_root }}/postgres"
+    - "{{ onclave_onramp_data_root }}/minio"
+    - "{{ onclave_onramp_data_root }}/ollama"
+  register: onclave_onramp_adopted_state_directories
+
+- name: Fail closed without adopted Menos state directories
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isdir
+    quiet: true
+  loop: "{{ onclave_onramp_adopted_state_directories.results }}"
+
+- name: Download pinned unified Onclave app definition
   ansible.builtin.get_url:
     url: "{{ onclave_app_definition_url }}"
     dest: "{{ onclave_onramp_base_dir }}/compose.upstream.yaml"
@@ -69,36 +111,144 @@
     group: "{{ onramp_host_deploy_user }}"
     mode: "0640"
 
-- name: Read pinned Onclave app definition
+- name: Install pinned unified Onclave PostgreSQL backup helpers
+  ansible.builtin.get_url:
+    url: "{{ onclave_app_definition_url | regex_replace('compose\\.yaml$', item.name) }}"
+    dest: "{{ onclave_onramp_base_dir }}/bin/{{ item.name }}"
+    checksum: "sha256:{{ item.sha256 }}"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0750"
+  loop:
+    - name: backup-postgres.sh
+      sha256: "{{ onclave_backup_script_sha256 }}"
+    - name: restore-postgres.sh
+      sha256: "{{ onclave_restore_script_sha256 }}"
+
+- name: Read pinned unified Onclave app definition
   ansible.builtin.slurp:
     src: "{{ onclave_onramp_base_dir }}/compose.upstream.yaml"
   register: onclave_onramp_upstream_compose
 
-- name: Validate Onclave app definition consumer seams
+- name: Parse pinned unified Onclave app definition
+  ansible.builtin.set_fact:
+    onclave_onramp_definition: "{{ onclave_onramp_upstream_compose.content | b64decode | from_yaml }}"
+
+- name: Validate unified Onclave app definition consumer seams
   vars:
     onclave_onramp_upstream_text: "{{ onclave_onramp_upstream_compose.content | b64decode }}"
   ansible.builtin.assert:
     that:
-      - "'image: rabbitmq:4-management' in onclave_onramp_upstream_text"
+      - onclave_onramp_definition.name == 'onclave'
+      - "'rabbitmq' in onclave_onramp_definition.services"
+      - "'postgres' in onclave_onramp_definition.services"
+      - "'minio' in onclave_onramp_definition.services"
+      - "'ollama' in onclave_onramp_definition.services"
+      - "'searxng' in onclave_onramp_definition.services"
+      - "'docling-serve' in onclave_onramp_definition.services"
+      - "'onclave-core' in onclave_onramp_definition.services"
       - "'- \"5672:5672\"' in onclave_onramp_upstream_text"
       - "'- \"15672:15672\"' in onclave_onramp_upstream_text"
-      - "'- \"8080:8080\"' in onclave_onramp_upstream_text"
-      - "'- rabbitmq-data:/var/lib/rabbitmq' in onclave_onramp_upstream_text"
-      - "'- onclave-data:/data' in onclave_onramp_upstream_text"
-    fail_msg: The pinned Onclave app definition changed its consumer-owned image, networking, or storage seams.
+      - "'- \"8000:8000\"' in onclave_onramp_upstream_text"
+      - "'- postgres-data:/var/lib/postgresql/data' in onclave_onramp_upstream_text"
+      - "'- minio-data:/data' in onclave_onramp_upstream_text"
+      - "'- ollama-data:/root/.ollama' in onclave_onramp_upstream_text"
+      - "'ONCLAVE_VAULT_POSTGRES_PASSWORD' in onclave_onramp_upstream_text"
+      - "'ONCLAVE_VAULT_SSH_PUBLIC_KEYS_PATH' in onclave_onramp_upstream_text"
+    fail_msg: >-
+      The pinned unified Onclave app definition changed its required services,
+      consumer-owned networking or storage seams, or vault environment contract.
 
-- name: Render Onclave app definition for the onramp host
+- name: Render unified Onclave app definition for the onramp host
+  vars:
+    onclave_onramp_rootless_healthcheck_command: >-
+      node -e 'fetch("http://127.0.0.1:8000/health").then(response => {
+      if (!response.ok) process.exit(1); }).catch(() => process.exit(1))'
+    onclave_onramp_rootless_healthcheck: >-
+      {{ onclave_onramp_definition.services['onclave-core'].healthcheck
+         | combine({'test': ['CMD-SHELL', onclave_onramp_rootless_healthcheck_command]}) }}
   ansible.builtin.set_fact:
     onclave_onramp_compose_content: >-
-      {{ onclave_onramp_upstream_compose.content | b64decode
-         | replace('image: rabbitmq:4-management', 'image: ' ~ onclave_rabbitmq_image)
-         | replace('- "5672:5672"', '- "0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672"')
-         | replace('- "15672:15672"', '- "127.0.0.1:' ~ (onclave_onramp_management_port | string) ~ ':15672"')
-         | replace('- "8080:8080"', '- "127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8080"')
-         | replace('- rabbitmq-data:/var/lib/rabbitmq', '- ./data/rabbitmq:/var/lib/rabbitmq:Z,U')
-         | replace('- onclave-data:/data', '- ./data/onclave:/data:Z,U') }}
+      {{ onclave_onramp_definition
+         | combine({
+             'configs': {},
+             'services': onclave_onramp_definition.services
+               | combine({
+                   'rabbitmq': onclave_onramp_definition.services.rabbitmq
+                     | combine({
+                         'image': onclave_rabbitmq_image,
+                         'ports': [
+                           '0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672',
+                           '127.0.0.1:' ~ (onclave_onramp_management_port | string) ~ ':15672'
+                         ],
+                         'volumes': ['./data/rabbitmq:/var/lib/rabbitmq:Z,U']
+                       }),
+                   'postgres': onclave_onramp_definition.services.postgres
+                     | combine({
+                         'ports': [],
+                         'configs': [],
+                         'volumes': [onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U']
+                       }),
+                   'minio': onclave_onramp_definition.services.minio
+                     | combine({
+                         'ports': [],
+                         'volumes': [onclave_onramp_data_root ~ '/minio:/data:Z,U']
+                       }),
+                   'ollama': onclave_onramp_definition.services.ollama
+                     | combine({
+                         'ports': [],
+                         'volumes': [onclave_onramp_data_root ~ '/ollama:/root/.ollama:Z,U'],
+                         'environment': (onclave_onramp_definition.services.ollama.environment | default({}))
+                           | combine({'OLLAMA_KEEP_ALIVE': '-1'})
+                       }),
+                   'searxng': onclave_onramp_definition.services.searxng
+                     | combine({'ports': []}),
+                   'docling-serve': onclave_onramp_definition.services['docling-serve']
+                     | combine({'ports': []}),
+                   'onclave-core': onclave_onramp_definition.services['onclave-core']
+                     | combine({
+                         'ports': ['127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8000'],
+                         'configs': [],
+                         'volumes': [
+                           './data/onclave:/data:Z,U',
+                           './authorized_keys:/keys/authorized_keys:ro,Z'
+                         ],
+                         'healthcheck': onclave_onramp_rootless_healthcheck
+                       })
+                 })
+           })
+         | to_nice_yaml(indent=2, sort_keys=false) }}
 
-- name: Install Onclave compose file
+- name: Validate rendered unified Onclave network isolation
+  vars:
+    onclave_onramp_rendered_definition: "{{ onclave_onramp_compose_content | from_yaml }}"
+  ansible.builtin.assert:
+    that:
+      - onclave_onramp_rendered_definition.configs | default({}) | length == 0
+      - >-
+        onclave_onramp_rendered_definition.services.rabbitmq.ports == [
+        '0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672',
+        '127.0.0.1:' ~ (onclave_onramp_management_port | string) ~ ':15672']
+      - onclave_onramp_rendered_definition.services.postgres.ports | default([]) | length == 0
+      - onclave_onramp_rendered_definition.services.postgres.configs | default([]) | length == 0
+      - onclave_onramp_rendered_definition.services.postgres.volumes == [onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U']
+      - onclave_onramp_rendered_definition.services.minio.ports | default([]) | length == 0
+      - onclave_onramp_rendered_definition.services.minio.volumes == [onclave_onramp_data_root ~ '/minio:/data:Z,U']
+      - onclave_onramp_rendered_definition.services.ollama.ports | default([]) | length == 0
+      - onclave_onramp_rendered_definition.services.ollama.volumes == [onclave_onramp_data_root ~ '/ollama:/root/.ollama:Z,U']
+      - onclave_onramp_rendered_definition.services.ollama.environment.OLLAMA_KEEP_ALIVE == '-1'
+      - onclave_onramp_rendered_definition.services.searxng.ports | default([]) | length == 0
+      - onclave_onramp_rendered_definition.services['docling-serve'].ports | default([]) | length == 0
+      - "onclave_onramp_rendered_definition.services['onclave-core'].ports == ['127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8000']"
+      - "onclave_onramp_rendered_definition.services['onclave-core'].configs | default([]) | length == 0"
+      - "onclave_onramp_rendered_definition.services['onclave-core'].volumes == ['./data/onclave:/data:Z,U', './authorized_keys:/keys/authorized_keys:ro,Z']"
+      - "onclave_onramp_rendered_definition.services['onclave-core'].healthcheck.test[0] == 'CMD-SHELL'"
+      - "onclave_onramp_rendered_definition.services['onclave-core'].healthcheck.test[1] is match('^node -e ')"
+    fail_msg: >-
+      The rendered unified Onclave definition must preserve adopted Menos state,
+      expose only the loopback API, and bind authorization keys read-only.
+
+- name: Install unified Onclave compose file
   ansible.builtin.copy:
     content: "{{ onclave_onramp_compose_content }}"
     dest: "{{ onclave_onramp_base_dir }}/compose.yaml"
@@ -107,7 +257,7 @@
     mode: "0640"
   notify: Restart onclave onramp
 
-- name: Install Onclave environment contract
+- name: Install unified Onclave environment contract
   ansible.builtin.template:
     src: onclave.env.j2
     dest: "{{ onclave_onramp_base_dir }}/.env"
@@ -117,7 +267,17 @@
   no_log: true
   notify: Restart onclave onramp
 
-- name: Resolve Onclave deploy user UID
+- name: Install unified Onclave authorized public keys
+  ansible.builtin.template:
+    src: authorized_keys.j2
+    dest: "{{ onclave_onramp_base_dir }}/authorized_keys"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart onclave onramp
+
+- name: Resolve unified Onclave deploy user UID
   ansible.builtin.command:
     argv:
       - id
@@ -126,7 +286,7 @@
   register: onclave_onramp_deploy_user_uid
   changed_when: false
 
-- name: Install Onclave rootless systemd unit
+- name: Install unified Onclave rootless systemd unit
   ansible.builtin.template:
     src: onclave-onramp.service.j2
     dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.service"
@@ -135,7 +295,7 @@
     mode: "0644"
   notify: Restart onclave onramp
 
-- name: Enable Onclave rootless systemd unit
+- name: Enable unified Onclave rootless systemd unit
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.systemd_service:
@@ -222,10 +382,10 @@
       - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
   changed_when: false
 
-- name: Flush Onclave service restarts before endpoint checks
+- name: Flush unified Onclave service restarts before health checks
   ansible.builtin.meta: flush_handlers
 
-- name: Verify Onclave rootless service is active
+- name: Verify unified Onclave rootless service is active
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
@@ -238,24 +398,126 @@
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   changed_when: false
   register: onclave_onramp_service_active
-  retries: 6
-  delay: 5
+  retries: 12
+  delay: 10
   until: onclave_onramp_service_active.rc == 0
 
-- name: Verify Onclave core health and broker connectivity
+- name: Resolve running unified Onclave core container ID
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - ps
+      - --quiet
+      - --filter
+      - label=io.podman.compose.project=onclave
+      - --filter
+      - label=com.docker.compose.service=onclave-core
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_core_container_ids
+  changed_when: false
+  no_log: true
+
+- name: Fail closed without exactly one running unified Onclave core container
+  ansible.builtin.assert:
+    that:
+      - onclave_onramp_core_container_ids.stdout_lines | length == 1
+    quiet: true
+  no_log: true
+
+- name: Ensure unified Onclave embedding model is available
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - "{{ onclave_onramp_core_container_ids.stdout_lines[0] }}"
+      - node
+      - --input-type=module
+      - -e
+      - >-
+        const base = process.env.ONCLAVE_VAULT_OLLAMA_URL.replace(/\/$/, '');
+        const model = process.env.ONCLAVE_VAULT_OLLAMA_MODEL;
+        const tags = await fetch(base + '/api/tags').then(response => response.json());
+        const names = new Set((tags.models || []).map(item => item.name));
+        const present = names.has(model) || names.has(model + ':latest');
+        if (!present) { const response = await fetch(base + '/api/pull',
+        {method: 'POST', headers: {'content-type': 'application/json'},
+        body: JSON.stringify({name: model, stream: false})}); if (!response.ok) throw new Error('Ollama model pull failed'); }
+        const verified = await fetch(base + '/api/tags').then(response => response.json());
+        const verifiedNames = new Set((verified.models || []).map(item => item.name));
+        if (!verifiedNames.has(model) && !verifiedNames.has(model + ':latest')) throw new Error('Ollama model unavailable');
+        const warmup = await fetch(base + '/api/embeddings', {method: 'POST',
+        headers: {'content-type': 'application/json'}, body: JSON.stringify({model, prompt: 'deployment readiness'})});
+        if (!warmup.ok || (await warmup.json()).embedding.length !== 1024) throw new Error('Ollama embedding warmup failed');
+        console.log(JSON.stringify({downloaded: !present, warmed: true}));
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_embedding_model
+  changed_when: "'\"downloaded\":true' in onclave_onramp_embedding_model.stdout"
+  no_log: true
+
+- name: Ensure unified Onclave managed MinIO bucket exists
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - "{{ onclave_onramp_core_container_ids.stdout_lines[0] }}"
+      - node
+      - --input-type=module
+      - -e
+      - >-
+        import { Client } from 'minio';
+        const endpoint = process.env.ONCLAVE_VAULT_S3_ENDPOINT_URL;
+        const [endPoint, port] = endpoint.split(':');
+        const client = new Client({endPoint, port: Number(port),
+        useSSL: process.env.ONCLAVE_VAULT_S3_SECURE === 'true',
+        accessKey: process.env.ONCLAVE_VAULT_S3_ACCESS_KEY,
+        secretKey: process.env.ONCLAVE_VAULT_S3_SECRET_KEY});
+        const bucket = process.env.ONCLAVE_VAULT_S3_BUCKET;
+        const created = !(await client.bucketExists(bucket));
+        if (created) await client.makeBucket(bucket, process.env.ONCLAVE_VAULT_S3_REGION);
+        console.log(JSON.stringify({created}));
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_bucket_init
+  changed_when: "'\"created\":true' in onclave_onramp_bucket_init.stdout"
+  no_log: true
+
+- name: Verify unified Onclave health and source revision
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ onclave_onramp_core_port }}/health"
     status_code: 200
     return_content: true
   register: onclave_onramp_health
-  retries: 24
-  delay: 5
+  retries: 60
+  delay: 10
   until:
     - onclave_onramp_health.status == 200
-    - onclave_onramp_health.json.broker.connected | default(false)
-    - onclave_onramp_health.json.broker.topologyDeclared | default(false)
+    - onclave_onramp_health.json.status | default('') == 'ok'
+    - onclave_onramp_health.json.git_sha | default('') == onclave_source_git_sha
 
-- name: Verify Onclave HTTPS route locally
+- name: Verify unified Onclave dependency readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ onclave_onramp_core_port }}/ready"
+    status_code: 200
+    return_content: true
+  register: onclave_onramp_ready
+  retries: 60
+  delay: 10
+  until:
+    - onclave_onramp_ready.status == 200
+    - onclave_onramp_ready.json.status | default('') == 'ready'
+    - onclave_onramp_ready.json.checks.postgres | default('') == 'ok'
+    - onclave_onramp_ready.json.checks.s3 | default('') == 'ok'
+    - onclave_onramp_ready.json.checks.ollama | default('') == 'ok'
+
+- name: Verify unified Onclave HTTPS route locally
   ansible.builtin.command:
     argv:
       - curl

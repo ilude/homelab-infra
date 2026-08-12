@@ -8,7 +8,6 @@
       - onramp_host_deploy_user != 'root'
       - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
       - onclave_server_name is match('^[A-Za-z0-9.-]+$')
-      - onclave_rabbitmq_server_name is match('^[A-Za-z0-9.-]+$')
       - onclave_source_git_sha is match('^[0-9a-f]{40}$')
       - onclave_app_definition_url is match('^https://raw.githubusercontent.com/[^/]+/[^/]+/[0-9a-f]{40}/')
       - onclave_source_git_sha in onclave_app_definition_url
@@ -288,6 +287,79 @@
   register: onclave_onramp_deploy_user_uid
   changed_when: false
 
+- name: Inspect retired Menos service unit
+  ansible.builtin.stat:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/menos-onramp.service"
+  register: onclave_onramp_retired_menos_service_unit
+
+- name: Stop and disable retired Menos service
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: menos-onramp.service
+    scope: user
+    state: stopped
+    enabled: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  when: onclave_onramp_retired_menos_service_unit.stat.exists
+
+- name: Remove retired Menos enabled service symlink
+  ansible.builtin.file:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/default.target.wants/menos-onramp.service"
+    state: absent
+  register: onclave_onramp_retired_menos_service_symlink_removal
+
+- name: Remove retired Menos service unit file
+  ansible.builtin.file:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/menos-onramp.service"
+    state: absent
+  register: onclave_onramp_retired_menos_service_unit_removal
+
+- name: Inspect legacy Menos target unit
+  ansible.builtin.stat:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/menos-onramp.target"
+  register: onclave_onramp_legacy_menos_target
+
+- name: Stop and disable legacy Menos target
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: menos-onramp.target
+    scope: user
+    state: stopped
+    enabled: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  when: onclave_onramp_legacy_menos_target.stat.exists
+
+- name: Remove legacy Menos enabled target symlink
+  ansible.builtin.file:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/default.target.wants/menos-onramp.target"
+    state: absent
+  register: onclave_onramp_legacy_menos_target_symlink_removal
+
+- name: Remove legacy Menos target unit file
+  ansible.builtin.file:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/menos-onramp.target"
+    state: absent
+  register: onclave_onramp_legacy_menos_target_unit_removal
+
+- name: Reload user systemd manager after retired Menos cleanup
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    scope: user
+    daemon_reload: true
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  changed_when: false
+  when: >-
+    onclave_onramp_retired_menos_service_symlink_removal.changed or
+    onclave_onramp_retired_menos_service_unit_removal.changed or
+    onclave_onramp_legacy_menos_target_symlink_removal.changed or
+    onclave_onramp_legacy_menos_target_unit_removal.changed
+
 - name: Detect legacy Onclave target unit
   ansible.builtin.stat:
     path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
@@ -422,6 +494,12 @@
   ansible.builtin.include_role:
     name: caddy_build
 
+- name: Remove retired Menos Caddy site snippet
+  ansible.builtin.file:
+    path: /etc/caddy/sites.d/menos.caddy
+    state: absent
+  notify: Reload caddy
+
 - name: Install Onclave Caddy site snippets
   ansible.builtin.template:
     src: onclave.caddy.j2
@@ -429,7 +507,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Restart caddy
+  notify: Reload caddy
 
 - name: Validate Onclave Caddy config
   ansible.builtin.command:
@@ -592,22 +670,3 @@
   retries: 24
   delay: 5
   until: onclave_onramp_https_check.rc == 0
-
-- name: Verify RabbitMQ management HTTPS route locally
-  ansible.builtin.command:
-    argv:
-      - curl
-      - --fail
-      - --silent
-      - --show-error
-      - --insecure
-      - --max-time
-      - "10"
-      - --resolve
-      - "{{ onclave_rabbitmq_server_name }}:443:127.0.0.1"
-      - "https://{{ onclave_rabbitmq_server_name }}/"
-  changed_when: false
-  register: onclave_onramp_management_https_check
-  retries: 24
-  delay: 5
-  until: onclave_onramp_management_https_check.rc == 0

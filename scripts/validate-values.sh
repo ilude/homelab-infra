@@ -12,6 +12,5 @@ ansible-inventory -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansibl
 mapfile -t playbooks < <(python scripts/settings.py ansible-playbooks)
 ansible-playbook -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py --syntax-check \
   infra/ansible/playbooks/storage-prep.yml \
-  infra/ansible/playbooks/migrate-menos-onramp.yml \
   "${playbooks[@]}"
 '

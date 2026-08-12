@@ -97,7 +97,6 @@ all:
     searxng_bind_address: 127.0.0.1
     searxng_instance_name: Homelab SearXNG
     onclave_server_name: onclave.example.internal
-    onclave_rabbitmq_server_name: rabbitmq.example.internal
     onclave_source_git_sha: b3e12e7266edb25c297f88c1a3bfbb9c6f0ff64e
     onclave_app_definition_url: https://raw.githubusercontent.com/traefikturkey/onclave/b3e12e7266edb25c297f88c1a3bfbb9c6f0ff64e/deploy/app/onclave/compose.yaml
     onclave_app_definition_sha256: 59d8505afb6258ebfc410ac9545baa0fdb7e94ec8efdf1173cc2fac08e892c1f
@@ -114,18 +113,6 @@ all:
     onclave_docling_image: quay.io/docling-project/docling-serve-cpu:v1.15.0@sha256:fdfa8d8aff086c342ea2d3159ad5a1e65bcd6a2b435d243f9f47fdd332f189b5
     onclave_bws_project_id: REPLACE_WITH_BWS_PROJECT_ID
     onclave_bws_api_server: https://vault.example.internal/api
-    menos_server_name: menos.example.internal
-    menos_source_git_sha: 7c620a088755a3dab99741f7d8bde54bce8d85db
-    menos_app_definition_url: https://raw.githubusercontent.com/traefikturkey/onclave/7c620a088755a3dab99741f7d8bde54bce8d85db/deploy/app/menos/compose.yaml
-    menos_app_definition_sha256: ebb8d588fb34ceac38839a79bc9205ab9c6965df46984058d622eefc5b45612e
-    menos_backup_script_sha256: 536a318707e8215464d2e255bb0e22455b96656d9137f16773523c0ab36481c4
-    menos_restore_script_sha256: 740d20786548ffef8823cf83b457084b9ba2887c1834b1eb121bf475de33ab99
-    menos_api_image: ghcr.io/traefikturkey/menos-api:7c620a088755a3dab99741f7d8bde54bce8d85db@sha256:6cd6b97575e68165599c97d55c0b3ffd29b2968380cb6787b2e5e89e899df01b
-    menos_postgres_image: docker.io/pgvector/pgvector:pg17@sha256:d2ef61f42ef767baa5a1475393303cc235bcd92febd9d7014eddb48b41f3bad0
-    menos_minio_image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
-    menos_ollama_image: docker.io/ollama/ollama:0.32.1@sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0
-    menos_searxng_image: ghcr.io/searxng/searxng:2026.7.19-6da6eee26@sha256:b8ca38ba06eea544d7555e88321e212ddc0d5c3c7de055419cfb2e5c6bf30812
-    menos_docling_image: quay.io/docling-project/docling-serve-cpu:v1.15.0@sha256:fdfa8d8aff086c342ea2d3159ad5a1e65bcd6a2b435d243f9f47fdd332f189b5
     menos_authorized_keys:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExamplePublicKeyMaterialOnly replace@example
     menos_postgres_database: menos

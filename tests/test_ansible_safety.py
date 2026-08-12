@@ -36,7 +36,6 @@ ROOTLESS_ONRAMP_UNITS = tuple(
         ("infisical_onramp", "infisical-onramp.service.j2"),
         ("searxng_onramp", "searxng-onramp.service.j2"),
         ("onclave_onramp", "onclave-onramp.service.j2"),
-        ("menos_onramp", "menos-onramp.service.j2"),
     )
 )
 CADDY_TASK_FILES = (
@@ -703,219 +702,6 @@ class AnsibleSafetyTests(unittest.TestCase):
             mode = (REPO / rel_path).stat().st_mode
             self.assertTrue(mode & 0o111, rel_path)
 
-    def test_menos_assertions_are_string_conditions(self) -> None:
-        tasks = yaml.safe_load(
-            (
-                REPO
-                / "infra"
-                / "ansible"
-                / "roles"
-                / "menos_onramp"
-                / "tasks"
-                / "main.yml"
-            ).read_text(encoding="utf-8")
-        )
-        conditions = tasks[0]["ansible.builtin.assert"]["that"]
-        self.assertTrue(all(isinstance(condition, str) for condition in conditions))
-        self.assertIn("menos_s3_access_key | length > 0", conditions)
-        self.assertIn("menos_source_git_sha in menos_app_definition_url", conditions)
-        self.assertIn(
-            "menos_backup_script_sha256 is match('^[0-9a-f]{64}$')", conditions
-        )
-        self.assertIn(
-            "menos_restore_script_sha256 is match('^[0-9a-f]{64}$')", conditions
-        )
-        self.assertNotIn("menos_s3_access_key | length >= 16", conditions)
-
-    def test_menos_env_pins_unified_pipeline_model(self) -> None:
-        role = REPO / "infra" / "ansible" / "roles" / "menos_onramp"
-        defaults = yaml.safe_load(
-            (role / "defaults" / "main.yml").read_text(encoding="utf-8")
-        )
-        env_template = (role / "templates" / "menos.env.j2").read_text(encoding="utf-8")
-        self.assertEqual(
-            defaults["menos_onramp_unified_pipeline_model"], "openai/gpt-4o-mini"
-        )
-        self.assertIn(
-            "UNIFIED_PIPELINE_MODEL={{ menos_onramp_unified_pipeline_model }}",
-            env_template,
-        )
-
-    def test_menos_installs_pinned_postgres_backup_helpers(self) -> None:
-        task = task_by_name(
-            REPO
-            / "infra"
-            / "ansible"
-            / "roles"
-            / "menos_onramp"
-            / "tasks"
-            / "main.yml",
-            "Install pinned Menos PostgreSQL backup helpers",
-        )
-        module = task["ansible.builtin.get_url"]
-        self.assertIn("menos_app_definition_url", module["url"])
-        self.assertEqual(module["checksum"], "sha256:{{ item.sha256 }}")
-        self.assertEqual(module["mode"], "0750")
-        self.assertEqual(
-            [item["name"] for item in task["loop"]],
-            ["backup-postgres.sh", "restore-postgres.sh"],
-        )
-
-    def test_menos_upstream_seam_matches_postgres_compose_api_port(self) -> None:
-        task = task_by_name(
-            REPO
-            / "infra"
-            / "ansible"
-            / "roles"
-            / "menos_onramp"
-            / "tasks"
-            / "main.yml",
-            "Validate Menos app definition consumer seams",
-        )
-        conditions = task["ansible.builtin.assert"]["that"]
-        self.assertIn("'- \"8000:8000\"' in menos_onramp_upstream_text", conditions)
-        self.assertNotIn("'- \"8080:8000\"' in menos_onramp_upstream_text", conditions)
-
-    def test_menos_state_directory_ownership_is_not_reset_on_rerun(self) -> None:
-        role_tasks = (
-            REPO / "infra" / "ansible" / "roles" / "menos_onramp" / "tasks" / "main.yml"
-        )
-        inspect = task_by_name(
-            role_tasks, "Inspect container-managed Menos state directories"
-        )
-        create = task_by_name(role_tasks, "Create missing Menos state directories once")
-        self.assertIn("{{ menos_onramp_base_dir }}/data/postgres", inspect["loop"])
-        self.assertEqual(create["when"], "not item.stat.exists")
-
-    def test_menos_bucket_initialization_is_idempotent_and_secret_safe(self) -> None:
-        role_tasks = (
-            REPO / "infra" / "ansible" / "roles" / "menos_onramp" / "tasks" / "main.yml"
-        )
-        resolver = task_by_name(role_tasks, "Resolve running Menos API container ID")
-        resolver_command = command_text(resolver)
-        self.assertIn("com.docker.compose.service=menos-api", resolver_command)
-        self.assertNotIn("menos_api_1", resolver_command)
-        task = task_by_name(
-            role_tasks,
-            "Ensure Menos managed MinIO bucket exists",
-        )
-        command = command_text(task)
-        self.assertIn("/app/.venv/bin/python", command)
-        self.assertIn("sys.path.insert(0, '/app')", command)
-        self.assertIn("bucket_exists", command)
-        self.assertIn("make_bucket", command)
-        self.assertTrue(task.get("no_log"))
-        self.assertIn('"created": true', task["changed_when"])
-
-    def test_menos_render_removes_dependency_host_ports(self) -> None:
-        task = task_by_name(
-            REPO
-            / "infra"
-            / "ansible"
-            / "roles"
-            / "menos_onramp"
-            / "tasks"
-            / "main.yml",
-            "Render Menos app definition for the onramp host",
-        )
-        expression = task["ansible.builtin.set_fact"]["menos_onramp_compose_content"]
-        self.assertEqual(expression.count("'ports': []"), 5)
-        self.assertIn(
-            "'127.0.0.1:' ~ (menos_onramp_api_port | string) ~ ':8000'", expression
-        )  # public-safety: allow-ip
-        for mount in (
-            "./data/postgres:/var/lib/postgresql/data:Z,U",
-            "./data/minio:/data:Z,U",
-            "./data/ollama:/root/.ollama:Z,U",
-            "./authorized_keys:/keys/authorized_keys:ro,Z",
-        ):
-            self.assertIn(mount, expression)
-        self.assertIn("'configs': []", expression)
-        self.assertIn("'OLLAMA_KEEP_ALIVE': '-1'", expression)
-        self.assertIn(
-            "'UNIFIED_PIPELINE_MODEL': menos_onramp_unified_pipeline_model", expression
-        )
-        self.assertIn("'healthcheck': menos_onramp_rootless_healthcheck", expression)
-        command = task["vars"]["menos_onramp_rootless_healthcheck_command"]
-        self.assertIn("python -c", command)
-        self.assertIn("urllib.request.urlopen", command)
-        healthcheck = task["vars"]["menos_onramp_rootless_healthcheck"]
-        self.assertIn("'CMD-SHELL'", healthcheck)
-        self.assertIn("menos_onramp_rootless_healthcheck_command", healthcheck)
-
-    def test_menos_render_requires_read_only_authorization_bind_mount(self) -> None:
-        task = task_by_name(
-            REPO
-            / "infra"
-            / "ansible"
-            / "roles"
-            / "menos_onramp"
-            / "tasks"
-            / "main.yml",
-            "Validate rendered Menos network isolation",
-        )
-        conditions = task["ansible.builtin.assert"]["that"]
-        self.assertIn(
-            "menos_onramp_rendered_definition.services.ollama.environment."
-            "OLLAMA_KEEP_ALIVE == '-1'",
-            conditions,
-        )
-        self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].configs "
-            "| default([]) | length == 0",
-            conditions,
-        )
-        self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].volumes == "
-            "['./authorized_keys:/keys/authorized_keys:ro,Z']",
-            conditions,
-        )
-        self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].environment."
-            "UNIFIED_PIPELINE_MODEL == menos_onramp_unified_pipeline_model",
-            conditions,
-        )
-        self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].healthcheck."
-            "test[0] == 'CMD-SHELL'",
-            conditions,
-        )
-        self.assertIn(
-            "menos_onramp_rendered_definition.services['menos-api'].healthcheck."
-            "test[1] is match('^python -c ')",
-            conditions,
-        )
-        self.assertIn(
-            "'urllib.request.urlopen' in menos_onramp_rendered_definition."
-            "services['menos-api'].healthcheck.test[1]",
-            conditions,
-        )
-
-    def test_menos_role_installs_required_embedding_model(self) -> None:
-        task = task_by_name(
-            REPO
-            / "infra"
-            / "ansible"
-            / "roles"
-            / "menos_onramp"
-            / "tasks"
-            / "main.yml",
-            "Ensure Menos embedding model is available",
-        )
-        command = command_text(task)
-        self.assertIn("nsenter", command)
-        self.assertIn("settings.ollama_url", command)
-        self.assertIn("settings.ollama_model", command)
-        self.assertNotIn("settings.ollama_base_url", command)
-        self.assertIn("/api/pull", command)
-        self.assertIn("/api/tags", command)
-        self.assertIn("/api/embeddings", command)
-        self.assertIn("1024", command)
-        inline_script = task["ansible.builtin.command"]["argv"][-1]
-        compile(inline_script, "menos-embedding-model", "exec")
-        self.assertTrue(task.get("no_log"))
-        self.assertIn('"downloaded": true', task["changed_when"])
-
     def test_onclave_onramp_consumes_host_rendered_bws_secrets(self) -> None:
         plays = yaml.safe_load(ONCLAVE_ONRAMP_PLAYBOOK.read_text(encoding="utf-8"))
         deployment = plays[-1]
@@ -1050,6 +836,86 @@ class AnsibleSafetyTests(unittest.TestCase):
                 "retries"
             )
         )
+
+    def test_onclave_retires_only_menos_process_and_proxy_surfaces(self) -> None:
+        role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
+        role_tasks = role / "tasks" / "main.yml"
+        names = task_names(role_tasks)
+
+        stop_service = task_by_name(role_tasks, "Stop and disable retired Menos service")
+        service = stop_service["ansible.builtin.systemd_service"]
+        self.assertEqual(service["name"], "menos-onramp.service")
+        self.assertEqual(service["scope"], "user")
+        self.assertEqual(service["state"], "stopped")
+        self.assertFalse(service["enabled"])
+        self.assertEqual(
+            stop_service["when"],
+            "onclave_onramp_retired_menos_service_unit.stat.exists",
+        )
+
+        remove_service_symlink = task_by_name(
+            role_tasks, "Remove retired Menos enabled service symlink"
+        )
+        self.assertEqual(
+            remove_service_symlink["ansible.builtin.file"]["path"],
+            "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/"
+            "default.target.wants/menos-onramp.service",
+        )
+        remove_service_unit = task_by_name(
+            role_tasks, "Remove retired Menos service unit file"
+        )
+        self.assertEqual(remove_service_unit["ansible.builtin.file"]["state"], "absent")
+        self.assertLess(
+            names.index("Stop and disable retired Menos service"),
+            names.index("Remove retired Menos service unit file"),
+        )
+
+        stop_target = task_by_name(role_tasks, "Stop and disable legacy Menos target")
+        self.assertEqual(
+            stop_target["ansible.builtin.systemd_service"]["name"],
+            "menos-onramp.target",
+        )
+        self.assertEqual(
+            stop_target["when"], "onclave_onramp_legacy_menos_target.stat.exists"
+        )
+        self.assertLess(
+            names.index("Remove retired Menos service unit file"),
+            names.index("Stop and disable legacy Menos target"),
+        )
+
+        cleanup_tasks = [
+            remove_service_symlink,
+            remove_service_unit,
+            task_by_name(role_tasks, "Remove legacy Menos enabled target symlink"),
+            task_by_name(role_tasks, "Remove legacy Menos target unit file"),
+        ]
+        self.assertNotIn("onclave_onramp_data_root", str(cleanup_tasks))
+        self.assertNotIn("onclave_onramp_base_dir", str(cleanup_tasks))
+        self.assertNotIn("menos_onramp_base_dir", str(cleanup_tasks))
+        self.assertNotIn("backup", str(cleanup_tasks).lower())
+
+        reload = task_by_name(
+            role_tasks, "Reload user systemd manager after retired Menos cleanup"
+        )
+        self.assertTrue(reload["ansible.builtin.systemd_service"]["daemon_reload"])
+        self.assertFalse(reload["changed_when"])
+
+        remove_caddy = task_by_name(role_tasks, "Remove retired Menos Caddy site snippet")
+        self.assertEqual(remove_caddy["ansible.builtin.file"]["state"], "absent")
+        self.assertEqual(remove_caddy["notify"], "Reload caddy")
+        self.assertLess(
+            names.index("Validate Onclave Caddy config"),
+            names.index("Flush unified Onclave service restarts before health checks"),
+        )
+
+        caddy = (role / "templates" / "onclave.caddy.j2").read_text(encoding="utf-8")
+        self.assertNotIn("management_port", caddy)
+        self.assertNotIn("rabbitmq_server_name", caddy)
+
+        render = task_by_name(role_tasks, "Render unified Onclave app definition for the onramp host")
+        self.assertIn("'0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672'", str(render))
+        allowed = task_by_name(role_tasks, "Allow approved clients to reach Onclave AMQP")
+        self.assertEqual(allowed["loop"], "{{ onclave_onramp_amqp_allowed_cidrs }}")
 
     def test_onclave_installs_pinned_backup_helpers_and_runtime_warmup_checks(self) -> None:
         role_tasks = (

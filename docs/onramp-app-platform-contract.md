@@ -10,7 +10,7 @@ The selected default direction is option 3: `homelab-infra remains the durable i
 
 `homelab-infra` owns durable infrastructure resources and first-class services: Proxmox resources, service LAN addressing, static infrastructure DNS, service-local Caddy for first-class services, Ansible roles, and OpenTofu state.
 
-`onramp-vNext` owns Docker app services by default. That includes application catalog entries, Compose or Podman workload definitions, app lifecycle, app-level health checks, and app-specific configuration that does not require infrastructure resource ownership. Onclave and Menos are app workloads under this ownership model, not first-class infrastructure services.
+`onramp-vNext` owns Docker app services by default. That includes application catalog entries, Compose or Podman workload definitions, app lifecycle, app-level health checks, and app-specific configuration that does not require infrastructure resource ownership. Onclave is an app workload under this ownership model, not a first-class infrastructure service.
 
 Hermes is the operator cockpit. It may summarize status, run approved validation and planning commands, and guide the operator through approval gates. Hermes must not become a third source of truth for infrastructure or app deployment state.
 
@@ -36,7 +36,7 @@ First-class infrastructure services in this repository continue to use service-l
 
 Onramp owns Caddy or reverse-proxy configuration for Onramp app services by default. The temporary `searxng_onramp` exception installs Caddy on `onramp_host` from this repo and proxies only to the loopback-bound SearXNG container. The Onramp service `port` field means the container/service port reachable on the Compose network; it must not be reinterpreted as a host-published port unless a later contract explicitly changes that convention.
 
-Onclave is an explicit protocol exception to loopback-only HTTP publishing: AMQP is a TCP service, so its broker port may be published on the LAN with a Technitium A or CNAME record. Onclave health, RabbitMQ management, and Menos API surfaces are HTTP services and should use the onramp host's shared Caddy instance rather than direct LAN port publication.
+Onclave is an explicit protocol exception to loopback-only HTTP publishing: AMQP is a TCP service, so its broker port may be published on the LAN with a Technitium A or CNAME record. The Onclave API uses the onramp host's shared Caddy instance; RabbitMQ management remains loopback-only.
 
 ## Secrets Contract
 
@@ -70,13 +70,13 @@ Current exception: `homelab-infra` temporarily owns the `searxng_onramp` service
 
 ## App Workload Decisions
 
-Onclave and Menos deploy as app workloads on the homelab-managed `onramp_host`. Their source repository owns the host-agnostic app definitions and image contracts; this repository owns the selected host, private DNS inputs, secret delivery, and the role that consumes those definitions. The consumption path must use digest-pinned images and the app definition's declared environment contract.
+Onclave deploys as an app workload on the homelab-managed `onramp_host`. Its source repository owns the host-agnostic app definition and image contract; this repository owns the selected host, private DNS inputs, secret delivery, and the role that consumes the definition. The consumption path must use digest-pinned images and the app definition's declared environment contract.
 
-The Onclave source repository publishes reusable app definitions and immutable image contracts for Onclave and Menos. `onclave_onramp` and `menos_onramp` verify and consume those definitions, apply consumer-owned networking and storage bindings, and keep source and image references digest-pinned. Do not replace these paths with mutable images, local source builds, or duplicate Compose definitions.
+The Onclave source repository publishes a reusable app definition and immutable image contract. `onclave_onramp` verifies and consumes that definition, applies consumer-owned networking and storage bindings, and keeps source and image references digest-pinned. Do not replace this path with mutable images, local source builds, or duplicate Compose definitions.
 
-The `onclave_onramp` and `menos_onramp` services are temporary exceptions. They exit when `onramp-vNext` can receive workloads. At that point, Onclave and Menos are evicted to `onramp-vNext`, and both Ansible roles are deleted, not generalized.
+The `onclave_onramp` service is a temporary exception. It exits when `onramp-vNext` can receive workloads. At that point, Onclave is evicted to `onramp-vNext`, and the Ansible role is deleted, not generalized.
 
-Menos exposes only its API through the onramp host's shared Caddy instance. PostgreSQL, MinIO, Ollama, SearXNG, and Docling remain internal to the workload network. Service-state archives cover the Compose definition, private environment, authorized keys, and Caddy configuration. PostgreSQL logical dumps and MinIO payloads remain separate host-local bulk recovery artifacts. PostgreSQL backup and restore helpers are checksum-verified from the same immutable Onclave revision as the app definition and execute database tools inside the internal PostgreSQL container without placing credentials in host command arguments.
+Onclave exposes its API through the onramp host's shared Caddy instance. RabbitMQ management remains loopback-only; AMQP stays available to approved private clients. PostgreSQL, MinIO, Ollama, SearXNG, and Docling remain internal to the workload network. PostgreSQL logical dumps and MinIO payloads remain separate host-local bulk recovery artifacts. PostgreSQL backup and restore helpers are checksum-verified from the same immutable Onclave revision as the app definition and execute database tools inside the internal PostgreSQL container without placing credentials in host command arguments.
 
 Hermes remains a first-class service in this repository while it serves as the cross-platform operator cockpit. Reconsider its placement only when it can join the Onclave fabric as an agent without losing its managed artifact and state controls. SearXNG remains an Onramp handoff candidate. Infisical, Technitium, Forgejo, Tailscale, Forgejo Runner, and `onramp_host` remain infrastructure substrate.
 

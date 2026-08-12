@@ -132,16 +132,6 @@ class ServiceStateCatalogTests(unittest.TestCase):
             ["hermes-gateway", "hermes-dashboard"],
         )
 
-    def test_menos_service_state_excludes_bulk_database_and_object_payloads(
-        self,
-    ) -> None:
-        paths = [item["path"] for item in load_catalog()["menos_onramp"]["paths"]]
-        self.assertIn("/srv/onramp/menos/compose.yaml", paths)
-        self.assertIn("/srv/onramp/menos/.env", paths)
-        self.assertFalse(any("/data/postgres" in path for path in paths))
-        self.assertFalse(any("/data/minio" in path for path in paths))
-        self.assertNotIn("/srv/onramp/menos", paths)
-
     def test_forgejo_installs_state_backup_transport(self) -> None:
         self.assertIn(
             "openssh-server rsync sqlite3",

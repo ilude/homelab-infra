@@ -65,7 +65,6 @@ Current service-state targets are:
 - `infisical_onramp` -- Infisical onramp deployment directory and Caddy snippet.
 - `searxng_onramp` -- SearXNG onramp deployment directory and Caddy snippet.
 - `onclave_onramp` -- Onclave app definition, private env, persistent broker/core data, and Caddy snippet.
-- `menos_onramp` -- Menos app definition, private env, authorized keys, persistent database/object/model data, and Caddy snippet.
 
 The managed paths live in `infra/ansible/vars/service-state.yml`. Every path
 explicitly declares its owner, group, and whether ownership repair is recursive.

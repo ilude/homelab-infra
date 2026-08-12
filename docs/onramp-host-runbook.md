@@ -7,8 +7,7 @@ The optional `onramp_host` service creates a Debian 13 VM substrate for rootless
 - Enable host only: add `onramp_host` to `settings.local.json` services and fill the private `values/terraform.tfvars` onramp-host fields.
 - Enable Infisical onramp: add both `onramp_host` and `infisical_onramp`, then set the Infisical private secrets and point `infisical_server_name` DNS at the onramp host.
 - Enable temporary SearXNG: add both `onramp_host` and `searxng_onramp`, then set `SEARXNG_SECRET_KEY`, `HERMES_WEB_SEARXNG_URL`, `searxng_server_name`, and `searxng_public_url` in private values.
-- Enable Onclave: add both `onramp_host` and `onclave_onramp`, store the RabbitMQ credentials in the configured Bitwarden Secrets Manager project, then set the BWS project/server configuration, app/image pins, HTTP server names, and Technitium records in private values. AMQP is the only LAN-published app port; its firewall sources inherit the approved onramp-host CIDRs.
-- Enable Menos: add both `onramp_host` and `menos_onramp`, then set six image pins, required credentials, authorized public keys, the Menos server name, and its Technitium record. Only the API is loopback-bound behind Caddy; dependency ports remain internal.
+- Enable Onclave: add both `onramp_host` and `onclave_onramp`, store the RabbitMQ credentials in the configured Bitwarden Secrets Manager project, then set the BWS project/server configuration, app/image pins, HTTP server name, and Technitium record in private values. AMQP is the only LAN-published app port; its firewall sources inherit the approved onramp-host CIDRs. RabbitMQ management remains loopback-only.
 - Disable SearXNG only: remove `searxng_onramp`, remove or update its DNS/Hermes private values, then run a reviewed `just plan` before any apply.
 - Disable host: remove `onramp_host` from `settings.local.json` services, then run a reviewed `just plan` before any apply.
 
@@ -30,28 +29,14 @@ Onramp services use the shared system Caddy instance from `onramp_host`. The bas
 
 Onclave private values are:
 
-- Bitwarden Secrets Manager: `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS`
-- `values/ansible/inventory/local.yml`: BWS project/API server configuration, source Compose checksum, digest-pinned RabbitMQ and core images, and Onclave/RabbitMQ server names
-- `values/dns-records.local.json`: Onclave and RabbitMQ names mapped to the onramp-host IP
+- Bitwarden Secrets Manager: `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS`.
+- `values/ansible/inventory/local.yml`: BWS project/API server configuration, source Compose checksum, digest-pinned RabbitMQ and core images, `menos_authorized_keys` (for example, `ssh-ed25519 <public-key> operator@example.invalid`), and the adopted PostgreSQL database and user inputs, `menos_postgres_database` and `menos_postgres_user`.
+- `values/.env`: the adopted unified Onclave secrets: `MENOS_POSTGRES_PASSWORD`; `MENOS_S3_ACCESS_KEY` and `MENOS_S3_SECRET_KEY`; `MENOS_SEARXNG_SECRET`; `MENOS_WEBSHARE_PROXY_USERNAME` and `MENOS_WEBSHARE_PROXY_PASSWORD`; `MENOS_YOUTUBE_API_KEY`; and the model-provider keys `MENOS_OPENROUTER_API_KEY` and `MENOS_ANTHROPIC_API_KEY`. `MENOS_OPENAI_API_KEY` is optional when the selected model configuration needs it.
+- `values/dns-records.local.json`: the Onclave name, such as `onclave.example.internal`, mapped to the onramp-host IP.
 
-The controller receives only `BITWARDEN_ACCESS_KEY` from the operator environment and resolves the Onclave secrets before running the role. The bootstrap credential is not copied to the managed host. The role verifies the source Compose checksum, keeps AMQP published for approved LAN clients, binds both HTTP surfaces to loopback behind shared Caddy, and stores RabbitMQ/core data below the service deployment directory for backup coverage.
+The `menos_` and `MENOS_` names remain the private compatibility inputs for the unified Onclave deployment because it adopts the existing Menos state. They are not a request to restore the retired Menos workload.
 
-Menos private values are:
-
-- `values/.env`: database, object-storage, search, proxy, and model-provider credentials
-- `values/ansible/inventory/local.yml`: source Compose checksum, six digest-pinned images, the HTTPS server name, and authorized public keys
-- `values/dns-records.local.json`: the Menos API name mapped to the onramp-host IP
-
-The Menos service-state archive contains only the source-derived Compose file, private env, authorized keys, and Caddy configuration. PostgreSQL custom-format dumps and MinIO payloads are separate bulk recovery artifacts under the host-local backup boundary and are not included in service-state archives. The role installs checksum-verified `bin/backup-postgres.sh` and `bin/restore-postgres.sh` from the same immutable Onclave revision as the Compose definition. Run them as the deploy user against the existing internal PostgreSQL container without exporting database credentials:
-
-```bash
-cd /srv/onramp/menos
-postgres_container="$(podman-compose -f compose.yaml ps -q postgres)"
-POSTGRES_CONTAINER="${postgres_container}" CONTAINER_RUNTIME=podman \
-  ./bin/backup-postgres.sh ./backups/postgres
-```
-
-Restore only into an empty PostgreSQL public schema, with the Menos API stopped. Use the same `POSTGRES_CONTAINER` and `CONTAINER_RUNTIME` values with `bin/restore-postgres.sh`, then restart the API and verify `/ready`. Restore PostgreSQL and MinIO sequentially before starting the user service. Cross-host legacy cutover additionally requires the quiesced export/import and parity gates in the Onclave Menos cutover plan.
+The controller receives only `BITWARDEN_ACCESS_KEY` from the operator environment and resolves the Onclave secrets before running the role. The bootstrap credential is not copied to the managed host. The role verifies the source Compose checksum, keeps AMQP published for approved LAN clients, binds the Onclave API to loopback behind shared Caddy, keeps RabbitMQ management loopback-only, and stores RabbitMQ/core data below the service deployment directory for backup coverage.
 
 Temporary SearXNG private values are:
 - `values/.env`: `SEARXNG_SECRET_KEY` and `HERMES_WEB_SEARXNG_URL`
@@ -71,7 +56,6 @@ A later live deployment plan must:
 7. Verify Caddy on the onramp host and confirm no host-published app ports exist outside approved proxy ports 80/443 and explicitly approved protocol ports such as Onclave AMQP 5672.
 8. Confirm private `HERMES_WEB_SEARXNG_URL` points to the SearXNG endpoint and smoke-test Hermes search integration once the plugin/runtime exists.
 9. For Onclave, verify the core health response reports broker connectivity and topology declaration, then test AMQP from an approved LAN client.
-10. For Menos, verify `/health` reports the pinned source SHA, `/ready` reports healthy PostgreSQL, S3, and Ollama dependencies, then run signed content, ingest, list, and semantic-search acceptance checks before consumer cutover.
 
 ## Rollback choices
 

@@ -10,8 +10,7 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
 
-- name: Restart caddy
+- name: Reload caddy
   ansible.builtin.systemd_service:
     name: caddy
-    state: restarted
-    daemon_reload: true
+    state: reloaded

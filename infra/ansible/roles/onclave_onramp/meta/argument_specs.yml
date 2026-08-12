@@ -15,10 +15,6 @@ argument_specs:
         type: str
         required: true
         description: "Caddy server name for the unified Onclave API."
-      onclave_rabbitmq_server_name:
-        type: str
-        required: true
-        description: "DNS name for AMQP and the Caddy-routed RabbitMQ management UI."
       onclave_source_git_sha:
         type: str
         required: true

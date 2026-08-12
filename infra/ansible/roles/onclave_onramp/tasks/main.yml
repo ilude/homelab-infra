@@ -209,6 +209,8 @@
                      | combine({
                          'ports': ['127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8000'],
                          'configs': [],
+                         'environment': (onclave_onramp_definition.services['onclave-core'].environment | default({}))
+                           | combine({'GIT_SHA': onclave_source_git_sha}),
                          'volumes': [
                            './data/onclave:/data:Z,U',
                            './authorized_keys:/keys/authorized_keys:ro,Z'
@@ -285,6 +287,57 @@
       - "{{ onramp_host_deploy_user }}"
   register: onclave_onramp_deploy_user_uid
   changed_when: false
+
+- name: Detect legacy Onclave target unit
+  ansible.builtin.stat:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
+  register: onclave_onramp_legacy_target
+
+- name: Stop and disable legacy Onclave target
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: onclave-onramp.target
+    scope: user
+    state: stopped
+    enabled: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_legacy_target_stop
+  failed_when: false
+  when: onclave_onramp_legacy_target.stat.exists
+
+- name: Remove legacy Onclave containers
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - rm
+      - --force
+      - --ignore
+      - onclave-rabbitmq
+      - onclave-core
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_legacy_rm
+  changed_when: onclave_onramp_legacy_rm.stdout | trim | length > 0
+
+- name: Remove legacy Onclave target unit file
+  ansible.builtin.file:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
+    state: absent
+  when: onclave_onramp_legacy_target.stat.exists
+
+- name: Reload user systemd manager after legacy target removal
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    scope: user
+    daemon_reload: true
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  when: onclave_onramp_legacy_target.stat.exists
 
 - name: Install unified Onclave rootless systemd unit
   ansible.builtin.template:
@@ -364,6 +417,10 @@
       - tcp
   loop: "{{ onclave_onramp_amqp_allowed_cidrs }}"
   changed_when: false
+
+- name: Ensure onramp Caddy supports Cloudflare DNS-01
+  ansible.builtin.include_role:
+    name: caddy_build
 
 - name: Install Onclave Caddy site snippets
   ansible.builtin.template:

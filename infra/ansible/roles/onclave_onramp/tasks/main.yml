@@ -41,8 +41,6 @@
       - onclave_onramp_data_root is match('^/[A-Za-z0-9_./:-]+$')
       - onclave_onramp_core_port | int > 0
       - onclave_onramp_core_port | int < 65536
-      - onclave_onramp_management_port | int > 0
-      - onclave_onramp_management_port | int < 65536
       - onclave_onramp_amqp_port | int > 0
       - onclave_onramp_amqp_port | int < 65536
     fail_msg: >-
@@ -145,8 +143,7 @@
       - "'searxng' in onclave_onramp_definition.services"
       - "'docling-serve' in onclave_onramp_definition.services"
       - "'onclave-core' in onclave_onramp_definition.services"
-      - "'- \"5672:5672\"' in onclave_onramp_upstream_text"
-      - "'- \"15672:15672\"' in onclave_onramp_upstream_text"
+      - onclave_onramp_definition.services.rabbitmq.ports | default([]) | length == 0
       - "'- \"8000:8000\"' in onclave_onramp_upstream_text"
       - "'- postgres-data:/var/lib/postgresql/data' in onclave_onramp_upstream_text"
       - "'- minio-data:/data' in onclave_onramp_upstream_text"
@@ -175,10 +172,6 @@
                    'rabbitmq': onclave_onramp_definition.services.rabbitmq
                      | combine({
                          'image': onclave_rabbitmq_image,
-                         'ports': [
-                           '127.0.0.1:' ~ (onclave_onramp_amqp_port | string) ~ ':5672',
-                           '127.0.0.1:' ~ (onclave_onramp_management_port | string) ~ ':15672'
-                         ],
                          'volumes': ['./data/rabbitmq:/var/lib/rabbitmq:Z,U']
                        }),
                    'postgres': onclave_onramp_definition.services.postgres
@@ -225,10 +218,7 @@
   ansible.builtin.assert:
     that:
       - onclave_onramp_rendered_definition.configs | default({}) | length == 0
-      - >-
-        onclave_onramp_rendered_definition.services.rabbitmq.ports == [
-        '127.0.0.1:' ~ (onclave_onramp_amqp_port | string) ~ ':5672',
-        '127.0.0.1:' ~ (onclave_onramp_management_port | string) ~ ':15672']
+      - onclave_onramp_rendered_definition.services.rabbitmq.ports | default([]) | length == 0
       - onclave_onramp_rendered_definition.services.postgres.ports | default([]) | length == 0
       - onclave_onramp_rendered_definition.services.postgres.configs | default([]) | length == 0
       - onclave_onramp_rendered_definition.services.postgres.volumes == [onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U']
@@ -246,7 +236,7 @@
       - "onclave_onramp_rendered_definition.services['onclave-core'].healthcheck.test[1] is match('^node -e ')"
     fail_msg: >-
       The rendered unified Onclave definition must preserve adopted Menos state,
-      expose only loopback service ports, and bind authorization keys read-only.
+      expose only the loopback core API port, and bind authorization keys read-only.
 
 - name: Install unified Onclave compose file
   ansible.builtin.copy:
@@ -643,6 +633,7 @@
     - onclave_onramp_health.status == 200
     - onclave_onramp_health.json.status | default('') == 'ok'
     - onclave_onramp_health.json.git_sha | default('') == onclave_source_git_sha
+    - onclave_onramp_health.json.broker.connected | default(false) | bool
 
 - name: Verify unified Onclave dependency readiness
   ansible.builtin.uri:

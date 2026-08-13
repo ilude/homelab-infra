@@ -130,9 +130,6 @@ argument_specs:
       onclave_onramp_core_port:
         type: int
         required: false
-      onclave_onramp_management_port:
-        type: int
-        required: false
       onclave_onramp_amqp_port:
         type: int
         required: false

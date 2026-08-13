@@ -743,11 +743,20 @@ class AnsibleSafetyTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("Create missing adopted Menos state directories", task_names(role_tasks))
+        consumer_seams = task_by_name(
+            role_tasks, "Validate unified Onclave app definition consumer seams"
+        )
+        self.assertIn(
+            "onclave_onramp_definition.services.rabbitmq.ports | default([]) | length == 0",
+            consumer_seams["ansible.builtin.assert"]["that"],
+        )
         render = task_by_name(
             role_tasks, "Render unified Onclave app definition for the onramp host"
         )
         expression = render["ansible.builtin.set_fact"]["onclave_onramp_compose_content"]
         self.assertIn("'onclave-core'", expression)
+        self.assertNotIn("onclave_onramp_amqp_port", expression)
+        self.assertNotIn("onclave_onramp_management_port", expression)
         self.assertEqual(expression.count("'ports': []"), 5)
         for mount in (
             "onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U'",
@@ -764,6 +773,10 @@ class AnsibleSafetyTests(unittest.TestCase):
             role_tasks, "Validate rendered unified Onclave network isolation"
         )
         conditions = validate["ansible.builtin.assert"]["that"]
+        self.assertIn(
+            "onclave_onramp_rendered_definition.services.rabbitmq.ports | default([]) | length == 0",
+            conditions,
+        )
         self.assertIn(
             "onclave_onramp_rendered_definition.services['onclave-core'].volumes == "
             "['./data/onclave:/data:Z,U', './authorized_keys:/keys/authorized_keys:ro,Z']",
@@ -824,7 +837,10 @@ class AnsibleSafetyTests(unittest.TestCase):
             "onclave_onramp_health.json.git_sha | default('') == onclave_source_git_sha",
             health["until"],
         )
-        self.assertNotIn("broker.connected", str(health))
+        self.assertIn(
+            "onclave_onramp_health.json.broker.connected | default(false) | bool",
+            health["until"],
+        )
         for condition in (
             "onclave_onramp_ready.json.checks.postgres | default('') == 'ok'",
             "onclave_onramp_ready.json.checks.s3 | default('') == 'ok'",
@@ -913,18 +929,16 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertNotIn("rabbitmq_server_name", caddy)
 
         render = task_by_name(role_tasks, "Render unified Onclave app definition for the onramp host")
-        self.assertIn(
-            "'127.0.0.1:' ~ (onclave_onramp_amqp_port | string) ~ ':5672'",
-            str(render),
-        )
-        self.assertNotIn(
-            "'0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672'",
-            str(render),
-        )
+        self.assertNotIn("onclave_onramp_amqp_port", str(render))
+        self.assertNotIn("onclave_onramp_management_port", str(render))
+        role_task_source = role_tasks.read_text(encoding="utf-8")
         defaults = (role / "defaults" / "main.yml").read_text(encoding="utf-8")
         argument_specs = (role / "meta" / "argument_specs.yml").read_text(encoding="utf-8")
         service_registry = (REPO / "infra" / "services.json").read_text(encoding="utf-8")
-        self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", str(role_tasks))
+        self.assertNotIn("onclave_onramp_management_port", role_task_source)
+        self.assertNotIn("onclave_onramp_management_port", defaults)
+        self.assertNotIn("onclave_onramp_management_port", argument_specs)
+        self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", role_task_source)
         self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", defaults)
         self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", argument_specs)
         self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", service_registry)
@@ -954,6 +968,18 @@ class AnsibleSafetyTests(unittest.TestCase):
             ],
         )
         self.assertTrue(remove_amqp_firewall["no_log"])
+        amqp_port_tasks = [
+            task
+            for task in load_tasks(role_tasks)
+            if "onclave_onramp_amqp_port" in str(task)
+        ]
+        self.assertEqual(
+            [task["name"] for task in amqp_port_tasks],
+            [
+                "Validate unified Onclave onramp required variables",
+                "Remove retired inbound Onclave AMQP firewall rules",
+            ],
+        )
 
     def test_onclave_installs_pinned_backup_helpers_and_runtime_warmup_checks(self) -> None:
         role_tasks = (

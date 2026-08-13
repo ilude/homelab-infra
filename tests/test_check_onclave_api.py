@@ -172,7 +172,7 @@ class OnclaveApiCheckTests(unittest.TestCase):
 
     def test_failure_output_is_redacted(self) -> None:
         sensitive_url = "https://private-host.example.internal"
-        sensitive_path = "/private/signing-key"
+        sensitive_path = "/example/signing-key"
         stderr = io.StringIO()
         with (
             mock.patch.object(

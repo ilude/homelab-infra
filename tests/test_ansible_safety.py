@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from jinja2 import Environment
 
 REPO = Path(__file__).resolve().parents[1]
 RUNNER_TASKS = (
@@ -22,6 +23,21 @@ VM_DIRECT_ACCESS_PLAYBOOK = (
 )
 ONCLAVE_ONRAMP_PLAYBOOK = (
     REPO / "infra" / "ansible" / "playbooks" / "onclave-onramp.yml"
+)
+ONCLAVE_ONRAMP_TASKS = (
+    REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "tasks" / "main.yml"
+)
+SEARXNG_ONRAMP_TASKS = (
+    REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml"
+)
+SEARXNG_SETTINGS_TEMPLATE = (
+    REPO
+    / "infra"
+    / "ansible"
+    / "roles"
+    / "searxng_onramp"
+    / "templates"
+    / "settings.yml.j2"
 )
 ZFS_DATASET_TASKS = REPO / "infra" / "ansible" / "tasks" / "zfs-dataset.yml"
 ONRAMP_HOST_TASKS = (
@@ -723,7 +739,9 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn('"RABBITMQ_DEFAULT_USER"', snapshot)
         self.assertIn('"RABBITMQ_DEFAULT_PASS"', snapshot)
 
-    def test_onclave_adopts_existing_menos_state_and_renders_unified_contract(self) -> None:
+    def test_onclave_adopts_existing_menos_state_and_renders_unified_contract(
+        self,
+    ) -> None:
         role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
         role_tasks = role / "tasks" / "main.yml"
         defaults = yaml.safe_load(
@@ -742,7 +760,9 @@ class AnsibleSafetyTests(unittest.TestCase):
                 "{{ onclave_onramp_data_root }}/ollama",
             ],
         )
-        self.assertNotIn("Create missing adopted Menos state directories", task_names(role_tasks))
+        self.assertNotIn(
+            "Create missing adopted Menos state directories", task_names(role_tasks)
+        )
         consumer_seams = task_by_name(
             role_tasks, "Validate unified Onclave app definition consumer seams"
         )
@@ -753,7 +773,9 @@ class AnsibleSafetyTests(unittest.TestCase):
         render = task_by_name(
             role_tasks, "Render unified Onclave app definition for the onramp host"
         )
-        expression = render["ansible.builtin.set_fact"]["onclave_onramp_compose_content"]
+        expression = render["ansible.builtin.set_fact"][
+            "onclave_onramp_compose_content"
+        ]
         self.assertIn("'onclave-core'", expression)
         self.assertNotIn("onclave_onramp_amqp_port", expression)
         self.assertNotIn("onclave_onramp_management_port", expression)
@@ -788,7 +810,9 @@ class AnsibleSafetyTests(unittest.TestCase):
             conditions,
         )
 
-    def test_onclave_env_maps_existing_menos_secret_sources_to_unified_contract(self) -> None:
+    def test_onclave_env_maps_existing_menos_secret_sources_to_unified_contract(
+        self,
+    ) -> None:
         role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
         defaults = yaml.safe_load(
             (role / "defaults" / "main.yml").read_text(encoding="utf-8")
@@ -828,10 +852,10 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertIn(key, template)
 
     def test_onclave_unified_health_gate_checks_revision_and_dependencies(self) -> None:
-        role_tasks = (
-            REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "tasks" / "main.yml"
+        role_tasks = ONCLAVE_ONRAMP_TASKS
+        health = task_by_name(
+            role_tasks, "Verify unified Onclave health and source revision"
         )
-        health = task_by_name(role_tasks, "Verify unified Onclave health and source revision")
         ready = task_by_name(role_tasks, "Verify unified Onclave dependency readiness")
         self.assertIn(
             "onclave_onramp_health.json.git_sha | default('') == onclave_source_git_sha",
@@ -853,12 +877,35 @@ class AnsibleSafetyTests(unittest.TestCase):
             )
         )
 
+    def test_onclave_signed_api_check_runs_once_on_the_controller(self) -> None:
+        validation = task_by_name(ONCLAVE_ONRAMP_TASKS, "Validate signed Onclave API")
+        command = validation["block"][0]
+        self.assertEqual(command.get("delegate_to"), "localhost")
+        self.assertFalse(command.get("become"))
+        self.assertTrue(command.get("no_log"))
+        self.assertNotIn("retries", command)
+        self.assertEqual(
+            command["ansible.builtin.command"]["argv"],
+            [
+                "{{ ansible_playbook_python }}",
+                "{{ playbook_dir }}/../../../scripts/check-onclave-api.py",
+                "https://{{ onclave_server_name }}",
+                "~/.ssh/id_ed25519",
+            ],
+        )
+        self.assertEqual(
+            validation["rescue"][0]["ansible.builtin.fail"]["msg"],
+            "signed Onclave API validation failed",
+        )
+
     def test_onclave_retires_only_menos_process_and_proxy_surfaces(self) -> None:
         role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
         role_tasks = role / "tasks" / "main.yml"
         names = task_names(role_tasks)
 
-        stop_service = task_by_name(role_tasks, "Stop and disable retired Menos service")
+        stop_service = task_by_name(
+            role_tasks, "Stop and disable retired Menos service"
+        )
         service = stop_service["ansible.builtin.systemd_service"]
         self.assertEqual(service["name"], "menos-onramp.service")
         self.assertEqual(service["scope"], "user")
@@ -916,7 +963,9 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertTrue(reload["ansible.builtin.systemd_service"]["daemon_reload"])
         self.assertFalse(reload["changed_when"])
 
-        remove_caddy = task_by_name(role_tasks, "Remove retired Menos Caddy site snippet")
+        remove_caddy = task_by_name(
+            role_tasks, "Remove retired Menos Caddy site snippet"
+        )
         self.assertEqual(remove_caddy["ansible.builtin.file"]["state"], "absent")
         self.assertEqual(remove_caddy["notify"], "Reload caddy")
         self.assertLess(
@@ -928,13 +977,19 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertNotIn("management_port", caddy)
         self.assertNotIn("rabbitmq_server_name", caddy)
 
-        render = task_by_name(role_tasks, "Render unified Onclave app definition for the onramp host")
+        render = task_by_name(
+            role_tasks, "Render unified Onclave app definition for the onramp host"
+        )
         self.assertNotIn("onclave_onramp_amqp_port", str(render))
         self.assertNotIn("onclave_onramp_management_port", str(render))
         role_task_source = role_tasks.read_text(encoding="utf-8")
         defaults = (role / "defaults" / "main.yml").read_text(encoding="utf-8")
-        argument_specs = (role / "meta" / "argument_specs.yml").read_text(encoding="utf-8")
-        service_registry = (REPO / "infra" / "services.json").read_text(encoding="utf-8")
+        argument_specs = (role / "meta" / "argument_specs.yml").read_text(
+            encoding="utf-8"
+        )
+        service_registry = (REPO / "infra" / "services.json").read_text(
+            encoding="utf-8"
+        )
         self.assertNotIn("onclave_onramp_management_port", role_task_source)
         self.assertNotIn("onclave_onramp_management_port", defaults)
         self.assertNotIn("onclave_onramp_management_port", argument_specs)
@@ -981,9 +1036,17 @@ class AnsibleSafetyTests(unittest.TestCase):
             ],
         )
 
-    def test_onclave_installs_pinned_backup_helpers_and_runtime_warmup_checks(self) -> None:
+    def test_onclave_installs_pinned_backup_helpers_and_runtime_warmup_checks(
+        self,
+    ) -> None:
         role_tasks = (
-            REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "tasks" / "main.yml"
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "onclave_onramp"
+            / "tasks"
+            / "main.yml"
         )
         helpers = task_by_name(
             role_tasks, "Install pinned unified Onclave PostgreSQL backup helpers"
@@ -993,8 +1056,12 @@ class AnsibleSafetyTests(unittest.TestCase):
             ["backup-postgres.sh", "restore-postgres.sh"],
         )
         self.assertEqual(helpers["ansible.builtin.get_url"]["mode"], "0750")
-        model = task_by_name(role_tasks, "Ensure unified Onclave embedding model is available")
-        bucket = task_by_name(role_tasks, "Ensure unified Onclave managed MinIO bucket exists")
+        model = task_by_name(
+            role_tasks, "Ensure unified Onclave embedding model is available"
+        )
+        bucket = task_by_name(
+            role_tasks, "Ensure unified Onclave managed MinIO bucket exists"
+        )
         self.assertIn("/api/pull", command_text(model))
         self.assertIn("/api/embeddings", command_text(model))
         self.assertIn("bucketExists", command_text(bucket))
@@ -1053,6 +1120,60 @@ class AnsibleSafetyTests(unittest.TestCase):
             onclave_defaults["onclave_onramp_core_port"],
             searxng_defaults["searxng_onramp_container_port"],
         )
+
+    def test_searxng_onramp_uses_deterministic_json_endpoints(self) -> None:
+        environment = Environment(autoescape=False)
+        environment.filters["bool"] = bool
+        rendered = environment.from_string(
+            SEARXNG_SETTINGS_TEMPLATE.read_text(encoding="utf-8")
+        ).render(
+            searxng_secret_key="public-safe-placeholder",
+            searxng_onramp_enable_public_url=True,
+            searxng_public_url="https://searxng.example.internal",
+            searxng_onramp_instance_name="Homelab SearXNG",
+        )
+        settings = yaml.safe_load(rendered)
+        self.assertEqual(settings["search"]["formats"], ["html", "json"])
+
+        health = task_by_name(
+            SEARXNG_ONRAMP_TASKS, "Verify SearXNG loopback health endpoint"
+        )
+        self.assertTrue(health.get("retries"))
+        self.assertEqual(health["ansible.builtin.uri"]["status_code"], 200)
+        self.assertTrue(health["ansible.builtin.uri"]["return_content"])
+        self.assertIn("/healthz", health["ansible.builtin.uri"]["url"])
+        self.assertIn("searxng_onramp_loopback_check.content == 'OK'", health["until"])
+
+        config = task_by_name(
+            SEARXNG_ONRAMP_TASKS, "Verify SearXNG HTTPS configuration endpoint"
+        )
+        self.assertTrue(config.get("retries"))
+        self.assertEqual(config.get("delegate_to"), "localhost")
+        self.assertFalse(config.get("become"))
+        config_uri = config["ansible.builtin.uri"]
+        self.assertTrue(config_uri["validate_certs"])
+        self.assertFalse(config_uri["use_proxy"])
+        self.assertEqual(config_uri["follow_redirects"], "none")
+        for field in (
+            "instance_name",
+            "safe_search",
+            "version",
+            "engines",
+            "categories",
+        ):
+            self.assertIn(field, str(config["until"]))
+
+        search = task_by_name(
+            SEARXNG_ONRAMP_TASKS,
+            "Verify SearXNG JSON search handler rejects a missing query",
+        )
+        self.assertEqual(search.get("delegate_to"), "localhost")
+        self.assertFalse(search.get("become"))
+        search_uri = search["ansible.builtin.uri"]
+        self.assertEqual(search_uri["status_code"], 400)
+        self.assertIn("/search?format=json", search_uri["url"])
+        self.assertNotIn("retries", search)
+        self.assertIn("No query", search["failed_when"])
 
     def test_searxng_onramp_ports_are_loopback_only(self) -> None:
         compose = (

@@ -668,3 +668,21 @@
   retries: 24
   delay: 5
   until: onclave_onramp_https_check.rc == 0
+
+- name: Validate signed Onclave API
+  block:
+    - name: Run signed Onclave API validation
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ playbook_dir }}/../../../scripts/check-onclave-api.py"
+          - "https://{{ onclave_server_name }}"
+          - "~/.ssh/id_ed25519"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      no_log: true
+  rescue:
+    - name: Report signed Onclave API validation failure
+      ansible.builtin.fail:
+        msg: signed Onclave API validation failed

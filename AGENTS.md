@@ -6,6 +6,15 @@ Guidance for coding agents working in this repository.
 
 This repo is a generic, reusable homelab infrastructure runbook for Proxmox LXCs running Technitium DNS, Caddy, Forgejo, Infisical, and Hermes.
 
+The canonical checkout is the `modules/homelab-infra/` submodule of the dotfiles repository. This repository retains its own history, branches, validation, commits, and remote; the dotfiles parent pins an exact commit.
+
+Repository collaboration boundaries:
+
+- The sibling `../onclave/` module owns Onclave product code, protocols, services, and provider-neutral application contracts. This repository consumes those contracts and owns host placement, infrastructure resources, deployment orchestration, and live configuration.
+- The dotfiles parent at `../..` owns workstation setup and Pi runtime wiring. Do not put infrastructure implementation or private values in the parent repository.
+- Keep site inventory, credentials, state, and backups in the nested private `values/` repository. Neither the Onclave sibling nor the dotfiles parent may become a second store for them.
+- For coordinated changes, edit and validate each owning repository independently. Commit and push homelab-infra changes before the dotfiles parent updates its submodule pointer. Commit `values/` separately to its private remote when requested; never stage it through this public repository.
+
 Tracked source must stay public-safe and free of the operator's real network/domain specifics. Use placeholders such as `example.internal`, `git.example.internal`, `apps.example.net`, and RFC 5737 addresses like `192.0.2.0/24` in tracked files.
 
 Real Proxmox endpoints, LAN IPs, DNS zones/records, hostnames, credentials, and state belong in `values/`, an ignored nested private Git repo. In this deployment, expect `values/` to have its own private Forgejo remote; do not treat it as part of the public runbook repo.

@@ -7,7 +7,7 @@ The optional `onramp_host` service creates a Debian 13 VM substrate for rootless
 - Enable host only: add `onramp_host` to `settings.local.json` services and fill the private `values/terraform.tfvars` onramp-host fields.
 - Enable Infisical onramp: add both `onramp_host` and `infisical_onramp`, then set the Infisical private secrets and point `infisical_server_name` DNS at the onramp host.
 - Enable temporary SearXNG: add both `onramp_host` and `searxng_onramp`, then set `SEARXNG_SECRET_KEY`, `HERMES_WEB_SEARXNG_URL`, `searxng_server_name`, and `searxng_public_url` in private values.
-- Enable Onclave: add both `onramp_host` and `onclave_onramp`, store the RabbitMQ credentials in the configured Bitwarden Secrets Manager project, then set the BWS project/server configuration, app/image pins, HTTP server name, and Technitium record in private values. AMQP is the only LAN-published app port; its firewall sources inherit the approved onramp-host CIDRs. RabbitMQ management remains loopback-only.
+- Enable Onclave: add both `onramp_host` and `onclave_onramp`, store the RabbitMQ credentials in the configured Bitwarden Secrets Manager project, then set the BWS project/server configuration, app/image pins, HTTP server name, and Technitium record in private values. RabbitMQ AMQP and management remain loopback-only with no LAN or public listener. Clients outside the onramp host require an approved local transport or tunnel.
 - Disable SearXNG only: remove `searxng_onramp`, remove or update its DNS/Hermes private values, then run a reviewed `just plan` before any apply.
 - Disable host: remove `onramp_host` from `settings.local.json` services, then run a reviewed `just plan` before any apply.
 
@@ -36,7 +36,7 @@ Onclave private values are:
 
 The `menos_` and `MENOS_` names remain the private compatibility inputs for the unified Onclave deployment because it adopts the existing Menos state. They are not a request to restore the retired Menos workload.
 
-The controller receives only `BITWARDEN_ACCESS_KEY` from the operator environment and resolves the Onclave secrets before running the role. The bootstrap credential is not copied to the managed host. The role verifies the source Compose checksum, keeps AMQP published for approved LAN clients, binds the Onclave API to loopback behind shared Caddy, keeps RabbitMQ management loopback-only, and stores RabbitMQ/core data below the service deployment directory for backup coverage.
+The controller receives only `BITWARDEN_ACCESS_KEY` from the operator environment and resolves the Onclave secrets before running the role. The bootstrap credential is not copied to the managed host. The role verifies the source Compose checksum, binds RabbitMQ AMQP and management to loopback with no LAN or public listener, keeps the internal Compose service URL `rabbitmq:5672`, binds the Onclave API to loopback behind shared Caddy, and stores RabbitMQ/core data below the service deployment directory for backup coverage. Clients outside the onramp host require an approved local transport or tunnel.
 
 Temporary SearXNG private values are:
 - `values/.env`: `SEARXNG_SECRET_KEY` and `HERMES_WEB_SEARXNG_URL`
@@ -53,9 +53,9 @@ A later live deployment plan must:
 4. Verify SSH reachability as the Onramp deploy user, `anvil` by default.
 5. Verify rootless `podman info`, the selected Compose provider, rootless socket semantics if used, and deployment directory ownership.
 6. If app services such as `infisical_onramp`, `searxng_onramp`, or `onclave_onramp` are enabled, let this repo deploy them through Ansible on the onramp host.
-7. Verify Caddy on the onramp host and confirm no host-published app ports exist outside approved proxy ports 80/443 and explicitly approved protocol ports such as Onclave AMQP 5672.
+7. Verify Caddy on the onramp host, confirm no host-published app ports exist outside approved proxy ports 80/443, and confirm RabbitMQ AMQP has no LAN or public listener.
 8. Confirm private `HERMES_WEB_SEARXNG_URL` points to the SearXNG endpoint and smoke-test Hermes search integration once the plugin/runtime exists.
-9. For Onclave, verify the core health response reports broker connectivity and topology declaration, then test AMQP from an approved LAN client.
+9. For Onclave, verify the core health response reports broker connectivity and topology declaration, then verify AMQP only through an approved local transport or tunnel, not a direct LAN connection.
 
 ## Rollback choices
 

@@ -36,7 +36,7 @@ First-class infrastructure services in this repository continue to use service-l
 
 Onramp owns Caddy or reverse-proxy configuration for Onramp app services by default. The temporary `searxng_onramp` exception installs Caddy on `onramp_host` from this repo and proxies only to the loopback-bound SearXNG container. The Onramp service `port` field means the container/service port reachable on the Compose network; it must not be reinterpreted as a host-published port unless a later contract explicitly changes that convention.
 
-Onclave is an explicit protocol exception to loopback-only HTTP publishing: AMQP is a TCP service, so its broker port may be published on the LAN with a Technitium A or CNAME record. The Onclave API uses the onramp host's shared Caddy instance; RabbitMQ management remains loopback-only.
+Onclave does not publish AMQP on LAN or public interfaces. RabbitMQ AMQP and management bind to loopback only; clients outside the onramp host require an approved local transport or tunnel. The Onclave API uses the onramp host's shared Caddy instance.
 
 ## Secrets Contract
 
@@ -76,7 +76,7 @@ The Onclave source repository publishes a reusable app definition and immutable 
 
 The `onclave_onramp` service is a temporary exception. It exits when `onramp-vNext` can receive workloads. At that point, Onclave is evicted to `onramp-vNext`, and the Ansible role is deleted, not generalized.
 
-Onclave exposes its API through the onramp host's shared Caddy instance. RabbitMQ management remains loopback-only; AMQP stays available to approved private clients. PostgreSQL, MinIO, Ollama, SearXNG, and Docling remain internal to the workload network. PostgreSQL logical dumps and MinIO payloads remain separate host-local bulk recovery artifacts. PostgreSQL backup and restore helpers are checksum-verified from the same immutable Onclave revision as the app definition and execute database tools inside the internal PostgreSQL container without placing credentials in host command arguments.
+Onclave exposes its API through the onramp host's shared Caddy instance. RabbitMQ AMQP and management remain loopback-only with no LAN or public listener. Internal Compose services continue to use `rabbitmq:5672`; clients outside the onramp host require an approved local transport or tunnel. PostgreSQL, MinIO, Ollama, SearXNG, and Docling remain internal to the workload network. PostgreSQL logical dumps and MinIO payloads remain separate host-local bulk recovery artifacts. PostgreSQL backup and restore helpers are checksum-verified from the same immutable Onclave revision as the app definition and execute database tools inside the internal PostgreSQL container without placing credentials in host command arguments.
 
 Hermes remains a first-class service in this repository while it serves as the cross-platform operator cockpit. Reconsider its placement only when it can join the Onclave fabric as an agent without losing its managed artifact and state controls. SearXNG remains an Onramp handoff candidate. Infisical, Technitium, Forgejo, Tailscale, Forgejo Runner, and `onramp_host` remain infrastructure substrate.
 

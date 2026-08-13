@@ -5,7 +5,6 @@ onclave_onramp_compose_provider_command: "{{ onramp_host_compose_provider_comman
 onclave_onramp_core_port: 18080
 onclave_onramp_management_port: 15672
 onclave_onramp_amqp_port: 5672
-onclave_onramp_amqp_allowed_cidrs: "{{ onramp_host_allowed_ssh_cidrs }}"
 onclave_onramp_required_packages: []
 onclave_onramp_queue_ttl_ms: 604800000
 onclave_onramp_queue_max_length: 1000

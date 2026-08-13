@@ -136,9 +136,6 @@ argument_specs:
       onclave_onramp_amqp_port:
         type: int
         required: false
-      onclave_onramp_amqp_allowed_cidrs:
-        type: list
-        required: false
       onclave_onramp_required_packages:
         type: list
         required: false

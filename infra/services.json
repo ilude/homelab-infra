@@ -283,11 +283,7 @@
         "domain_var": "onramp_host_hostname",
         "tf_domain": "onramp_host_hostname",
         "user_var": "onramp_host_deploy_user",
-        "tf_user": "onramp_host_deploy_user",
-        "extra_play_vars": {
-          "onramp_host_deploy_dir": "onramp_host_deploy_dir",
-          "onclave_onramp_amqp_allowed_cidrs": "onramp_host_allowed_ssh_cidrs"
-        }
+        "tf_user": "onramp_host_deploy_user"
       },
       "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     },

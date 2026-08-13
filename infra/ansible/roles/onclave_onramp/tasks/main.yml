@@ -45,11 +45,10 @@
       - onclave_onramp_management_port | int < 65536
       - onclave_onramp_amqp_port | int > 0
       - onclave_onramp_amqp_port | int < 65536
-      - onclave_onramp_amqp_allowed_cidrs | length > 0
     fail_msg: >-
       Unified Onclave requires the Debian 13 onramp host, immutable source and
       image pins, existing Menos state, authorized public keys, private runtime
-      credentials, valid DNS names, and approved AMQP source CIDRs.
+      credentials and valid DNS names.
   no_log: true
 
 - name: Install unified Onclave onramp OS dependencies
@@ -177,7 +176,7 @@
                      | combine({
                          'image': onclave_rabbitmq_image,
                          'ports': [
-                           '0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672',
+                           '127.0.0.1:' ~ (onclave_onramp_amqp_port | string) ~ ':5672',
                            '127.0.0.1:' ~ (onclave_onramp_management_port | string) ~ ':15672'
                          ],
                          'volumes': ['./data/rabbitmq:/var/lib/rabbitmq:Z,U']
@@ -228,7 +227,7 @@
       - onclave_onramp_rendered_definition.configs | default({}) | length == 0
       - >-
         onclave_onramp_rendered_definition.services.rabbitmq.ports == [
-        '0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672',
+        '127.0.0.1:' ~ (onclave_onramp_amqp_port | string) ~ ':5672',
         '127.0.0.1:' ~ (onclave_onramp_management_port | string) ~ ':15672']
       - onclave_onramp_rendered_definition.services.postgres.ports | default([]) | length == 0
       - onclave_onramp_rendered_definition.services.postgres.configs | default([]) | length == 0
@@ -247,7 +246,7 @@
       - "onclave_onramp_rendered_definition.services['onclave-core'].healthcheck.test[1] is match('^node -e ')"
     fail_msg: >-
       The rendered unified Onclave definition must preserve adopted Menos state,
-      expose only the loopback API, and bind authorization keys read-only.
+      expose only loopback service ports, and bind authorization keys read-only.
 
 - name: Install unified Onclave compose file
   ansible.builtin.copy:
@@ -474,10 +473,12 @@
   when: onclave_onramp_rabbitmq_auth.rc != 0
   no_log: true
 
-- name: Allow approved clients to reach Onclave AMQP
+- name: Remove retired inbound Onclave AMQP firewall rules
   ansible.builtin.command:
     argv:
       - ufw
+      - --force
+      - delete
       - allow
       - from
       - "{{ item }}"
@@ -487,8 +488,14 @@
       - "{{ onclave_onramp_amqp_port | string }}"
       - proto
       - tcp
-  loop: "{{ onclave_onramp_amqp_allowed_cidrs }}"
-  changed_when: false
+  loop: "{{ onramp_host_allowed_ssh_cidrs }}"
+  register: onclave_onramp_retired_amqp_firewall
+  changed_when: "'Rule deleted' in onclave_onramp_retired_amqp_firewall.stdout"
+  failed_when: >-
+    onclave_onramp_retired_amqp_firewall.rc != 0 and
+    'Could not delete non-existent rule' not in
+    (onclave_onramp_retired_amqp_firewall.stdout ~ onclave_onramp_retired_amqp_firewall.stderr)
+  no_log: true
 
 - name: Ensure onramp Caddy supports Cloudflare DNS-01
   ansible.builtin.include_role:

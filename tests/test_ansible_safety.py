@@ -913,9 +913,47 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertNotIn("rabbitmq_server_name", caddy)
 
         render = task_by_name(role_tasks, "Render unified Onclave app definition for the onramp host")
-        self.assertIn("'0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672'", str(render))
-        allowed = task_by_name(role_tasks, "Allow approved clients to reach Onclave AMQP")
-        self.assertEqual(allowed["loop"], "{{ onclave_onramp_amqp_allowed_cidrs }}")
+        self.assertIn(
+            "'127.0.0.1:' ~ (onclave_onramp_amqp_port | string) ~ ':5672'",
+            str(render),
+        )
+        self.assertNotIn(
+            "'0.0.0.0:' ~ (onclave_onramp_amqp_port | string) ~ ':5672'",
+            str(render),
+        )
+        defaults = (role / "defaults" / "main.yml").read_text(encoding="utf-8")
+        argument_specs = (role / "meta" / "argument_specs.yml").read_text(encoding="utf-8")
+        service_registry = (REPO / "infra" / "services.json").read_text(encoding="utf-8")
+        self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", str(role_tasks))
+        self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", defaults)
+        self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", argument_specs)
+        self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", service_registry)
+        self.assertNotIn("Allow approved clients to reach Onclave AMQP", names)
+
+        remove_amqp_firewall = task_by_name(
+            role_tasks, "Remove retired inbound Onclave AMQP firewall rules"
+        )
+        self.assertEqual(
+            remove_amqp_firewall["loop"], "{{ onramp_host_allowed_ssh_cidrs }}"
+        )
+        self.assertEqual(
+            remove_amqp_firewall["ansible.builtin.command"]["argv"],
+            [
+                "ufw",
+                "--force",
+                "delete",
+                "allow",
+                "from",
+                "{{ item }}",
+                "to",
+                "any",
+                "port",
+                "{{ onclave_onramp_amqp_port | string }}",
+                "proto",
+                "tcp",
+            ],
+        )
+        self.assertTrue(remove_amqp_firewall["no_log"])
 
     def test_onclave_installs_pinned_backup_helpers_and_runtime_warmup_checks(self) -> None:
         role_tasks = (

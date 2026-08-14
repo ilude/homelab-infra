@@ -48,11 +48,14 @@ failures abort before any managed path is changed.
 
 When current state exists, restore writes a private `0600` pre-restore archive
 and SHA-256 sidecar under `values/service-backups/<service>/`. Only after that
-archive is fetched does restore remove configured paths, extract the selected
+archive is streamed to the controller and validated against the selected target
+and managed paths does restore remove configured paths, extract the selected
 archive, and repair each path's catalog-declared ownership without changing
 archived modes. User units then start before system units, in reverse declared
-order. A failure after mutation leaves services stopped and reports the recovery
-archive; restore does not automatically roll back.
+order. A failure while creating, streaming, or validating the recovery archive
+before managed path removal restarts managed user units before system units and
+exits failed. A failure after mutation leaves services stopped and reports the
+recovery archive; restore does not automatically roll back.
 
 ## Supported targets
 

@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path, PurePosixPath
 from typing import Any
+from unittest import mock
 
 import yaml
 from jinja2 import StrictUndefined, Template
@@ -18,6 +19,7 @@ RESTORE_PATH = REPO / "infra/ansible/playbooks/service-state-restore.yml"
 BACKUP_PATH = REPO / "infra/ansible/playbooks/service-state-backup.yml"
 VALIDATOR_PATH = REPO / "infra/ansible/scripts/validate-service-state-archive.py"
 FETCH_HELPER_PATH = REPO / "infra/ansible/scripts/fetch-service-state.py"
+PUSH_HELPER_PATH = REPO / "infra/ansible/scripts/push-service-state.py"
 TECHNITIUM_ROLE_TASKS = REPO / "infra/ansible/roles/technitium/tasks/main.yml"
 FORGEJO_ROLE_TASKS = REPO / "infra/ansible/roles/forgejo/tasks/main.yml"
 TECHNITIUM_ROLE_DEFAULTS = REPO / "infra/ansible/roles/technitium/defaults/main.yml"
@@ -34,6 +36,13 @@ fetch_spec = importlib.util.spec_from_file_location(
 assert fetch_spec and fetch_spec.loader
 fetch = importlib.util.module_from_spec(fetch_spec)
 fetch_spec.loader.exec_module(fetch)
+
+push_spec = importlib.util.spec_from_file_location(
+    "push_service_state", PUSH_HELPER_PATH
+)
+assert push_spec and push_spec.loader
+push = importlib.util.module_from_spec(push_spec)
+push_spec.loader.exec_module(push)
 
 
 def load_catalog() -> dict[str, Any]:
@@ -276,6 +285,98 @@ class FetchServiceStateTests(unittest.TestCase):
                     remote,
                     "/srv/onramp/.service-state-backup-staging",
                 )
+
+    def test_stream_replaces_controller_archive_only_after_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "state.tar.gz"
+            output.write_bytes(b"previous")
+
+            def stream_archive(*args: Any, **kwargs: Any) -> None:
+                self.assertEqual(output.read_bytes(), b"previous")
+                kwargs["stdout"].write(b"replacement")
+
+            with (
+                mock.patch.object(
+                    fetch,
+                    "parse_args",
+                    return_value=type(
+                        "Args",
+                        (),
+                        {
+                            "host": "example.internal",
+                            "user": "anvil",
+                            "ssh_common_args": "",
+                            "remote": "/tmp/state.tar.gz",
+                            "allowed_remote_root": "/tmp",
+                            "output": output,
+                            "become": False,
+                        },
+                    )(),
+                ),
+                mock.patch.object(fetch.subprocess, "run", side_effect=stream_archive),
+            ):
+                self.assertEqual(fetch.main(), 0)
+
+            self.assertEqual(output.read_bytes(), b"replacement")
+            self.assertEqual(list(Path(temp).glob(".state.tar.gz.*")), [])
+
+
+class PushServiceStateTests(unittest.TestCase):
+    def test_accepts_archive_within_explicit_allowed_root(self) -> None:
+        push.validate_remote_archive(
+            "/srv/onramp/.service-state-backup-staging/onclave-state.tar.gz",
+            "/srv/onramp/.service-state-backup-staging",
+        )
+        push.validate_remote_archive("/tmp/hermes-state.tar.gz", "/tmp")
+
+    def test_rejects_sibling_and_traversal_remote_archives(self) -> None:
+        for remote in (
+            "/srv/onramp/.service-state-backup-staging-sibling/onclave-state.tar.gz",
+            "/srv/onramp/.service-state-backup-staging/../outside.tar.gz",
+            "/srv/onramp/.service-state-backup-staging/onclave-state.tar",
+        ):
+            with self.subTest(remote=remote), self.assertRaises(ValueError):
+                push.validate_remote_archive(
+                    remote,
+                    "/srv/onramp/.service-state-backup-staging",
+                )
+
+    def test_streams_to_a_private_remote_tempfile_then_replaces_destination(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            input_archive = Path(temp) / "state.tar.gz"
+            input_archive.write_bytes(b"state")
+
+            def upload(command: list[str], **kwargs: Any) -> None:
+                self.assertEqual(command[0], "ssh")
+                self.assertIn('mktemp "$1"', command[-1])
+                self.assertIn('cat > "$temporary"', command[-1])
+                self.assertIn('mv -f "$temporary" "$2"', command[-1])
+                self.assertEqual(kwargs["stdin"].read(), b"state")
+                self.assertTrue(kwargs["check"])
+
+            with (
+                mock.patch.object(
+                    push,
+                    "parse_args",
+                    return_value=type(
+                        "Args",
+                        (),
+                        {
+                            "host": "example.internal",
+                            "user": "anvil",
+                            "ssh_common_args": "",
+                            "remote": "/tmp/state.tar.gz",
+                            "allowed_remote_root": "/tmp",
+                            "input": input_archive,
+                            "become": True,
+                        },
+                    )(),
+                ),
+                mock.patch.object(push.subprocess, "run", side_effect=upload),
+            ):
+                self.assertEqual(push.main(), 0)
 
 
 class ServiceStateBackupPlaybookTests(unittest.TestCase):
@@ -540,11 +641,199 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
 
     def test_large_archives_stream_without_ansible_fetch_buffering(self) -> None:
         backup = BACKUP_PATH.read_text(encoding="utf-8")
+        restore = RESTORE_PATH.read_text(encoding="utf-8")
         helper = FETCH_HELPER_PATH.read_text(encoding="utf-8")
         self.assertNotIn("ansible.builtin.fetch", backup)
+        self.assertNotIn("ansible.builtin.fetch", restore)
         self.assertIn("fetch-service-state.py", backup)
+        self.assertIn("fetch-service-state.py", restore)
         self.assertIn("subprocess.run(command, stdout=output, check=True)", helper)
         self.assertIn("temporary.replace(args.output)", helper)
+
+    def test_pre_restore_uses_direct_staged_archive_and_path_contained_stream(
+        self,
+    ) -> None:
+        playbook = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
+        restore_block = next(
+            task["block"]
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Restore service state after successful preflight and stops"
+        )
+        archive = next(
+            task
+            for task in restore_block
+            if task.get("name")
+            == "Create pre-restore service-state archive directly from managed paths"
+        )
+        stream = next(
+            task
+            for task in restore_block
+            if task.get("name")
+            == "Stream pre-restore service-state archive into private values"
+        )
+        archive_args = archive["ansible.builtin.command"]["argv"]
+        stream_args = stream["ansible.builtin.command"]["argv"]
+        source = RESTORE_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn("rsync", source)
+        self.assertNotIn("service_state_pre_restore_snapshot_dir", source)
+        self.assertNotIn("ansible.builtin.fetch", source)
+        self.assertIn("service_state_existing_archive_paths", archive_args)
+        self.assertIn("'-C', '/'", archive_args)
+        self.assertIn("fetch-service-state.py", stream_args)
+        self.assertIn("--allowed-remote-root", stream_args)
+        self.assertIn("service_state_remote_archive_root", stream_args)
+        self.assertIn("service_state_pre_restore_manifest_dir.path", archive_args)
+
+    def test_pre_restore_archive_is_validated_before_recovery_is_ready(self) -> None:
+        playbook = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
+        restore_block = next(
+            task["block"]
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Restore service state after successful preflight and stops"
+        )
+        names = [task["name"] for task in restore_block]
+        validation = next(
+            task
+            for task in restore_block
+            if task.get("name")
+            == "Validate local pre-restore service-state archive contents"
+        )
+
+        args = validation["ansible.builtin.command"]["argv"]
+        self.assertIn("validate-service-state-archive.py", args)
+        self.assertIn("--target", args)
+        self.assertIn("service_state_service", args)
+        self.assertIn("--paths-json", args)
+        self.assertIn("service_state_managed_paths", args)
+        self.assertIn("--require-all-paths", args)
+        self.assertLess(
+            names.index("Validate local pre-restore service-state archive contents"),
+            names.index("Mark pre-restore recovery archive as secured"),
+        )
+
+    def test_restore_upload_streams_directly_into_the_staging_filesystem(self) -> None:
+        playbook = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
+        restore_block = next(
+            task["block"]
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Restore service state after successful preflight and stops"
+        )
+        upload = next(
+            task
+            for task in restore_block
+            if task.get("name")
+            == "Stream service-state restore archive into service staging"
+        )
+
+        args = upload["ansible.builtin.command"]["argv"]
+        self.assertIn("push-service-state.py", args)
+        self.assertIn("--allowed-remote-root", args)
+        self.assertIn("service_state_remote_archive_root", args)
+        self.assertIn("--input", args)
+        self.assertIn("service_state_restore_file", args)
+
+    def test_pre_restore_staging_is_contained_capacity_checked_before_stops(
+        self,
+    ) -> None:
+        source = RESTORE_PATH.read_text(encoding="utf-8")
+        names = task_names(RESTORE_PATH)
+
+        self.assertIn("backup_staging_root | default('/tmp')", source)
+        self.assertIn("service_state_pre_restore_required_kib", source)
+        self.assertNotIn("service_state_remote_archive_root | dirname", source)
+        self.assertIn(' - "{{ service_state_remote_archive_root }}"', source)
+        self.assertIn("--apparent-size", source)
+        self.assertIn("-Pk", source)
+        self.assertLess(
+            names.index("Require conservative free space for pre-restore staging"),
+            names.index("Stop managed system services before restore"),
+        )
+        self.assertLess(
+            names.index("Create private pre-restore service-state staging directory"),
+            names.index("Stop managed system services before restore"),
+        )
+
+    def test_empty_state_cleanup_requires_manifest_path(self) -> None:
+        playbook = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
+        outer = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Restore service state after successful preflight and stops"
+        )
+        cleanup_names = [task["name"] for task in outer["always"]]
+
+        self.assertEqual(
+            cleanup_names,
+            [
+                "Remove temporary pre-restore service-state manifest directory",
+                "Remove partial pre-restore service-state archive from service host",
+                "Remove partial service-state restore archive from service host",
+                "Remove private pre-restore service-state staging directory",
+            ],
+        )
+        manifest_cleanup = outer["always"][0]
+        self.assertEqual(
+            manifest_cleanup["when"],
+            "service_state_pre_restore_manifest_dir.path is defined",
+        )
+        staging_cleanup = outer["always"][-1]
+        self.assertEqual(
+            staging_cleanup["when"],
+            "service_state_definition.backup_staging_root is defined",
+        )
+
+    def test_restore_failure_restarts_before_mutation_and_stops_afterwards(
+        self,
+    ) -> None:
+        playbook = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
+        outer = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Restore service state after successful preflight and stops"
+        )
+        rescue = {task["name"]: task for task in outer["rescue"]}
+        names = task_names(RESTORE_PATH)
+
+        self.assertLess(
+            names.index("Stream service-state restore archive into service staging"),
+            names.index("Mark destructive service-state restore mutation started"),
+        )
+        self.assertLess(
+            names.index("Mark destructive service-state restore mutation started"),
+            names.index("Remove existing managed service-state paths before restore"),
+        )
+        self.assertIn(
+            "not (service_state_restore_mutation_started | bool)",
+            rescue["Restart managed user services after pre-mutation restore failure"][
+                "when"
+            ],
+        )
+        self.assertEqual(
+            rescue[
+                "Restart managed system services after pre-mutation restore failure"
+            ]["when"],
+            "not (service_state_restore_mutation_started | bool)",
+        )
+        self.assertEqual(
+            rescue[
+                "Keep managed system services stopped after destructive restore failure"
+            ]["when"],
+            "service_state_restore_mutation_started | bool",
+        )
+        self.assertLess(
+            names.index(
+                "Restart managed user services after pre-mutation restore failure"
+            ),
+            names.index(
+                "Restart managed system services after pre-mutation restore failure"
+            ),
+        )
 
     def test_pre_restore_archive_has_manifest_checksum_and_private_permissions(
         self,
@@ -555,7 +844,7 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
         self.assertIn(
             "Restrict local pre-restore service-state archive permissions", text
         )
-        self.assertGreaterEqual(text.count('mode: "0600"'), 4)
+        self.assertGreaterEqual(text.count('mode: "0600"'), 3)
 
     def test_hermes_wrapper_contract_remains_compatible(self) -> None:
         backup = yaml.safe_load(

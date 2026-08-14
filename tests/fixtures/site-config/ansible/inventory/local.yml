@@ -113,22 +113,22 @@ all:
     onclave_docling_image: quay.io/docling-project/docling-serve-cpu:v1.15.0@sha256:fdfa8d8aff086c342ea2d3159ad5a1e65bcd6a2b435d243f9f47fdd332f189b5
     onclave_bws_project_id: REPLACE_WITH_BWS_PROJECT_ID
     onclave_bws_api_server: https://vault.example.internal/api
-    menos_authorized_keys:
+    onclave_onramp_authorized_keys:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExamplePublicKeyMaterialOnly replace@example
-    menos_postgres_database: menos
-    menos_postgres_user: menos
-    menos_postgres_password: "{{ lookup('env', 'MENOS_POSTGRES_PASSWORD') }}"
-    menos_s3_access_key: "{{ lookup('env', 'MENOS_S3_ACCESS_KEY') }}"
-    menos_s3_secret_key: "{{ lookup('env', 'MENOS_S3_SECRET_KEY') }}"
-    menos_searxng_secret: "{{ lookup('env', 'MENOS_SEARXNG_SECRET') }}"
-    menos_webshare_proxy_username: "{{ lookup('env', 'MENOS_WEBSHARE_PROXY_USERNAME') }}"
-    menos_webshare_proxy_password: "{{ lookup('env', 'MENOS_WEBSHARE_PROXY_PASSWORD') }}"
-    menos_youtube_api_key: "{{ lookup('env', 'MENOS_YOUTUBE_API_KEY') }}"
-    menos_openrouter_api_key: "{{ lookup('env', 'MENOS_OPENROUTER_API_KEY') }}"
-    menos_anthropic_api_key: "{{ lookup('env', 'MENOS_ANTHROPIC_API_KEY') }}"
-    menos_onramp_openai_api_key: "{{ lookup('env', 'MENOS_OPENAI_API_KEY') }}"
-    menos_onramp_callback_url: "{{ lookup('env', 'MENOS_CALLBACK_URL') }}"
-    menos_onramp_callback_secret: "{{ lookup('env', 'MENOS_CALLBACK_SECRET') }}"
+    onclave_onramp_postgres_database: menos
+    onclave_onramp_postgres_user: menos
+    onclave_onramp_postgres_password: "{{ lookup('env', 'ONCLAVE_VAULT_POSTGRES_PASSWORD') }}"
+    onclave_onramp_s3_access_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_ACCESS_KEY') }}"
+    onclave_onramp_s3_secret_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_SECRET_KEY') }}"
+    onclave_onramp_searxng_secret: "{{ lookup('env', 'ONCLAVE_VAULT_SEARXNG_SECRET') }}"
+    onclave_onramp_webshare_proxy_username: "{{ lookup('env', 'ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME') }}"
+    onclave_onramp_webshare_proxy_password: "{{ lookup('env', 'ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD') }}"
+    onclave_onramp_youtube_api_key: "{{ lookup('env', 'ONCLAVE_VAULT_YOUTUBE_API_KEY') }}"
+    onclave_onramp_openrouter_api_key: "{{ lookup('env', 'ONCLAVE_VAULT_OPENROUTER_API_KEY') }}"
+    onclave_onramp_anthropic_api_key: "{{ lookup('env', 'ONCLAVE_VAULT_ANTHROPIC_API_KEY') }}"
+    onclave_onramp_openai_api_key: "{{ lookup('env', 'ONCLAVE_VAULT_OPENAI_API_KEY') }}"
+    onclave_onramp_callback_url: "{{ lookup('env', 'ONCLAVE_VAULT_CALLBACK_URL') }}"
+    onclave_onramp_callback_secret: "{{ lookup('env', 'ONCLAVE_VAULT_CALLBACK_SECRET') }}"
     tailscale_client_enabled: false
     tailscale_client_vmid: 108
     tailscale_client_version: "1.98.8"

@@ -26,6 +26,7 @@ SCRIPTS = REPO / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+import envfile  # noqa: E402
 import settings  # noqa: E402
 
 try:
@@ -55,6 +56,27 @@ RUNTIME_KEYS = (
     "HOMELAB_TOFU_STATE_PASSPHRASE",
     "RABBITMQ_DEFAULT_USER",
     "RABBITMQ_DEFAULT_PASS",
+    "ONCLAVE_VAULT_POSTGRES_PASSWORD",
+    "ONCLAVE_VAULT_S3_ACCESS_KEY",
+    "ONCLAVE_VAULT_S3_SECRET_KEY",
+    "ONCLAVE_VAULT_SEARXNG_SECRET",
+    "ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME",
+    "ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD",
+    "ONCLAVE_VAULT_YOUTUBE_API_KEY",
+    "ONCLAVE_VAULT_OPENROUTER_API_KEY",
+    "ONCLAVE_VAULT_ANTHROPIC_API_KEY",
+    "ONCLAVE_VAULT_OPENAI_API_KEY",
+    "ONCLAVE_VAULT_CALLBACK_URL",
+    "ONCLAVE_VAULT_CALLBACK_SECRET",
+)
+OPTIONAL_RUNTIME_KEYS = (
+    "ONCLAVE_VAULT_OPENAI_API_KEY",
+    "ONCLAVE_VAULT_CALLBACK_URL",
+    "ONCLAVE_VAULT_CALLBACK_SECRET",
+)
+ONCLAVE_RUNTIME_KEYS = RUNTIME_KEYS[5:]
+REQUIRED_ONCLAVE_RUNTIME_KEYS = tuple(
+    key for key in ONCLAVE_RUNTIME_KEYS if key not in OPTIONAL_RUNTIME_KEYS
 )
 RUNTIME_PROFILES = {
     "config": (),
@@ -64,6 +86,38 @@ RUNTIME_PROFILES = {
     "all": RUNTIME_KEYS,
 }
 PLACEHOLDER_RE = re.compile(r"(?:REPLACE(?:_WITH)?_[A-Z0-9_]+|CHANGEME|TODO)")
+ONCLAVE_ENV_RENAMES = {
+    "MENOS_POSTGRES_PASSWORD": "ONCLAVE_VAULT_POSTGRES_PASSWORD",
+    "MENOS_S3_ACCESS_KEY": "ONCLAVE_VAULT_S3_ACCESS_KEY",
+    "MENOS_S3_SECRET_KEY": "ONCLAVE_VAULT_S3_SECRET_KEY",
+    "MENOS_SEARXNG_SECRET": "ONCLAVE_VAULT_SEARXNG_SECRET",
+    "MENOS_WEBSHARE_PROXY_USERNAME": "ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME",
+    "MENOS_WEBSHARE_PROXY_PASSWORD": "ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD",
+    "MENOS_YOUTUBE_API_KEY": "ONCLAVE_VAULT_YOUTUBE_API_KEY",
+    "MENOS_OPENROUTER_API_KEY": "ONCLAVE_VAULT_OPENROUTER_API_KEY",
+    "MENOS_ANTHROPIC_API_KEY": "ONCLAVE_VAULT_ANTHROPIC_API_KEY",
+    "MENOS_OPENAI_API_KEY": "ONCLAVE_VAULT_OPENAI_API_KEY",
+    "MENOS_CALLBACK_URL": "ONCLAVE_VAULT_CALLBACK_URL",
+    "MENOS_CALLBACK_SECRET": "ONCLAVE_VAULT_CALLBACK_SECRET",
+}
+ONCLAVE_INVENTORY_RENAMES = {
+    "menos_authorized_keys": "onclave_onramp_authorized_keys",
+    "menos_postgres_password": "onclave_onramp_postgres_password",
+    "menos_postgres_database": "onclave_onramp_postgres_database",
+    "menos_postgres_user": "onclave_onramp_postgres_user",
+    "menos_s3_access_key": "onclave_onramp_s3_access_key",
+    "menos_s3_secret_key": "onclave_onramp_s3_secret_key",
+    "menos_searxng_secret": "onclave_onramp_searxng_secret",
+    "menos_webshare_proxy_username": "onclave_onramp_webshare_proxy_username",
+    "menos_webshare_proxy_password": "onclave_onramp_webshare_proxy_password",
+    "menos_youtube_api_key": "onclave_onramp_youtube_api_key",
+    "menos_openrouter_api_key": "onclave_onramp_openrouter_api_key",
+    "menos_anthropic_api_key": "onclave_onramp_anthropic_api_key",
+    "menos_onramp_openai_api_key": "onclave_onramp_openai_api_key",
+    "menos_onramp_unified_pipeline_model": "onclave_onramp_unified_pipeline_model",
+    "menos_onramp_callback_url": "onclave_onramp_callback_url",
+    "menos_onramp_callback_secret": "onclave_onramp_callback_secret",
+}
 Runner = Callable[[Sequence[str], Mapping[str, str]], subprocess.CompletedProcess[str]]
 
 
@@ -89,6 +143,12 @@ class Family:
 class RoutingManifest:
     families: tuple[Family, ...]
     runtime_keys: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class OnclaveMigration:
+    families: dict[str, str]
+    runtime: dict[str, str]
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -315,6 +375,21 @@ def resolve_required(values: Mapping[str, str], keys: Sequence[str]) -> dict[str
     return {key: values[key] for key in keys}
 
 
+def resolve_runtime(
+    values: Mapping[str, str], keys: Sequence[str]
+) -> dict[str, str]:
+    required_keys = tuple(key for key in keys if key not in OPTIONAL_RUNTIME_KEYS)
+    resolved = resolve_required(values, required_keys)
+    for key in keys:
+        if key not in OPTIONAL_RUNTIME_KEYS:
+            continue
+        value = values.get(key, "")
+        if value and PLACEHOLDER_RE.search(value):
+            raise BwsSnapshotError(f"BWS secrets are invalid: placeholder keys: {key}")
+        resolved[key] = value
+    return resolved
+
+
 def validate_dotenv(text: str, key: str) -> None:
     with tempfile.TemporaryDirectory(prefix="bws-snapshot-env-") as directory:
         path = Path(directory) / ".env"
@@ -529,7 +604,8 @@ def render_snapshot(
     values: Mapping[str, str],
     runtime_keys: Sequence[str] = RUNTIME_KEYS,
 ) -> None:
-    required = resolve_required(values, FAMILY_KEYS + tuple(runtime_keys))
+    required = resolve_required(values, FAMILY_KEYS)
+    runtime = resolve_runtime(values, runtime_keys)
     decoded = {
         family.key: decode_family(family, required[family.key])
         for family in manifest.families
@@ -545,7 +621,6 @@ def render_snapshot(
         write_private_file(
             output / "backend.hcl", backend_hcl(parsed["HOMELAB_ANSIBLE_INVENTORY"])
         )
-        runtime = {key: required[key] for key in runtime_keys}
         write_private_file(output / "runtime.env", runtime_env(output, runtime))
     except Exception:
         shutil.rmtree(output, ignore_errors=True)
@@ -582,6 +657,184 @@ def compare_source_values(
         )
         for family in manifest.families
     }
+
+
+def extract_onclave_runtime_secrets(text: str) -> tuple[str, dict[str, str]]:
+    lines = text.splitlines()
+    try:
+        entries = envfile.parse_env_lines(lines, Path("HOMELAB_ENV"))
+    except envfile.EnvFileError as error:
+        raise BwsSnapshotError("HOMELAB_ENV is not valid dotenv") from error
+
+    extracted: dict[str, str] = {}
+    remove_indexes: set[int] = set()
+    for legacy_key, canonical_key in ONCLAVE_ENV_RENAMES.items():
+        legacy = entries.get(legacy_key)
+        canonical = entries.get(canonical_key)
+        if legacy is not None and canonical is not None:
+            raise BwsSnapshotError(
+                f"HOMELAB_ENV contains both {legacy_key} and {canonical_key}"
+            )
+        source = legacy or canonical
+        if source is None:
+            continue
+        extracted[canonical_key] = source.value
+        remove_indexes.add(source.index)
+
+    remaining = [line for index, line in enumerate(lines) if index not in remove_indexes]
+    return "\n".join(remaining) + ("\n" if text.endswith("\n") else ""), extracted
+
+
+def inventory_all_vars(text: str) -> tuple[dict[str, Any], yaml.MappingNode]:
+    inventory = parse_yaml(text, "HOMELAB_ANSIBLE_INVENTORY")
+    if not isinstance(inventory, dict):
+        raise BwsSnapshotError("HOMELAB_ANSIBLE_INVENTORY must contain an object")
+    all_group = inventory.get("all")
+    if not isinstance(all_group, dict) or not isinstance(all_group.get("vars"), dict):
+        raise BwsSnapshotError("HOMELAB_ANSIBLE_INVENTORY must contain all.vars")
+    try:
+        document = yaml.compose(text, Loader=UniqueKeyLoader)
+    except yaml.YAMLError as error:
+        raise BwsSnapshotError("HOMELAB_ANSIBLE_INVENTORY is not valid YAML") from error
+    if not isinstance(document, yaml.MappingNode):
+        raise BwsSnapshotError("HOMELAB_ANSIBLE_INVENTORY must contain an object")
+
+    def mapping_value(node: yaml.MappingNode, key: str) -> Optional[yaml.Node]:
+        for key_node, value_node in node.value:
+            if isinstance(key_node, yaml.ScalarNode) and key_node.value == key:
+                return value_node
+        return None
+
+    all_node = mapping_value(document, "all")
+    if not isinstance(all_node, yaml.MappingNode):
+        raise BwsSnapshotError("HOMELAB_ANSIBLE_INVENTORY must contain all.vars")
+    vars_node = mapping_value(all_node, "vars")
+    if not isinstance(vars_node, yaml.MappingNode):
+        raise BwsSnapshotError("HOMELAB_ANSIBLE_INVENTORY must contain all.vars")
+    return all_group["vars"], vars_node
+
+
+def preflight_onclave_inventory(text: str) -> dict[str, Any]:
+    variables, vars_node = inventory_all_vars(text)
+    legacy_keys = set(ONCLAVE_INVENTORY_RENAMES) | {"menos_onramp_base_dir"}
+    present_legacy_keys = legacy_keys.intersection(variables)
+    for old_key, new_key in ONCLAVE_INVENTORY_RENAMES.items():
+        if old_key in variables and new_key in variables:
+            raise BwsSnapshotError(
+                f"HOMELAB_ANSIBLE_INVENTORY contains both {old_key} and {new_key}"
+            )
+    if (
+        "menos_onramp_base_dir" in variables
+        and "onclave_onramp_data_root" in variables
+    ):
+        raise BwsSnapshotError(
+            "HOMELAB_ANSIBLE_INVENTORY contains both menos_onramp_base_dir and "
+            "onclave_onramp_data_root"
+        )
+    if not present_legacy_keys:
+        return variables
+    if vars_node.flow_style:
+        raise BwsSnapshotError(
+            "HOMELAB_ANSIBLE_INVENTORY cannot safely migrate flow-style all.vars"
+        )
+
+    lines = text.splitlines()
+    for key_node, _ in vars_node.value:
+        if not isinstance(key_node, yaml.ScalarNode) or key_node.value not in legacy_keys:
+            continue
+        if key_node.style is not None:
+            raise BwsSnapshotError(
+                "HOMELAB_ANSIBLE_INVENTORY cannot safely migrate quoted all.vars "
+                f"key {key_node.value}"
+            )
+        line = lines[key_node.start_mark.line]
+        if not re.match(rf"^[ \t]*{re.escape(key_node.value)}:", line):
+            raise BwsSnapshotError(
+                "HOMELAB_ANSIBLE_INVENTORY cannot safely migrate all.vars key "
+                f"{key_node.value}"
+            )
+    data_root = variables.get("menos_onramp_base_dir")
+    if data_root is not None:
+        if (
+            not isinstance(data_root, str)
+            or not data_root.startswith("/")
+            or ".." in PurePosixPath(data_root).parts
+        ):
+            raise BwsSnapshotError(
+                "HOMELAB_ANSIBLE_INVENTORY has an unsafe menos_onramp_base_dir"
+            )
+    return variables
+
+
+def rename_onclave_inventory_keys(text: str) -> str:
+    variables = preflight_onclave_inventory(text)
+    for old_key, new_key in ONCLAVE_INVENTORY_RENAMES.items():
+        if old_key not in variables:
+            continue
+        pattern = re.compile(rf"(?m)^(?P<indent>[ \t]*){re.escape(old_key)}:")
+        text = pattern.sub(rf"\g<indent>{new_key}:", text)
+
+    for old_key, new_key in ONCLAVE_ENV_RENAMES.items():
+        text = re.sub(
+            rf"(?<![A-Za-z0-9_]){re.escape(old_key)}(?![A-Za-z0-9_])",
+            new_key,
+            text,
+        )
+
+    if "menos_onramp_base_dir" not in variables:
+        return text
+    value = variables["menos_onramp_base_dir"].rstrip("/") + "/data"
+    pattern = re.compile(r"(?m)^(?P<indent>[ \t]*)menos_onramp_base_dir:[^\n]*$")
+    return pattern.sub(rf"\g<indent>onclave_onramp_data_root: {value}", text)
+
+
+def migrate_onclave_config(
+    manifest: RoutingManifest, records: Mapping[str, tuple[str, str]]
+) -> OnclaveMigration:
+    required = ("HOMELAB_ENV", "HOMELAB_ANSIBLE_INVENTORY")
+    missing = [key for key in required if key not in records]
+    if missing:
+        raise BwsSnapshotError(
+            "BWS is missing required family keys: " + ", ".join(missing)
+        )
+    families = {family.key: family for family in manifest.families}
+    env_text, extracted = extract_onclave_runtime_secrets(records["HOMELAB_ENV"][1])
+    runtime: dict[str, str] = {}
+    for key in ONCLAVE_RUNTIME_KEYS:
+        existing = records.get(key)
+        extracted_value = extracted.get(key)
+        if existing is not None and extracted_value is not None:
+            if existing[1] != extracted_value:
+                raise BwsSnapshotError(f"BWS secret collision for {key}")
+            runtime[key] = existing[1]
+        elif existing is not None:
+            runtime[key] = existing[1]
+        elif extracted_value is not None and (
+            key not in OPTIONAL_RUNTIME_KEYS or extracted_value
+        ):
+            runtime[key] = extracted_value
+
+    resolve_required(runtime, REQUIRED_ONCLAVE_RUNTIME_KEYS)
+    for key in OPTIONAL_RUNTIME_KEYS:
+        value = runtime.get(key, "")
+        if value and PLACEHOLDER_RE.search(value):
+            raise BwsSnapshotError(f"BWS secrets are invalid: placeholder keys: {key}")
+
+    inventory_family = families["HOMELAB_ANSIBLE_INVENTORY"]
+    inventory_text = rename_onclave_inventory_keys(
+        decode_family(inventory_family, records["HOMELAB_ANSIBLE_INVENTORY"][1])
+    )
+    validate_family(families["HOMELAB_ENV"], env_text)
+    validate_family(inventory_family, inventory_text)
+    return OnclaveMigration(
+        families={
+            "HOMELAB_ENV": encode_family(families["HOMELAB_ENV"], env_text),
+            "HOMELAB_ANSIBLE_INVENTORY": encode_family(
+                inventory_family, inventory_text
+            ),
+        },
+        runtime=runtime,
+    )
 
 
 def create_bws_secret(
@@ -669,6 +922,36 @@ def command_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_migrate_onclave(args: argparse.Namespace) -> int:
+    manifest = load_manifest(args.manifest)
+    locator = load_locator(args.settings)
+    access_key = os.environ.get("BITWARDEN_ACCESS_KEY", "")
+    records = list_bws_records_with_ids(locator, access_key, args.runner)
+    migrated = migrate_onclave_config(manifest, records)
+
+    for key in ONCLAVE_RUNTIME_KEYS:
+        if key not in migrated.runtime:
+            print(f"{key}: optional absent")
+        elif key in records:
+            print(f"{key}: reuse")
+        elif args.write:
+            create_bws_secret(locator, access_key, key, migrated.runtime[key], args.runner)
+            print(f"{key}: created")
+        else:
+            print(f"{key}: create pending")
+
+    for key, value in migrated.families.items():
+        secret_id, current = records[key]
+        if current == value:
+            print(f"{key}: canonical")
+        elif args.write:
+            edit_bws_secret(locator, access_key, secret_id, key, value, args.runner)
+            print(f"{key}: migrated")
+        else:
+            print(f"{key}: migration pending")
+    return 0
+
+
 def command_seed(args: argparse.Namespace) -> int:
     manifest = load_manifest(args.manifest)
     source = read_source_values(args.source_root, manifest)
@@ -706,6 +989,8 @@ def main(argv: Optional[list[str]] = None, runner: Runner = subprocess_runner) -
     verify.add_argument("--source-root", type=Path, required=True)
     sync = subparsers.add_parser("sync")
     sync.add_argument("--source-root", type=Path, required=True)
+    migrate_onclave = subparsers.add_parser("migrate-onclave")
+    migrate_onclave.add_argument("--write", action="store_true")
     args = parser.parse_args(argv)
     args.runner = runner
     try:
@@ -715,6 +1000,8 @@ def main(argv: Optional[list[str]] = None, runner: Runner = subprocess_runner) -
             return command_seed(args)
         if args.command == "sync":
             return command_sync(args)
+        if args.command == "migrate-onclave":
+            return command_migrate_onclave(args)
         return command_verify(args)
     except BwsSnapshotError as error:
         print(f"BWS snapshot failed: {error}", file=sys.stderr)

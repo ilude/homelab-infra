@@ -79,42 +79,42 @@ argument_specs:
         type: str
         required: true
         description: "RabbitMQ application password from private values."
-      menos_authorized_keys:
+      onclave_onramp_authorized_keys:
         type: list
         elements: str
         required: true
-        description: "Existing Menos RFC 9421 public authorization keys adopted by Onclave."
-      menos_postgres_password:
+        description: "RFC 9421 public authorization keys for Onclave."
+      onclave_onramp_postgres_password:
         type: str
         required: true
-      menos_postgres_database:
+      onclave_onramp_postgres_database:
         type: str
         required: true
-      menos_postgres_user:
+      onclave_onramp_postgres_user:
         type: str
         required: true
-      menos_s3_access_key:
+      onclave_onramp_s3_access_key:
         type: str
         required: true
-      menos_s3_secret_key:
+      onclave_onramp_s3_secret_key:
         type: str
         required: true
-      menos_searxng_secret:
+      onclave_onramp_searxng_secret:
         type: str
         required: true
-      menos_webshare_proxy_username:
+      onclave_onramp_webshare_proxy_username:
         type: str
         required: true
-      menos_webshare_proxy_password:
+      onclave_onramp_webshare_proxy_password:
         type: str
         required: true
-      menos_youtube_api_key:
+      onclave_onramp_youtube_api_key:
         type: str
         required: true
-      menos_openrouter_api_key:
+      onclave_onramp_openrouter_api_key:
         type: str
         required: true
-      menos_anthropic_api_key:
+      onclave_onramp_anthropic_api_key:
         type: str
         required: true
       onclave_onramp_base_dir:
@@ -123,7 +123,7 @@ argument_specs:
       onclave_onramp_data_root:
         type: str
         required: false
-        description: "Existing Menos data root adopted in place."
+        description: "Existing adopted data root; it is never moved or renamed."
       onclave_onramp_compose_provider_command:
         type: str
         required: false

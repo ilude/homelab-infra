@@ -79,19 +79,15 @@ class ParseEnvTests(unittest.TestCase):
         finally:
             path.unlink()
 
-    def test_menos_keys_are_allowed(self) -> None:
-        path = self.write_env(
-            "MENOS_POSTGRES_PASSWORD=db-secret\n"  # public-safety: allow-secret
-            "MENOS_S3_ACCESS_KEY=access-key\n"
-            "MENOS_S3_SECRET_KEY=storage-secret\n"  # public-safety: allow-secret
-            "MENOS_YOUTUBE_API_KEY=youtube-key\n"  # public-safety: allow-secret
-        )
-        try:
-            values = parse_env_script.parse_env(path)
-        finally:
-            path.unlink()
-        self.assertEqual(values["MENOS_POSTGRES_PASSWORD"], "db-secret")
-        self.assertEqual(values["MENOS_S3_ACCESS_KEY"], "access-key")
+    def test_onclave_application_credentials_are_rejected(self) -> None:
+        for key in ("MENOS_POSTGRES_PASSWORD", "ONCLAVE_VAULT_POSTGRES_PASSWORD"):
+            with self.subTest(key=key):
+                path = self.write_env(f"{key}=db-secret\n")
+                try:
+                    with self.assertRaises(parse_env_script.EnvError):
+                        parse_env_script.parse_env(path)
+                finally:
+                    path.unlink()
 
     def test_keys_mode_prints_only_keys(self) -> None:
         path = self.write_env("PVE_HOST=proxmox.example.internal\n")

@@ -739,7 +739,7 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn('"RABBITMQ_DEFAULT_USER"', snapshot)
         self.assertIn('"RABBITMQ_DEFAULT_PASS"', snapshot)
 
-    def test_onclave_adopts_existing_menos_state_and_renders_unified_contract(
+    def test_onclave_adopts_existing_storage_and_renders_unified_contract(
         self,
     ) -> None:
         role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
@@ -749,9 +749,9 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertEqual(
             defaults["onclave_onramp_data_root"],
-            "{{ menos_onramp_base_dir | default(onramp_host_deploy_dir ~ '/menos') }}/data",
+            "{{ onramp_host_deploy_dir }}/menos/data",
         )
-        inspect = task_by_name(role_tasks, "Inspect adopted Menos state directories")
+        inspect = task_by_name(role_tasks, "Inspect adopted state directories")
         self.assertEqual(
             inspect["loop"],
             [
@@ -761,15 +761,23 @@ class AnsibleSafetyTests(unittest.TestCase):
             ],
         )
         self.assertNotIn(
-            "Create missing adopted Menos state directories", task_names(role_tasks)
+            "Create missing adopted state directories", task_names(role_tasks)
         )
         consumer_seams = task_by_name(
             role_tasks, "Validate unified Onclave app definition consumer seams"
         )
+        conditions = consumer_seams["ansible.builtin.assert"]["that"]
         self.assertIn(
             "onclave_onramp_definition.services.rabbitmq.ports | default([]) | length == 0",
-            consumer_seams["ansible.builtin.assert"]["that"],
+            conditions,
         )
+        for mapping in (
+            "'POSTGRES_PASSWORD: ${ONCLAVE_VAULT_POSTGRES_PASSWORD:?}' in onclave_onramp_upstream_text",
+            "'MINIO_ROOT_USER: ${ONCLAVE_VAULT_S3_ACCESS_KEY:?}' in onclave_onramp_upstream_text",
+            "'MINIO_ROOT_PASSWORD: ${ONCLAVE_VAULT_S3_SECRET_KEY:?}' in onclave_onramp_upstream_text",
+            "'SEARXNG_SECRET: ${ONCLAVE_VAULT_SEARXNG_SECRET:?}' in onclave_onramp_upstream_text",
+        ):
+            self.assertIn(mapping, conditions)
         render = task_by_name(
             role_tasks, "Render unified Onclave app definition for the onramp host"
         )
@@ -810,25 +818,33 @@ class AnsibleSafetyTests(unittest.TestCase):
             conditions,
         )
 
-    def test_onclave_env_maps_existing_menos_secret_sources_to_unified_contract(
-        self,
-    ) -> None:
+    def test_onclave_env_uses_canonical_vault_inputs(self) -> None:
         role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
         defaults = yaml.safe_load(
             (role / "defaults" / "main.yml").read_text(encoding="utf-8")
         )
+        argument_specs = yaml.safe_load(
+            (role / "meta" / "argument_specs.yml").read_text(encoding="utf-8")
+        )
+        options = argument_specs["argument_specs"]["main"]["options"]
         template = (role / "templates" / "onclave.env.j2").read_text(encoding="utf-8")
-        self.assertEqual(
-            defaults["onclave_onramp_postgres_password"],
-            "{{ menos_postgres_password }}",
-        )
-        self.assertEqual(
-            defaults["onclave_onramp_s3_access_key"], "{{ menos_s3_access_key }}"
-        )
-        self.assertEqual(
-            defaults["onclave_onramp_openrouter_api_key"],
-            "{{ menos_openrouter_api_key }}",
-        )
+        self.assertEqual(defaults["onclave_onramp_s3_bucket"], "menos")
+        for name in (
+            "onclave_onramp_authorized_keys",
+            "onclave_onramp_postgres_password",
+            "onclave_onramp_postgres_database",
+            "onclave_onramp_postgres_user",
+            "onclave_onramp_s3_access_key",
+            "onclave_onramp_s3_secret_key",
+            "onclave_onramp_searxng_secret",
+            "onclave_onramp_webshare_proxy_username",
+            "onclave_onramp_webshare_proxy_password",
+            "onclave_onramp_youtube_api_key",
+            "onclave_onramp_openrouter_api_key",
+            "onclave_onramp_anthropic_api_key",
+        ):
+            self.assertTrue(options[name]["required"])
+            self.assertNotIn(name, defaults)
         for key in (
             "POSTGRES_IMAGE={{ onclave_postgres_image }}",
             "MINIO_IMAGE={{ onclave_minio_image }}",
@@ -836,20 +852,38 @@ class AnsibleSafetyTests(unittest.TestCase):
             "SEARXNG_IMAGE={{ onclave_searxng_image }}",
             "DOCLING_IMAGE={{ onclave_docling_image }}",
             "ONCLAVE_AUTHORIZED_KEYS_FILE=./authorized_keys",
-            "POSTGRES_PASSWORD={{ onclave_onramp_postgres_password }}",
-            "S3_ACCESS_KEY={{ onclave_onramp_s3_access_key }}",
-            "S3_SECRET_KEY={{ onclave_onramp_s3_secret_key }}",
-            "SEARXNG_SECRET={{ onclave_onramp_searxng_secret }}",
-            "WEBSHARE_PROXY_USERNAME={{ onclave_onramp_webshare_proxy_username }}",
-            "WEBSHARE_PROXY_PASSWORD={{ onclave_onramp_webshare_proxy_password }}",
-            "YOUTUBE_API_KEY={{ onclave_onramp_youtube_api_key }}",
-            "OPENROUTER_API_KEY={{ onclave_onramp_openrouter_api_key }}",
-            "ANTHROPIC_API_KEY={{ onclave_onramp_anthropic_api_key }}",
-            "CALLBACK_URL={{ onclave_onramp_callback_url }}",
-            "CALLBACK_SECRET={{ onclave_onramp_callback_secret }}",
+            "ONCLAVE_VAULT_POSTGRES_PASSWORD={{ onclave_onramp_postgres_password }}",
+            "ONCLAVE_VAULT_POSTGRES_DATABASE={{ onclave_onramp_postgres_database }}",
+            "ONCLAVE_VAULT_POSTGRES_USER={{ onclave_onramp_postgres_user }}",
+            "ONCLAVE_VAULT_S3_ACCESS_KEY={{ onclave_onramp_s3_access_key }}",
+            "ONCLAVE_VAULT_S3_SECRET_KEY={{ onclave_onramp_s3_secret_key }}",
+            "ONCLAVE_VAULT_SEARXNG_SECRET={{ onclave_onramp_searxng_secret }}",
+            "ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME={{ onclave_onramp_webshare_proxy_username }}",
+            "ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD={{ onclave_onramp_webshare_proxy_password }}",
+            "ONCLAVE_VAULT_YOUTUBE_API_KEY={{ onclave_onramp_youtube_api_key }}",
+            "ONCLAVE_VAULT_OPENROUTER_API_KEY={{ onclave_onramp_openrouter_api_key }}",
+            "ONCLAVE_VAULT_ANTHROPIC_API_KEY={{ onclave_onramp_anthropic_api_key }}",
+            "ONCLAVE_VAULT_OPENAI_API_KEY={{ onclave_onramp_openai_api_key }}",
+            "ONCLAVE_VAULT_CALLBACK_URL={{ onclave_onramp_callback_url }}",
+            "ONCLAVE_VAULT_CALLBACK_SECRET={{ onclave_onramp_callback_secret }}",
             "ONCLAVE_VAULT_S3_BUCKET={{ onclave_onramp_s3_bucket }}",
         ):
             self.assertIn(key, template)
+        for retired_key in (
+            "\nPOSTGRES_PASSWORD=",
+            "\nS3_ACCESS_KEY=",
+            "\nS3_SECRET_KEY=",
+            "\nSEARXNG_SECRET=",
+            "\nWEBSHARE_PROXY_USERNAME=",
+            "\nWEBSHARE_PROXY_PASSWORD=",
+            "\nYOUTUBE_API_KEY=",
+            "\nOPENROUTER_API_KEY=",
+            "\nANTHROPIC_API_KEY=",
+            "\nOPENAI_API_KEY=",
+            "\nCALLBACK_URL=",
+            "\nCALLBACK_SECRET=",
+        ):
+            self.assertNotIn(retired_key, template)
 
     def test_onclave_unified_health_gate_checks_revision_and_dependencies(self) -> None:
         role_tasks = ONCLAVE_ONRAMP_TASKS
@@ -898,90 +932,10 @@ class AnsibleSafetyTests(unittest.TestCase):
             "signed Onclave API validation failed",
         )
 
-    def test_onclave_retires_only_menos_process_and_proxy_surfaces(self) -> None:
+    def test_onclave_omits_completed_retired_service_and_proxy_cleanup(self) -> None:
         role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
         role_tasks = role / "tasks" / "main.yml"
         names = task_names(role_tasks)
-
-        stop_service = task_by_name(
-            role_tasks, "Stop and disable retired Menos service"
-        )
-        service = stop_service["ansible.builtin.systemd_service"]
-        self.assertEqual(service["name"], "menos-onramp.service")
-        self.assertEqual(service["scope"], "user")
-        self.assertEqual(service["state"], "stopped")
-        self.assertFalse(service["enabled"])
-        self.assertEqual(
-            stop_service["when"],
-            "onclave_onramp_retired_menos_service_unit.stat.exists",
-        )
-
-        remove_service_symlink = task_by_name(
-            role_tasks, "Remove retired Menos enabled service symlink"
-        )
-        self.assertEqual(
-            remove_service_symlink["ansible.builtin.file"]["path"],
-            "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/"
-            "default.target.wants/menos-onramp.service",
-        )
-        remove_service_unit = task_by_name(
-            role_tasks, "Remove retired Menos service unit file"
-        )
-        self.assertEqual(remove_service_unit["ansible.builtin.file"]["state"], "absent")
-        self.assertLess(
-            names.index("Stop and disable retired Menos service"),
-            names.index("Remove retired Menos service unit file"),
-        )
-
-        stop_target = task_by_name(role_tasks, "Stop and disable legacy Menos target")
-        self.assertEqual(
-            stop_target["ansible.builtin.systemd_service"]["name"],
-            "menos-onramp.target",
-        )
-        self.assertEqual(
-            stop_target["when"], "onclave_onramp_legacy_menos_target.stat.exists"
-        )
-        self.assertLess(
-            names.index("Remove retired Menos service unit file"),
-            names.index("Stop and disable legacy Menos target"),
-        )
-
-        cleanup_tasks = [
-            remove_service_symlink,
-            remove_service_unit,
-            task_by_name(role_tasks, "Remove legacy Menos enabled target symlink"),
-            task_by_name(role_tasks, "Remove legacy Menos target unit file"),
-        ]
-        self.assertNotIn("onclave_onramp_data_root", str(cleanup_tasks))
-        self.assertNotIn("onclave_onramp_base_dir", str(cleanup_tasks))
-        self.assertNotIn("menos_onramp_base_dir", str(cleanup_tasks))
-        self.assertNotIn("backup", str(cleanup_tasks).lower())
-
-        reload = task_by_name(
-            role_tasks, "Reload user systemd manager after retired Menos cleanup"
-        )
-        self.assertTrue(reload["ansible.builtin.systemd_service"]["daemon_reload"])
-        self.assertFalse(reload["changed_when"])
-
-        remove_caddy = task_by_name(
-            role_tasks, "Remove retired Menos Caddy site snippet"
-        )
-        self.assertEqual(remove_caddy["ansible.builtin.file"]["state"], "absent")
-        self.assertEqual(remove_caddy["notify"], "Reload caddy")
-        self.assertLess(
-            names.index("Validate Onclave Caddy config"),
-            names.index("Flush unified Onclave service restarts before health checks"),
-        )
-
-        caddy = (role / "templates" / "onclave.caddy.j2").read_text(encoding="utf-8")
-        self.assertNotIn("management_port", caddy)
-        self.assertNotIn("rabbitmq_server_name", caddy)
-
-        render = task_by_name(
-            role_tasks, "Render unified Onclave app definition for the onramp host"
-        )
-        self.assertNotIn("onclave_onramp_amqp_port", str(render))
-        self.assertNotIn("onclave_onramp_management_port", str(render))
         role_task_source = role_tasks.read_text(encoding="utf-8")
         defaults = (role / "defaults" / "main.yml").read_text(encoding="utf-8")
         argument_specs = (role / "meta" / "argument_specs.yml").read_text(
@@ -990,6 +944,10 @@ class AnsibleSafetyTests(unittest.TestCase):
         service_registry = (REPO / "infra" / "services.json").read_text(
             encoding="utf-8"
         )
+
+        self.assertNotIn("menos-onramp", role_task_source)
+        self.assertNotIn("menos.caddy", role_task_source)
+        self.assertNotIn("menos_onramp_", role_task_source)
         self.assertNotIn("onclave_onramp_management_port", role_task_source)
         self.assertNotIn("onclave_onramp_management_port", defaults)
         self.assertNotIn("onclave_onramp_management_port", argument_specs)
@@ -998,6 +956,10 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", argument_specs)
         self.assertNotIn("onclave_onramp_amqp_allowed_cidrs", service_registry)
         self.assertNotIn("Allow approved clients to reach Onclave AMQP", names)
+
+        caddy = (role / "templates" / "onclave.caddy.j2").read_text(encoding="utf-8")
+        self.assertNotIn("management_port", caddy)
+        self.assertNotIn("rabbitmq_server_name", caddy)
 
         remove_amqp_firewall = task_by_name(
             role_tasks, "Remove retired inbound Onclave AMQP firewall rules"

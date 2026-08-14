@@ -37,9 +37,7 @@ class BwsSnapshotTests(unittest.TestCase):
 
     def write_source(self, root: Path) -> Path:
         (root / "values" / "ansible" / "inventory").mkdir(parents=True)
-        (root / "values" / ".env").write_text(
-            'PVE_HOST="pve.example.internal"\n', encoding="utf-8"
-        )
+        (root / "values" / ".env").write_text('PVE_HOST="pve.example.internal"\n', encoding="utf-8")
         (root / "values" / "terraform.tfvars").write_text(
             'proxmox_node_name = "pve"\n', encoding="utf-8"
         )
@@ -80,19 +78,24 @@ class BwsSnapshotTests(unittest.TestCase):
                 "HOMELAB_TOFU_STATE_PASSPHRASE": 'pass"word',
                 "RABBITMQ_DEFAULT_USER": "rabbit-user",
                 "RABBITMQ_DEFAULT_PASS": "rabbit-pass",
+                "ONCLAVE_VAULT_POSTGRES_PASSWORD": "postgres-password-with-24-characters",
+                "ONCLAVE_VAULT_S3_ACCESS_KEY": "s3-access-key",
+                "ONCLAVE_VAULT_S3_SECRET_KEY": "s3-secret-with-24-characters",
+                "ONCLAVE_VAULT_SEARXNG_SECRET": "searxng-secret-with-24-characters",
+                "ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME": "webshare-user",
+                "ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD": "webshare-password",
+                "ONCLAVE_VAULT_YOUTUBE_API_KEY": "youtube-key",
+                "ONCLAVE_VAULT_OPENROUTER_API_KEY": "openrouter-key",
+                "ONCLAVE_VAULT_ANTHROPIC_API_KEY": "anthropic-key",
             }
         )
         return values
 
     @staticmethod
-    def runner(
-        records: list[dict[str, str]], calls: list[tuple[list[str], dict[str, str]]]
-    ):
+    def runner(records: list[dict[str, str]], calls: list[tuple[list[str], dict[str, str]]]):
         def run(command: object, environment: object):
             calls.append((list(command), dict(environment)))
-            return __import__("subprocess").CompletedProcess(
-                command, 0, json.dumps(records), ""
-            )
+            return __import__("subprocess").CompletedProcess(command, 0, json.dumps(records), "")
 
         return run
 
@@ -113,9 +116,7 @@ class BwsSnapshotTests(unittest.TestCase):
     def test_list_uses_bws_environment_and_rejects_duplicate_keys(self) -> None:
         locator = bws_snapshot.Locator("project", "https://bws.example.internal/api")
         calls: list[tuple[list[str], dict[str, str]]] = []
-        with self.assertRaisesRegex(
-            bws_snapshot.BwsSnapshotError, "duplicate secret keys"
-        ):
+        with self.assertRaisesRegex(bws_snapshot.BwsSnapshotError, "duplicate secret keys"):
             bws_snapshot.list_bws_secrets(
                 locator,
                 "access-token",
@@ -208,9 +209,7 @@ class BwsSnapshotTests(unittest.TestCase):
             )
             output = root / "snapshot"
             with self.assertRaisesRegex(bws_snapshot.BwsSnapshotError, "valid YAML"):
-                bws_snapshot.render_snapshot(
-                    output, bws_snapshot.load_manifest(), values
-                )
+                bws_snapshot.render_snapshot(output, bws_snapshot.load_manifest(), values)
             self.assertFalse(output.exists())
 
     def test_seed_creates_only_missing_after_conflict_check(self) -> None:
@@ -293,6 +292,220 @@ class BwsSnapshotTests(unittest.TestCase):
             self.assertEqual(len(edits), 1)
             self.assertIn("HOMELAB_ENV: updated", output.getvalue())
             self.assertNotIn(source["HOMELAB_ENV"], output.getvalue())
+
+    @staticmethod
+    def onclave_legacy_env() -> str:
+        return (
+            "PVE_HOST=pve.example.internal\n"
+            "MENOS_POSTGRES_PASSWORD=postgres-secret\n"  # public-safety: allow-secret
+            "MENOS_S3_ACCESS_KEY=s3-access\n"
+            "MENOS_S3_SECRET_KEY=s3-secret\n"  # public-safety: allow-secret
+            "MENOS_SEARXNG_SECRET=searxng-secret\n"  # public-safety: allow-secret
+            "MENOS_WEBSHARE_PROXY_USERNAME=webshare-user\n"
+            "MENOS_WEBSHARE_PROXY_PASSWORD=webshare-secret\n"  # public-safety: allow-secret
+            "MENOS_YOUTUBE_API_KEY=youtube-key\n"  # public-safety: allow-secret
+            "MENOS_OPENROUTER_API_KEY=openrouter-key\n"  # public-safety: allow-secret
+            "MENOS_ANTHROPIC_API_KEY=anthropic-key\n"  # public-safety: allow-secret
+        )
+
+    @staticmethod
+    def onclave_legacy_inventory() -> str:
+        return (
+            "all:\n"
+            "  vars:\n"
+            "    menos_onramp_base_dir: /menos\n"
+            "    menos_authorized_keys: []\n"
+            "    menos_postgres_database: menos\n"
+            "    menos_postgres_user: menos\n"
+            "    menos_postgres_password: \"{{ lookup('env', 'MENOS_POSTGRES_PASSWORD') }}\"\n"
+            "    menos_s3_access_key: \"{{ lookup('env', 'MENOS_S3_ACCESS_KEY') }}\"\n"
+            "    menos_s3_secret_key: \"{{ lookup('env', 'MENOS_S3_SECRET_KEY') }}\"\n"
+            "    menos_searxng_secret: \"{{ lookup('env', 'MENOS_SEARXNG_SECRET') }}\"\n"
+            "    menos_webshare_proxy_username: "
+            "\"{{ lookup('env', 'MENOS_WEBSHARE_PROXY_USERNAME') }}\"\n"
+            "    menos_webshare_proxy_password: "
+            "\"{{ lookup('env', 'MENOS_WEBSHARE_PROXY_PASSWORD') }}\"\n"
+            "    menos_youtube_api_key: \"{{ lookup('env', 'MENOS_YOUTUBE_API_KEY') }}\"\n"
+            "    menos_openrouter_api_key: \"{{ lookup('env', 'MENOS_OPENROUTER_API_KEY') }}\"\n"
+            "    menos_anthropic_api_key: \"{{ lookup('env', 'MENOS_ANTHROPIC_API_KEY') }}\"\n"
+            "    menos_onramp_openai_api_key: \"{{ lookup('env', 'MENOS_OPENAI_API_KEY') }}\"\n"
+            "    menos_onramp_unified_pipeline_model: openai/gpt-4o-mini\n"
+        )
+
+    @staticmethod
+    def onclave_records(inventory: str) -> dict[str, tuple[str, str]]:
+        manifest = bws_snapshot.load_manifest()
+        inventory_family = next(
+            family for family in manifest.families if family.key == "HOMELAB_ANSIBLE_INVENTORY"
+        )
+        return {
+            "HOMELAB_ENV": ("id-env", BwsSnapshotTests.onclave_legacy_env()),
+            "HOMELAB_ANSIBLE_INVENTORY": (
+                "id-inventory",
+                bws_snapshot.encode_family(inventory_family, inventory),
+            ),
+        }
+
+    def test_onclave_runtime_profile_requires_vault_and_rabbitmq(self) -> None:
+        values = {key: "test-value" for key in bws_snapshot.RUNTIME_KEYS}
+        for key in bws_snapshot.OPTIONAL_RUNTIME_KEYS:
+            values.pop(key)
+        runtime = bws_snapshot.resolve_runtime(values, bws_snapshot.RUNTIME_PROFILES["onclave"])
+        self.assertEqual(
+            tuple(runtime),
+            (
+                "RABBITMQ_DEFAULT_USER",
+                "RABBITMQ_DEFAULT_PASS",
+                *bws_snapshot.ONCLAVE_RUNTIME_KEYS,
+            ),
+        )
+        for key in bws_snapshot.OPTIONAL_RUNTIME_KEYS:
+            self.assertEqual(runtime[key], "")
+
+    def test_migrate_onclave_renames_bws_inputs_without_changing_adopted_storage(
+        self,
+    ) -> None:
+        manifest = bws_snapshot.load_manifest()
+        records = self.onclave_records(self.onclave_legacy_inventory())
+        migrated = bws_snapshot.migrate_onclave_config(manifest, records)
+        inventory_family = next(
+            family for family in manifest.families if family.key == "HOMELAB_ANSIBLE_INVENTORY"
+        )
+        migrated_inventory = bws_snapshot.decode_family(
+            inventory_family, migrated.families["HOMELAB_ANSIBLE_INVENTORY"]
+        )
+        self.assertNotIn("MENOS_", migrated.families["HOMELAB_ENV"])
+        self.assertIn("onclave_onramp_postgres_database: menos", migrated_inventory)
+        self.assertIn("onclave_onramp_postgres_user: menos", migrated_inventory)
+        self.assertIn("onclave_onramp_data_root: /menos/data", migrated_inventory)
+        self.assertIn("onclave_onramp_unified_pipeline_model", migrated_inventory)
+        self.assertIn("ONCLAVE_VAULT_POSTGRES_PASSWORD", migrated_inventory)
+        self.assertNotIn("menos_postgres_database", migrated_inventory)
+
+    def test_migrate_onclave_rejects_colliding_legacy_and_canonical_keys(self) -> None:
+        manifest = bws_snapshot.load_manifest()
+        records = self.onclave_records(self.onclave_legacy_inventory())
+        records["HOMELAB_ENV"] = (
+            "id-env",
+            self.onclave_legacy_env()
+            + "ONCLAVE_VAULT_POSTGRES_PASSWORD=other-secret\n",  # public-safety: allow-secret
+        )
+        with self.assertRaisesRegex(
+            bws_snapshot.BwsSnapshotError,
+            "both MENOS_POSTGRES_PASSWORD and ONCLAVE_VAULT_POSTGRES_PASSWORD",
+        ):
+            bws_snapshot.migrate_onclave_config(manifest, records)
+
+        records = self.onclave_records(
+            self.onclave_legacy_inventory() + "    onclave_onramp_postgres_database: other\n"
+        )
+        with self.assertRaisesRegex(
+            bws_snapshot.BwsSnapshotError,
+            "both menos_postgres_database and onclave_onramp_postgres_database",
+        ):
+            bws_snapshot.migrate_onclave_config(manifest, records)
+
+    def test_migrate_onclave_fails_closed_for_quoted_and_flow_style_legacy_keys(
+        self,
+    ) -> None:
+        quoted = self.onclave_legacy_inventory().replace(
+            "    menos_postgres_database:", "    'menos_postgres_database':"
+        )
+        with self.assertRaisesRegex(
+            bws_snapshot.BwsSnapshotError, "quoted all.vars key menos_postgres_database"
+        ):
+            bws_snapshot.migrate_onclave_config(
+                bws_snapshot.load_manifest(), self.onclave_records(quoted)
+            )
+
+        flow = (
+            "all:\n"
+            "  vars: {menos_postgres_database: menos, "
+            "menos_onramp_unified_pipeline_model: openai/gpt-4o-mini}\n"
+        )
+        with self.assertRaisesRegex(bws_snapshot.BwsSnapshotError, "flow-style all.vars"):
+            bws_snapshot.migrate_onclave_config(
+                bws_snapshot.load_manifest(), self.onclave_records(flow)
+            )
+
+    def test_migrate_onclave_dry_run_and_rerun_after_partial_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings_path = self.write_source(root)
+            records = [
+                {"id": secret_id, "key": key, "value": value}
+                for key, (secret_id, value) in self.onclave_records(
+                    self.onclave_legacy_inventory()
+                ).items()
+            ]
+            calls: list[tuple[list[str], dict[str, str]]] = []
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                rc = bws_snapshot.main(
+                    ["--settings", str(settings_path), "migrate-onclave"],
+                    self.runner(records, calls),
+                )
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(calls), 1)
+            self.assertIn(
+                "ONCLAVE_VAULT_POSTGRES_PASSWORD: create pending",  # public-safety: allow-secret
+                output.getvalue(),
+            )
+            self.assertNotIn("postgres-secret", output.getvalue())
+
+            fail_key = "ONCLAVE_VAULT_S3_SECRET_KEY"
+            failed = False
+
+            def partial_runner(command: object, environment: object):
+                nonlocal failed
+                calls.append((list(command), dict(environment)))
+                if command[2] == "list":
+                    return __import__("subprocess").CompletedProcess(
+                        command, 0, json.dumps(records), ""
+                    )
+                if command[2] == "create":
+                    key, value = command[3], command[4]
+                    if key == fail_key and not failed:
+                        failed = True
+                        return __import__("subprocess").CompletedProcess(
+                            command, 1, "", "create failed"
+                        )
+                    records.append({"id": f"id-{key}", "key": key, "value": value})
+                elif command[2] == "edit":
+                    secret_id, value = command[3], command[5]
+                    next(record for record in records if record["id"] == secret_id)["value"] = value
+                return __import__("subprocess").CompletedProcess(command, 0, "", "")
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(
+                        bws_snapshot.main(
+                            [
+                                "--settings",
+                                str(settings_path),
+                                "migrate-onclave",
+                                "--write",
+                            ],
+                            partial_runner,
+                        ),
+                        1,
+                    )
+            self.assertTrue(failed)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(
+                    bws_snapshot.main(
+                        ["--settings", str(settings_path), "migrate-onclave", "--write"],
+                        partial_runner,
+                    ),
+                    0,
+                )
+            self.assertEqual(
+                sum(
+                    call[0][2] == "create" and call[0][3] == "ONCLAVE_VAULT_POSTGRES_PASSWORD"
+                    for call in calls
+                ),
+                1,
+            )
 
     def test_verify_reports_key_only_statuses(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

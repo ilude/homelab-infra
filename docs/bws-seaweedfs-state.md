@@ -36,7 +36,7 @@ The routing manifest is `config/bws-routing.json`. It maps these BWS keys to exi
 - `HOMELAB_DNS_RECORDS`
 - `HOMELAB_SETTINGS`
 
-The inventory value is deterministic gzip plus base64 because the raw YAML can exceed the BWS value limit. Rendering restores the exact YAML bytes before validation. Runtime-only keys supply SeaweedFS S3 credentials, the OpenTofu encryption passphrase, and service-specific credentials such as the existing Onclave RabbitMQ values.
+The inventory value is deterministic gzip plus base64 because the raw YAML can exceed the BWS value limit. Rendering restores the exact YAML bytes before validation. Runtime-only keys supply SeaweedFS S3 credentials, the OpenTofu encryption passphrase, and standalone service credentials. The Onclave runtime profile includes RabbitMQ and the `ONCLAVE_VAULT_*` application credentials; they must not be added to `HOMELAB_ENV`. `ONCLAVE_VAULT_OPENAI_API_KEY`, `ONCLAVE_VAULT_CALLBACK_URL`, and `ONCLAVE_VAULT_CALLBACK_SECRET` may be absent or empty.
 
 `scripts/run-infra.sh` starts an ephemeral tooling container, resolves only the runtime profile needed by the command, validates every required family, and writes mode-restricted compatibility files below container `/tmp`. The container is removed after the command, including on failure. Original `values/` backup and artifact paths remain mounted separately and are never copied into the snapshot.
 

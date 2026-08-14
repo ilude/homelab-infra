@@ -22,11 +22,36 @@
         service_state_definition: "{{ managed_service_state_catalog[service_state_service] }}"
         service_state_timestamp: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
 
+    - name: Validate service-state backup quiescing configuration
+      ansible.builtin.assert:
+        that:
+          - service_state_definition.backup_quiesce_user_services | default(false) is boolean
+          - >-
+            not (service_state_definition.backup_quiesce_user_services | default(false) | bool) or
+            (service_state_definition.user_services | default([]) | length > 0)
+          - >-
+            not (service_state_definition.backup_quiesce_user_services | default(false) | bool) or
+            (service_state_definition.user_service_owner | default('') | length > 0)
+          - >-
+            not (service_state_definition.backup_quiesce_user_services | default(false) | bool) or
+            (service_state_definition.backup_staging_root | default('') is string and
+            service_state_definition.backup_staging_root | default('') is match('^/'))
+        fail_msg: >-
+          Backup user-service quiescing requires a Boolean flag, configured user
+          services, a user service owner, and an absolute private staging root.
+
     - name: Set service-state backup archive paths
       ansible.builtin.set_fact:
         service_state_archive_name: "{{ service_state_service }}-state-{{ service_state_timestamp }}.tar.gz"
         service_state_local_dir: "{{ service_state_backup_root }}/{{ service_state_service }}"
-        service_state_remote_archive: "/tmp/{{ service_state_service }}-state-{{ service_state_timestamp }}.tar.gz"
+        service_state_remote_archive_root: >-
+          {{ service_state_definition.backup_staging_root
+             if service_state_definition.backup_quiesce_user_services | default(false) | bool
+             else '/tmp' }}
+        service_state_remote_archive: >-
+          {{ (service_state_definition.backup_staging_root
+              if service_state_definition.backup_quiesce_user_services | default(false) | bool
+              else '/tmp') ~ '/' ~ service_state_service ~ '-state-' ~ service_state_timestamp ~ '.tar.gz' }}
 
     - name: Ensure local service-state backup directory exists  # noqa risky-file-permissions
       ansible.builtin.file:
@@ -68,12 +93,6 @@
       delegate_to: localhost
       become: false
 
-    - name: Create temporary service-state snapshot directory
-      ansible.builtin.tempfile:
-        state: directory
-        suffix: "{{ service_state_service }}-state"
-      register: service_state_snapshot_dir
-
     - name: Check managed service-state paths
       ansible.builtin.stat:
         path: "{{ item.path }}"
@@ -99,7 +118,85 @@
         msg: "None of the configured state paths exist for {{ service_state_service }}."
       when: service_state_existing_paths | length == 0
 
-    - name: Snapshot managed service-state paths
+    - name: Fail strict backup when managed service-state paths are missing
+      ansible.builtin.assert:
+        that:
+          - service_state_existing_paths | length == service_state_definition.paths | length
+        fail_msg: >-
+          Strict backup for {{ service_state_service }} requires every configured
+          managed path to exist before quiescing services.
+      when: service_state_definition.restore_require_all_paths | default(false) | bool
+
+    - name: Calculate quiesced backup source size
+      ansible.builtin.command:
+        argv:
+          - du
+          - --apparent-size
+          - -sk
+          - --
+          - "{{ item }}"
+      loop: "{{ service_state_existing_paths }}"
+      register: service_state_backup_source_sizes
+      changed_when: false
+      when: service_state_definition.backup_quiesce_user_services | default(false) | bool
+
+    - name: Calculate quiesced backup space requirement
+      ansible.builtin.set_fact:
+        service_state_backup_source_kib: >-
+          {{ service_state_backup_source_sizes.results
+             | map(attribute='stdout')
+             | map('regex_replace', '\\s.*$', '')
+             | map('int')
+             | sum }}
+        service_state_backup_required_kib: >-
+          {{ ((service_state_backup_source_sizes.results
+               | map(attribute='stdout')
+               | map('regex_replace', '\\s.*$', '')
+               | map('int')
+               | sum * 5 / 4) | round(0, 'ceil') | int) + 1048576 }}
+      when: service_state_definition.backup_quiesce_user_services | default(false) | bool
+
+    - name: Check free space for quiesced backup staging
+      ansible.builtin.command:
+        argv:
+          - df
+          - -Pk
+          - "{{ service_state_definition.backup_staging_root | dirname }}"
+      register: service_state_backup_staging_space
+      changed_when: false
+      when: service_state_definition.backup_quiesce_user_services | default(false) | bool
+
+    - name: Require conservative free space for quiesced backup staging
+      ansible.builtin.assert:
+        that:
+          - (service_state_backup_staging_space.stdout_lines[-1].split())[3] | int >= service_state_backup_required_kib | int
+        fail_msg: >-
+          Quiesced backup staging needs at least {{ service_state_backup_required_kib }} KiB
+          free for {{ service_state_service }}; {{ (service_state_backup_staging_space.stdout_lines[-1].split())[3] }} KiB is available.
+      when: service_state_definition.backup_quiesce_user_services | default(false) | bool
+
+    - name: Resolve service-state backup user service owner UID
+      ansible.builtin.command:
+        argv:
+          - id
+          - -u
+          - "{{ service_state_definition.user_service_owner }}"
+      register: service_state_backup_user_service_uid
+      changed_when: false
+      when: service_state_definition.backup_quiesce_user_services | default(false) | bool
+
+    - name: Initialize active user service list for backup
+      ansible.builtin.set_fact:
+        service_state_active_user_services: []
+
+    - name: Create temporary service-state snapshot directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: "{{ service_state_service }}-state"
+      register: service_state_snapshot_dir
+      when: not (service_state_definition.backup_quiesce_user_services | default(false) | bool)
+
+    - name: Snapshot non-quiesced managed service-state paths
       ansible.builtin.command:
         argv:
           - cp
@@ -109,8 +206,9 @@
           - "{{ service_state_snapshot_dir.path }}/"
       loop: "{{ service_state_existing_paths }}"
       changed_when: true
+      when: not (service_state_definition.backup_quiesce_user_services | default(false) | bool)
 
-    - name: Write service-state backup manifest
+    - name: Write non-quiesced service-state backup manifest
       ansible.builtin.copy:
         dest: "{{ service_state_snapshot_dir.path }}/MANIFEST.json"
         mode: "0600"
@@ -123,41 +221,173 @@
             "description": {{ service_state_definition.description | default('') | to_json }},
             "paths": {{ service_state_existing_paths | to_json }}
           }
+      when: not (service_state_definition.backup_quiesce_user_services | default(false) | bool)
 
-    - name: Create service-state archive on service host
+    - name: Create non-quiesced service-state archive on service host
       ansible.builtin.command:
         argv: >-
           {{ ['tar', '--numeric-owner', '-C', service_state_snapshot_dir.path, '-czf',
               service_state_remote_archive, 'MANIFEST.json'] + service_state_existing_archive_paths }}
       changed_when: true
+      when: not (service_state_definition.backup_quiesce_user_services | default(false) | bool)
 
-    - name: Stream service-state archive into private values
+    - name: Stream non-quiesced service-state archive into private values
       ansible.builtin.command:
         argv: >-
           {{ ['python', '/workspace/infra/ansible/scripts/fetch-service-state.py',
               '--host', ansible_host, '--user', ansible_user,
               '--ssh-common-args', ansible_ssh_common_args | default(''),
               '--remote', service_state_remote_archive,
+              '--allowed-remote-root', service_state_remote_archive_root,
               '--output', service_state_local_dir ~ '/' ~ service_state_archive_name]
              + (['--become'] if ansible_become | default(false) | bool else []) }}
       changed_when: true
       delegate_to: localhost
       become: false
+      when: not (service_state_definition.backup_quiesce_user_services | default(false) | bool)
 
-    - name: Restrict local service-state archive permissions
+    - name: Restrict non-quiesced local service-state archive permissions
       ansible.builtin.file:
         path: "{{ service_state_local_dir }}/{{ service_state_archive_name }}"
         mode: "0600"
       delegate_to: localhost
       become: false
+      when: not (service_state_definition.backup_quiesce_user_services | default(false) | bool)
 
-    - name: Remove temporary service-state artifacts from service host
+    - name: Remove non-quiesced temporary service-state artifacts from service host
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
         - "{{ service_state_snapshot_dir.path }}"
         - "{{ service_state_remote_archive }}"
+      when: not (service_state_definition.backup_quiesce_user_services | default(false) | bool)
+
+    - name: Create and stream quiesced service-state archive
+      when: service_state_definition.backup_quiesce_user_services | default(false) | bool
+      block:
+        - name: Create temporary quiesced service-state manifest directory
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: "{{ service_state_service }}-manifest"
+          register: service_state_manifest_dir
+
+        - name: Create private quiesced service-state staging directory
+          ansible.builtin.file:
+            path: "{{ service_state_definition.backup_staging_root }}"
+            state: directory
+            owner: "{{ service_state_definition.user_service_owner }}"
+            group: "{{ service_state_definition.user_service_owner }}"
+            mode: "0700"
+
+        - name: Write quiesced service-state backup manifest
+          ansible.builtin.copy:
+            dest: "{{ service_state_manifest_dir.path }}/MANIFEST.json"
+            mode: "0600"
+            content: |
+              {
+                "schema_version": 1,
+                "target": {{ service_state_service | to_json }},
+                "archive_kind": "backup",
+                "created_utc": {{ service_state_timestamp | to_json }},
+                "description": {{ service_state_definition.description | default('') | to_json }},
+                "paths": {{ service_state_existing_paths | to_json }}
+              }
+
+        - name: Quiesce active user services while creating service-state archive
+          block:
+            - name: Check configured user services are active before backup
+              become: true
+              become_user: "{{ service_state_definition.user_service_owner }}"
+              ansible.builtin.command:
+                argv:
+                  - systemctl
+                  - --user
+                  - is-active
+                  - "{{ item }}"
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ service_state_backup_user_service_uid.stdout | trim }}"
+              loop: "{{ service_state_definition.user_services | default([]) }}"
+              register: service_state_user_service_activity
+              changed_when: false
+              failed_when: service_state_user_service_activity.rc not in [0, 3]
+
+            - name: Build active user service list for backup
+              ansible.builtin.set_fact:
+                service_state_active_user_services: >-
+                  {{ service_state_user_service_activity.results
+                     | selectattr('rc', 'equalto', 0)
+                     | map(attribute='item')
+                     | list }}
+
+            - name: Stop active user services before backup archive
+              become: true
+              become_user: "{{ service_state_definition.user_service_owner }}"
+              ansible.builtin.systemd_service:
+                name: "{{ item }}"
+                scope: user
+                state: stopped
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ service_state_backup_user_service_uid.stdout | trim }}"
+              loop: "{{ service_state_active_user_services }}"
+              when: service_state_active_user_services | length > 0
+
+            - name: Create quiesced service-state archive directly from managed paths
+              ansible.builtin.command:
+                argv: >-
+                  {{ ['tar', '--numeric-owner', '-czf', service_state_remote_archive,
+                      '-C', service_state_manifest_dir.path, 'MANIFEST.json', '-C', '/']
+                     + service_state_existing_archive_paths }}
+              changed_when: true
+          always:
+            - name: Restart active user services after backup archive
+              become: true
+              become_user: "{{ service_state_definition.user_service_owner }}"
+              ansible.builtin.systemd_service:
+                name: "{{ item }}"
+                scope: user
+                state: started
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ service_state_backup_user_service_uid.stdout | trim }}"
+              loop: "{{ service_state_active_user_services }}"
+              when: service_state_active_user_services | length > 0
+
+        - name: Stream quiesced service-state archive into private values
+          ansible.builtin.command:
+            argv: >-
+              {{ ['python', '/workspace/infra/ansible/scripts/fetch-service-state.py',
+                  '--host', ansible_host, '--user', ansible_user,
+                  '--ssh-common-args', ansible_ssh_common_args | default(''),
+                  '--remote', service_state_remote_archive,
+                  '--allowed-remote-root', service_state_remote_archive_root,
+                  '--output', service_state_local_dir ~ '/' ~ service_state_archive_name]
+                 + (['--become'] if ansible_become | default(false) | bool else []) }}
+          changed_when: true
+          delegate_to: localhost
+          become: false
+
+        - name: Restrict quiesced local service-state archive permissions
+          ansible.builtin.file:
+            path: "{{ service_state_local_dir }}/{{ service_state_archive_name }}"
+            mode: "0600"
+          delegate_to: localhost
+          become: false
+      always:
+        - name: Remove temporary quiesced service-state manifest directory
+          ansible.builtin.file:
+            path: "{{ service_state_manifest_dir.path }}"
+            state: absent
+          when: service_state_manifest_dir is defined
+
+        - name: Remove quiesced service-state archive from service host
+          ansible.builtin.file:
+            path: "{{ service_state_remote_archive }}"
+            state: absent
+
+        - name: Remove private quiesced service-state staging directory
+          ansible.builtin.file:
+            path: "{{ service_state_definition.backup_staging_root }}"
+            state: absent
 
     - name: Calculate local service-state archive checksum
       ansible.builtin.command:

@@ -28,6 +28,13 @@ assert spec and spec.loader
 validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validator)
 
+fetch_spec = importlib.util.spec_from_file_location(
+    "fetch_service_state", FETCH_HELPER_PATH
+)
+assert fetch_spec and fetch_spec.loader
+fetch = importlib.util.module_from_spec(fetch_spec)
+fetch_spec.loader.exec_module(fetch)
+
 
 def load_catalog() -> dict[str, Any]:
     rendered = Template(
@@ -71,9 +78,10 @@ def make_archive(
     manifest: bool = True,
     manifest_paths: list[str] | None = None,
     include_state: bool = True,
+    state_paths: list[str] | None = None,
     link: tuple[str, str, bytes] | None = None,
 ) -> None:
-    managed = "/home/anvil/.hermes"
+    managed_paths = state_paths or ["/home/anvil/.hermes"]
     with tarfile.open(path, "w:gz") as handle:
         root = tarfile.TarInfo(".")
         root.type = tarfile.DIRTYPE
@@ -84,15 +92,19 @@ def make_archive(
                     "schema_version": 1,
                     "target": target,
                     "archive_kind": "backup",
-                    "paths": [managed] if manifest_paths is None else manifest_paths,
+                    "paths": (
+                        managed_paths if manifest_paths is None else manifest_paths
+                    ),
                 }
             ).encode()
             add_bytes(handle, "MANIFEST.json", data)
         if include_state:
-            directory = tarfile.TarInfo("home/anvil/.hermes")
-            directory.type = tarfile.DIRTYPE
-            handle.addfile(directory)
-            add_bytes(handle, "home/anvil/.hermes/state.txt", b"state")
+            for managed_path in managed_paths:
+                archive_path = managed_path.lstrip("/")
+                directory = tarfile.TarInfo(archive_path)
+                directory.type = tarfile.DIRTYPE
+                handle.addfile(directory)
+                add_bytes(handle, f"{archive_path}/state.txt", b"state")
         if link:
             name, target_name, kind = link
             info = tarfile.TarInfo(name)
@@ -132,6 +144,61 @@ class ServiceStateCatalogTests(unittest.TestCase):
             ["hermes-gateway", "hermes-dashboard"],
         )
 
+    def test_onclave_backup_covers_adopted_postgres_and_minio_not_ollama(self) -> None:
+        definition = load_catalog()["onclave_onramp"]
+        paths = [item["path"] for item in definition["paths"]]
+        expected_root = "/srv/onramp"
+
+        self.assertEqual(
+            paths,
+            [
+                f"{expected_root}/onclave",
+                f"{expected_root}/menos/data/postgres",
+                f"{expected_root}/menos/data/minio",
+                "/etc/caddy/sites.d/onclave.caddy",
+            ],
+        )
+        self.assertNotIn(f"{expected_root}/menos/data/ollama", paths)
+        self.assertEqual(
+            definition["backup_staging_root"],
+            f"{expected_root}/.service-state-backup-staging",
+        )
+        self.assertTrue(definition["restore_require_all_paths"])
+        for path in definition["paths"][:3]:
+            self.assertEqual(path["owner"], "deploy")
+            self.assertEqual(path["group"], "deploy")
+            self.assertTrue(path["recurse"])
+
+    def test_onramp_host_owns_only_caddy_base_files(self) -> None:
+        paths = [item["path"] for item in load_catalog()["onramp_host"]["paths"]]
+        self.assertEqual(
+            paths,
+            [
+                "/etc/caddy/env",
+                "/etc/caddy/Caddyfile",
+                "/etc/caddy/sites.d/00-placeholder.caddy",
+            ],
+        )
+
+    def test_backup_quiescing_is_boolean_and_enabled_only_for_onclave(self) -> None:
+        catalog = load_catalog()
+        enabled = [
+            target
+            for target, definition in catalog.items()
+            if definition.get("backup_quiesce_user_services", False)
+        ]
+
+        self.assertEqual(enabled, ["onclave_onramp"])
+        self.assertIs(
+            type(catalog["onclave_onramp"]["backup_quiesce_user_services"]), bool
+        )
+        strict_restore_targets = [
+            target
+            for target, definition in catalog.items()
+            if definition.get("restore_require_all_paths", False)
+        ]
+        self.assertEqual(strict_restore_targets, ["onclave_onramp"])
+
     def test_forgejo_installs_state_backup_transport(self) -> None:
         self.assertIn(
             "openssh-server rsync sqlite3",
@@ -163,14 +230,23 @@ class ServiceStateCatalogTests(unittest.TestCase):
         self.assertTrue(path["recurse"])
 
     def test_paths_are_absolute_unique_and_non_overlapping(self) -> None:
-        for target, definition in load_catalog().items():
+        catalog = load_catalog()
+        managed_paths = [
+            (target, PurePosixPath(item["path"]))
+            for target, definition in catalog.items()
+            for item in definition["paths"]
+        ]
+        for target, definition in catalog.items():
             paths = [PurePosixPath(item["path"]) for item in definition["paths"]]
             self.assertTrue(all(str(path).startswith("/") for path in paths), target)
             self.assertEqual(len(paths), len(set(paths)), target)
-            for index, left in enumerate(paths):
-                for right in paths[index + 1 :]:
-                    self.assertNotIn(left, right.parents, target)
-                    self.assertNotIn(right, left.parents, target)
+        for index, (left_target, left) in enumerate(managed_paths):
+            for right_target, right in managed_paths[index + 1 :]:
+                if left_target == right_target:
+                    continue
+                self.assertNotEqual(left, right, (left_target, right_target))
+                self.assertNotIn(left, right.parents, (left_target, right_target))
+                self.assertNotIn(right, left.parents, (left_target, right_target))
 
     def test_system_and_user_service_scopes_do_not_overlap(self) -> None:
         for target, definition in load_catalog().items():
@@ -181,7 +257,253 @@ class ServiceStateCatalogTests(unittest.TestCase):
             self.assertFalse(set(system) & set(user), target)
 
 
+class FetchServiceStateTests(unittest.TestCase):
+    def test_accepts_archive_within_explicit_allowed_root(self) -> None:
+        fetch.validate_remote_archive(
+            "/srv/onramp/.service-state-backup-staging/onclave-state.tar.gz",
+            "/srv/onramp/.service-state-backup-staging",
+        )
+        fetch.validate_remote_archive("/tmp/hermes-state.tar.gz", "/tmp")
+
+    def test_rejects_sibling_and_traversal_remote_archives(self) -> None:
+        for remote in (
+            "/srv/onramp/.service-state-backup-staging-sibling/onclave-state.tar.gz",
+            "/srv/onramp/.service-state-backup-staging/../outside.tar.gz",
+            "/srv/onramp/.service-state-backup-staging/onclave-state.tar",
+        ):
+            with self.subTest(remote=remote), self.assertRaises(ValueError):
+                fetch.validate_remote_archive(
+                    remote,
+                    "/srv/onramp/.service-state-backup-staging",
+                )
+
+
+class ServiceStateBackupPlaybookTests(unittest.TestCase):
+    def test_quiescing_requires_a_boolean_flag_owner_and_staging_root(self) -> None:
+        playbook = yaml.safe_load(BACKUP_PATH.read_text(encoding="utf-8"))
+        validation = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Validate service-state backup quiescing configuration"
+        )
+        checks = validation["ansible.builtin.assert"]["that"]
+
+        self.assertIn(
+            "service_state_definition.backup_quiesce_user_services | default(false) is boolean",
+            checks,
+        )
+        self.assertTrue(any("user_services" in check for check in checks))
+        self.assertTrue(any("user_service_owner" in check for check in checks))
+        self.assertTrue(any("backup_staging_root" in check for check in checks))
+
+    def test_strict_backup_requires_all_paths_before_quiescing(self) -> None:
+        playbook = yaml.safe_load(BACKUP_PATH.read_text(encoding="utf-8"))
+        names = task_names(BACKUP_PATH)
+        strict_preflight = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Fail strict backup when managed service-state paths are missing"
+        )
+
+        self.assertEqual(
+            strict_preflight["ansible.builtin.assert"]["that"],
+            [
+                "service_state_existing_paths | length == service_state_definition.paths | length"
+            ],
+        )
+        self.assertEqual(
+            strict_preflight["when"],
+            "service_state_definition.restore_require_all_paths | default(false) | bool",
+        )
+        self.assertLess(
+            names.index(
+                "Fail strict backup when managed service-state paths are missing"
+            ),
+            names.index("Check configured user services are active before backup"),
+        )
+
+    def test_fetches_allow_only_the_expected_remote_archive_root(self) -> None:
+        playbook = yaml.safe_load(BACKUP_PATH.read_text(encoding="utf-8"))
+        non_quiesced_fetch = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Stream non-quiesced service-state archive into private values"
+        )
+        quiesced_block = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name") == "Create and stream quiesced service-state archive"
+        )
+        quiesced_fetch = next(
+            task
+            for task in quiesced_block["block"]
+            if task.get("name")
+            == "Stream quiesced service-state archive into private values"
+        )
+        fetches = [non_quiesced_fetch, quiesced_fetch]
+
+        self.assertEqual(len(fetches), 2)
+        for task in fetches:
+            args = task["ansible.builtin.command"]["argv"]
+            self.assertIn("--allowed-remote-root", args)
+            self.assertIn("service_state_remote_archive_root", args)
+        self.assertIn("else '/tmp'", BACKUP_PATH.read_text(encoding="utf-8"))
+
+    def test_quiesced_backup_stops_archives_and_restarts_in_order(self) -> None:
+        names = task_names(BACKUP_PATH)
+        active = names.index("Check configured user services are active before backup")
+        stop = names.index("Stop active user services before backup archive")
+        archive = names.index(
+            "Create quiesced service-state archive directly from managed paths"
+        )
+        restart = names.index("Restart active user services after backup archive")
+
+        self.assertLess(active, stop)
+        self.assertLess(stop, archive)
+        self.assertLess(archive, restart)
+
+    def test_quiesced_backup_restarts_only_initially_active_users_on_tar_failure(
+        self,
+    ) -> None:
+        playbook = yaml.safe_load(BACKUP_PATH.read_text(encoding="utf-8"))
+        outer = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name") == "Create and stream quiesced service-state archive"
+        )
+        quiesce = next(
+            task
+            for task in outer["block"]
+            if task.get("name")
+            == "Quiesce active user services while creating service-state archive"
+        )
+        active = next(
+            task
+            for task in quiesce["block"]
+            if task.get("name")
+            == "Check configured user services are active before backup"
+        )
+        stop = next(
+            task
+            for task in quiesce["block"]
+            if task.get("name") == "Stop active user services before backup archive"
+        )
+        archive = next(
+            task
+            for task in quiesce["block"]
+            if task.get("name")
+            == "Create quiesced service-state archive directly from managed paths"
+        )
+        restart = next(
+            task
+            for task in quiesce["always"]
+            if task.get("name") == "Restart active user services after backup archive"
+        )
+
+        self.assertEqual(
+            active["ansible.builtin.command"]["argv"][:3],
+            ["systemctl", "--user", "is-active"],
+        )
+        self.assertEqual(
+            active["failed_when"],
+            "service_state_user_service_activity.rc not in [0, 3]",
+        )
+        self.assertEqual(stop["loop"], "{{ service_state_active_user_services }}")
+        self.assertEqual(restart["loop"], "{{ service_state_active_user_services }}")
+        self.assertEqual(stop["ansible.builtin.systemd_service"]["state"], "stopped")
+        self.assertEqual(restart["ansible.builtin.systemd_service"]["state"], "started")
+        self.assertIn(
+            "service_state_existing_archive_paths",
+            archive["ansible.builtin.command"]["argv"],
+        )
+        self.assertNotIn("snapshot", archive["ansible.builtin.command"]["argv"])
+        self.assertNotIn("caddy", str(quiesce))
+
+    def test_quiesced_backup_uses_private_staging_capacity_and_cleanup(self) -> None:
+        source = BACKUP_PATH.read_text(encoding="utf-8")
+        playbook = yaml.safe_load(source)
+        names = task_names(BACKUP_PATH)
+
+        self.assertIn("backup_staging_root", source)
+        self.assertIn("service_state_backup_required_kib", source)
+        self.assertIn("df", source)
+        self.assertIn("du", source)
+        self.assertIn("Create private quiesced service-state staging directory", names)
+        self.assertIn("Remove quiesced service-state archive from service host", names)
+        self.assertIn("Remove private quiesced service-state staging directory", names)
+        self.assertIn(
+            "Remove temporary quiesced service-state manifest directory", names
+        )
+        outer = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name") == "Create and stream quiesced service-state archive"
+        )
+        self.assertIn("always", outer)
+        self.assertIn("service_state_manifest_dir.path", str(outer["always"]))
+
+    def test_non_onclave_backup_retains_tmp_snapshot_workflow(self) -> None:
+        playbook = yaml.safe_load(BACKUP_PATH.read_text(encoding="utf-8"))
+        snapshot = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name") == "Snapshot non-quiesced managed service-state paths"
+        )
+        archive = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Create non-quiesced service-state archive on service host"
+        )
+
+        self.assertEqual(
+            snapshot["when"],
+            "not (service_state_definition.backup_quiesce_user_services | default(false) | bool)",
+        )
+        self.assertEqual(archive["when"], snapshot["when"])
+        self.assertIn("else '/tmp'", BACKUP_PATH.read_text(encoding="utf-8"))
+        self.assertIn(
+            "service_state_snapshot_dir.path",
+            archive["ansible.builtin.command"]["argv"],
+        )
+
+    def test_backup_snapshot_avoids_container_and_compose_control(self) -> None:
+        source = BACKUP_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("podman", source)
+        self.assertNotIn("docker", source)
+        self.assertNotIn("compose", source)
+
+
 class ServiceStateRestorePlaybookTests(unittest.TestCase):
+    def test_onclave_restore_requires_complete_catalog_archive_before_stops(
+        self,
+    ) -> None:
+        playbook = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
+        names = task_names(RESTORE_PATH)
+        coverage = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Validate service-state restore archive coverage configuration"
+        )
+        archive_validation = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name") == "Validate service-state restore archive contents"
+        )
+
+        self.assertIn("restore_require_all_paths", str(coverage))
+        self.assertIn(
+            "--require-all-paths", archive_validation["ansible.builtin.command"]["argv"]
+        )
+        self.assertLess(
+            names.index("Validate service-state restore archive contents"),
+            names.index("Stop managed system services before restore"),
+        )
+
     def test_unarchive_ownership_repair_restart_ordering(self) -> None:
         names = task_names(RESTORE_PATH)
         unarchive = names.index("Restore managed service-state archive")
@@ -305,6 +627,36 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
             archive = Path(temp) / "legacy.tar.gz"
             make_archive(archive, manifest=False)
             validator.validate_archive(str(archive), "hermes", ["/home/anvil/.hermes"])
+
+    def test_legacy_onclave_archive_missing_adopted_paths_fails_strict_preflight(
+        self,
+    ) -> None:
+        old_paths = [
+            "/srv/onramp/onclave",
+            "/etc/caddy/sites.d/onclave.caddy",
+        ]
+        managed_paths = [
+            "/srv/onramp/onclave",
+            "/srv/onramp/menos/data/postgres",
+            "/srv/onramp/menos/data/minio",
+            "/etc/caddy/sites.d/onclave.caddy",
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "legacy-onclave.tar.gz"
+            make_archive(
+                archive,
+                target="onclave_onramp",
+                manifest_paths=old_paths,
+                state_paths=old_paths,
+            )
+            validator.validate_archive(str(archive), "onclave_onramp", managed_paths)
+            with self.assertRaises(validator.ArchiveValidationError):
+                validator.validate_archive(
+                    str(archive),
+                    "onclave_onramp",
+                    managed_paths,
+                    require_all_paths=True,
+                )
 
     def test_empty_and_root_only_archives_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

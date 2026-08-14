@@ -38,18 +38,22 @@ managed_service_state_catalog:
         recurse: true
   onramp_host:
     group: onramp_host
-    description: Shared onramp host Caddy configuration and repo-managed app deployment directories.
+    description: Host-owned shared onramp Caddy base configuration.
     services:
       - caddy
     paths:
-      - path: /etc/caddy
+      - path: /etc/caddy/env
         owner: root
         group: root
         recurse: false
-      - path: "{{ onramp_host_deploy_dir }}"
-        owner: "{{ onramp_host_deploy_user }}"
-        group: "{{ onramp_host_deploy_user }}"
-        recurse: true
+      - path: /etc/caddy/Caddyfile
+        owner: root
+        group: root
+        recurse: false
+      - path: /etc/caddy/sites.d/00-placeholder.caddy
+        owner: root
+        group: root
+        recurse: false
   infisical_onramp:
     group: onramp_host
     description: Infisical onramp compose/env files and container data under the onramp deploy directory.
@@ -86,14 +90,25 @@ managed_service_state_catalog:
         recurse: false
   onclave_onramp:
     group: onramp_host
-    description: Onclave app definition, private env, and persistent broker/core data on the onramp host.
+    description: Onclave app definition, private env, persistent broker/core data, PostgreSQL, and MinIO data on the onramp host.
     services:
       - caddy
     user_services:
       - onclave-onramp.service
     user_service_owner: "{{ onramp_host_deploy_user }}"
+    backup_quiesce_user_services: true
+    backup_staging_root: "{{ onramp_host_deploy_dir }}/.service-state-backup-staging"
+    restore_require_all_paths: true
     paths:
       - path: "{{ onramp_host_deploy_dir }}/onclave"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: true
+      - path: "{{ onramp_host_deploy_dir }}/menos/data/postgres"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: true
+      - path: "{{ onramp_host_deploy_dir }}/menos/data/minio"
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"
         recurse: true

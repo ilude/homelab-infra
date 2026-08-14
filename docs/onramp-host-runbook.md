@@ -38,6 +38,8 @@ For an existing BWS configuration, run the dry-run and write migration documente
 
 The controller receives only `BITWARDEN_ACCESS_KEY` from the operator environment and resolves the Onclave secrets before running the role. The bootstrap credential is not copied to the managed host. The role verifies the source Compose checksum, binds RabbitMQ AMQP and management to loopback with no LAN or public listener, keeps the internal Compose service URL `rabbitmq:5672`, binds the Onclave API to loopback behind shared Caddy, and stores RabbitMQ/core data below the service deployment directory for backup coverage. Clients outside the onramp host require an approved local transport or tunnel.
 
+Before rebuilding or replacing the onramp host, create the Onclave recovery archive with `scripts/service-state.sh backup onclave_onramp`. The command includes the Onclave deployment, Caddy snippet, and adopted PostgreSQL and MinIO data. An active Onclave user service is unavailable only while the cold archive is created, Caddy stays running, and an inactive Onclave service remains inactive. Ollama data is rebuildable and is not archived.
+
 Temporary SearXNG private values are:
 - `values/.env`: `SEARXNG_SECRET_KEY` and `HERMES_WEB_SEARXNG_URL`
 - `values/terraform.tfvars`: `searxng_server_name`, `searxng_public_url`, container image/port/bind variables

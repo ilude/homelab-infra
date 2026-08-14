@@ -26,6 +26,12 @@
         service_state_definition: "{{ managed_service_state_catalog[service_state_service] }}"
         service_state_timestamp: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
 
+    - name: Validate service-state restore archive coverage configuration
+      ansible.builtin.assert:
+        that:
+          - service_state_definition.restore_require_all_paths | default(false) is boolean
+        fail_msg: restore_require_all_paths must be a Boolean when configured.
+
     - name: Build managed service-state path and account lists
       ansible.builtin.set_fact:
         service_state_managed_paths: "{{ service_state_definition.paths | map(attribute='path') | list }}"
@@ -96,15 +102,14 @@
 
     - name: Validate service-state restore archive contents
       ansible.builtin.command:
-        argv:
-          - python
-          - /workspace/infra/ansible/scripts/validate-service-state-archive.py
-          - --archive
-          - "{{ service_state_restore_file }}"
-          - --target
-          - "{{ service_state_service }}"
-          - --paths-json
-          - "{{ service_state_managed_paths | to_json }}"
+        argv: >-
+          {{ ['python', '/workspace/infra/ansible/scripts/validate-service-state-archive.py',
+              '--archive', service_state_restore_file,
+              '--target', service_state_service,
+              '--paths-json', service_state_managed_paths | to_json]
+             + (['--require-all-paths']
+                if service_state_definition.restore_require_all_paths | default(false) | bool
+                else []) }}
       changed_when: false
       delegate_to: localhost
       become: false

@@ -10,6 +10,7 @@ private values repo:
 ```bash
 scripts/service-state.sh list
 scripts/service-state.sh backup hermes
+scripts/service-state.sh backup onclave_onramp
 scripts/service-state.sh backup all
 ```
 
@@ -61,10 +62,10 @@ Current service-state targets are:
   config, history, logs, and Hermes-managed backups.
 - `forgejo` -- `/etc/forgejo` and `/var/lib/forgejo`.
 - `technitium` -- `/etc/dns`.
-- `onramp_host` -- `/etc/caddy` and the configured onramp deployment directory.
+- `onramp_host` -- host-owned Caddy base files: `/etc/caddy/env`, `/etc/caddy/Caddyfile`, and `/etc/caddy/sites.d/00-placeholder.caddy`.
 - `infisical_onramp` -- Infisical onramp deployment directory and Caddy snippet.
 - `searxng_onramp` -- SearXNG onramp deployment directory and Caddy snippet.
-- `onclave_onramp` -- Onclave app definition, private env, persistent broker/core data, and Caddy snippet.
+- `onclave_onramp` -- Onclave app definition, private env, persistent broker/core data, adopted PostgreSQL and MinIO directories, and Caddy snippet. Rebuildable Ollama data is excluded.
 
 The managed paths live in `infra/ansible/vars/service-state.yml`. Every path
 explicitly declares its owner, group, and whether ownership repair is recursive.
@@ -76,6 +77,7 @@ both files when this repo starts managing a new stateful service.
 
 - Before writing a backup, the CLI restricts `values/service-backups/` on Windows to the current user, SYSTEM, and Administrators with inheritable ACLs. POSIX hosts enforce mode `0700`. Missing host permission tools fail closed instead of writing an exposed archive.
 - Run backups before rebuilding or replacing a service host. `just apply` verifies the newest archive checksum and manifest for every affected stateful service and requires it to be no older than 24 hours.
+- `scripts/service-state.sh backup onclave_onramp` leaves an active Onclave user service unavailable only while it creates the cold archive, then restarts that same service even if archive creation fails. Caddy remains running, and an inactive Onclave service remains inactive.
 - A destructive plan affecting multiple stateful services is blocked by default. Use `INFRA_TARGET_SERVICE=<service> just plan` for the canary rollout, verify its direct endpoint and state, then create the next plan.
 - Backup archives are not git-tracked. Use a separate mechanism for off-site
   archive storage and durability.

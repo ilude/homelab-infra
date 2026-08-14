@@ -8,7 +8,7 @@ import os
 import shlex
 import subprocess
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 def parse_args() -> argparse.Namespace:
@@ -17,15 +17,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--user", required=True)
     parser.add_argument("--ssh-common-args", default="")
     parser.add_argument("--remote", required=True)
+    parser.add_argument("--allowed-remote-root", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--become", action="store_true")
     return parser.parse_args()
 
 
+def validate_remote_archive(remote: str, allowed_root: str) -> None:
+    remote_path = PurePosixPath(remote)
+    allowed_root_path = PurePosixPath(allowed_root)
+    path_parts = (*remote.split("/"), *allowed_root.split("/"))
+    if (
+        not remote_path.is_absolute()
+        or not allowed_root_path.is_absolute()
+        or any(part in (".", "..") for part in path_parts)
+        or not remote.endswith(".tar.gz")
+    ):
+        raise ValueError(
+            "remote archive must be an absolute .tar.gz path and allowed root must be absolute"
+        )
+    try:
+        remote_path.relative_to(allowed_root_path)
+    except ValueError as error:
+        raise ValueError(
+            "remote archive must be contained by the allowed root"
+        ) from error
+
+
 def main() -> int:
     args = parse_args()
-    if not args.remote.startswith("/tmp/") or not args.remote.endswith(".tar.gz"):
-        raise SystemExit("remote archive must be a /tmp/*.tar.gz path")
+    try:
+        validate_remote_archive(args.remote, args.allowed_remote_root)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if not args.output.is_absolute() or args.output.suffixes[-2:] != [".tar", ".gz"]:
         raise SystemExit("output archive must be an absolute .tar.gz path")
 

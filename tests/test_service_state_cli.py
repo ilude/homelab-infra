@@ -17,13 +17,20 @@ HERMES_SCRIPT = REPO / "scripts/hermes-state.sh"
 def run_script(
     script: Path, *args: str, cwd: Path | None = None, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
+    script_argument = str(script)
+    if os.name == "nt":
+        script_argument = subprocess.run(
+            ["cygpath", "-u", script_argument],
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        ).stdout.strip()
     return subprocess.run(
-        ["bash", str(script), *args],
+        ["bash", script_argument, *args],
         cwd=cwd or REPO,
         env={**os.environ, **(env or {})},
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=False,
     )
 
@@ -48,6 +55,10 @@ class ServiceStateCliTests(unittest.TestCase):
                             "state_capable": False,
                             "inventory": {"group": "ineligible_group"},
                         },
+                        "onclave_onramp": {
+                            "state_capable": True,
+                            "inventory": {"group": "onramp_host"},
+                        },
                     }
                 }
             ),
@@ -63,6 +74,8 @@ class ServiceStateCliTests(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             'if [[ "${1:-}" == python && "${2:-}" == scripts/settings.py ]]; then exec "$@"; fi\n'
             'printf \'MSYS2_ENV_CONV_EXCL=%s\\n\' "${MSYS2_ENV_CONV_EXCL:-}" >> "${CAPTURE_FILE}"\n'
+            'printf \'SERVICE_STATE_RESTORE_FILE=%s\\n\' '
+            '"${SERVICE_STATE_RESTORE_FILE:-}" >> "${CAPTURE_FILE}"\n'
             'printf \'%s\\n\' "$*" >> "${CAPTURE_FILE}"\n',
             encoding="utf-8",
         )
@@ -145,7 +158,7 @@ class ServiceStateCliTests(unittest.TestCase):
         )
         self.assertIn("SERVICE_STATE_HOST_ACL_ENFORCED:", compose)
         self.assertIn("service_state_host_acl_enforced", playbook)
-        self.assertIn("when: not service_state_host_acl_enforced", playbook)
+        self.assertIn("not service_state_host_acl_enforced", playbook)
         self.assertGreaterEqual(script.count("secure_local_backup_root"), 3)
 
     def test_list_behavior(self) -> None:
@@ -177,14 +190,52 @@ class ServiceStateCliTests(unittest.TestCase):
         self.assertIn("Restore archive must be under", archive.stderr)
 
     def test_restore_if_present_missing_archive_is_a_noop(self) -> None:
-        result = run_script(
-            SERVICE_SCRIPT,
-            "restore-if-present",
-            "hermes",
-            "values/service-backups/hermes/missing.tar.gz",
-        )
-        self.assertEqual(0, result.returncode, result.stderr)
-        self.assertIn("skipping restore", result.stderr)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = self.make_registry_fixture(root)
+            archive = root / "values/service-backups/eligible/missing.tar.gz"
+
+            result = run_script(
+                script,
+                "restore-if-present",
+                "eligible",
+                str(archive),
+                cwd=root,
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("skipping restore", result.stderr)
+
+    def test_onclave_latest_uses_host_local_restore_without_controller_backups(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = self.make_registry_fixture(root)
+            capture = root / "run-infra.txt"
+
+            restored = run_script(
+                script,
+                "restore",
+                "onclave_onramp",
+                "latest",
+                cwd=root,
+                env={"CAPTURE_FILE": str(capture)},
+            )
+            backed_up = run_script(
+                script,
+                "backup",
+                "onclave_onramp",
+                cwd=root,
+                env={"CAPTURE_FILE": str(capture)},
+            )
+
+            self.assertEqual(0, restored.returncode, restored.stderr)
+            self.assertEqual(0, backed_up.returncode, backed_up.stderr)
+            output = capture.read_text(encoding="utf-8")
+            self.assertIn("SERVICE_STATE_RESTORE_FILE=latest", output)
+            self.assertIn("service_state_service='onclave_onramp'", output)
+            self.assertFalse((root / "values/service-backups").exists())
 
     def test_implicit_selection_excludes_pre_restore_archives(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

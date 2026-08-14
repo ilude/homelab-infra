@@ -98,6 +98,8 @@ managed_service_state_catalog:
     user_service_owner: "{{ onramp_host_deploy_user }}"
     backup_quiesce_user_services: true
     backup_staging_root: "{{ onramp_host_deploy_dir }}/.service-state-backup-staging"
+    device_backup_root: "{{ onramp_host_deploy_dir }}/.service-state-backups"
+    backup_retention_count: 5
     restore_require_all_paths: true
     paths:
       - path: "{{ onramp_host_deploy_dir }}/onclave"

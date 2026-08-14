@@ -76,8 +76,16 @@ def validate_archive(
     manifest: dict[str, object] | None = None
     represented_paths: set[str] = set()
 
+    archive_path = PurePosixPath(archive)
+    if archive_path.suffixes[-2:] == [".tar", ".gz"]:
+        archive_mode = "r:gz"
+    elif archive_path.suffix == ".tar":
+        archive_mode = "r:"
+    else:
+        raise ArchiveValidationError("archive must end in .tar or .tar.gz")
+
     try:
-        with tarfile.open(archive, mode="r:gz") as handle:
+        with tarfile.open(archive, mode=archive_mode) as handle:
             members = handle.getmembers()
             for member in members:
                 if member.name in (".", "./"):
@@ -120,9 +128,11 @@ def validate_archive(
                         path, member.linkname, hardlink=member.islnk()
                     )
                     if not is_within(resolved, root):
-                        raise ArchiveValidationError(
-                            f"link target escapes managed path: {member.name!r} -> {member.linkname!r}"
+                        message = (
+                            f"link target escapes managed path: {member.name!r} -> "
+                            f"{member.linkname!r}"
                         )
+                        raise ArchiveValidationError(message)
                 elif not (member.isfile() or member.isdir()):
                     raise ArchiveValidationError(
                         f"unsupported archive member: {member.name!r}"

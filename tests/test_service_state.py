@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import gzip
+import hashlib
 import importlib.util
 import io
 import json
+import os
 import tarfile
 import tempfile
 import unittest
@@ -18,6 +21,7 @@ CATALOG_PATH = REPO / "infra/ansible/vars/service-state.yml"
 RESTORE_PATH = REPO / "infra/ansible/playbooks/service-state-restore.yml"
 BACKUP_PATH = REPO / "infra/ansible/playbooks/service-state-backup.yml"
 VALIDATOR_PATH = REPO / "infra/ansible/scripts/validate-service-state-archive.py"
+COMPRESSION_HELPER_PATH = REPO / "infra/ansible/scripts/compress-service-state-backup.py"
 FETCH_HELPER_PATH = REPO / "infra/ansible/scripts/fetch-service-state.py"
 PUSH_HELPER_PATH = REPO / "infra/ansible/scripts/push-service-state.py"
 TECHNITIUM_ROLE_TASKS = REPO / "infra/ansible/roles/technitium/tasks/main.yml"
@@ -29,6 +33,13 @@ spec = importlib.util.spec_from_file_location("service_state_validator", VALIDAT
 assert spec and spec.loader
 validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validator)
+
+compression_spec = importlib.util.spec_from_file_location(
+    "service_state_compression", COMPRESSION_HELPER_PATH
+)
+assert compression_spec and compression_spec.loader
+compression = importlib.util.module_from_spec(compression_spec)
+compression_spec.loader.exec_module(compression)
 
 fetch_spec = importlib.util.spec_from_file_location(
     "fetch_service_state", FETCH_HELPER_PATH
@@ -89,9 +100,10 @@ def make_archive(
     include_state: bool = True,
     state_paths: list[str] | None = None,
     link: tuple[str, str, bytes] | None = None,
+    compression_mode: str = "gz",
 ) -> None:
     managed_paths = state_paths or ["/home/anvil/.hermes"]
-    with tarfile.open(path, "w:gz") as handle:
+    with tarfile.open(path, f"w:{compression_mode}" if compression_mode else "w") as handle:
         root = tarfile.TarInfo(".")
         root.type = tarfile.DIRTYPE
         handle.addfile(root)
@@ -172,6 +184,11 @@ class ServiceStateCatalogTests(unittest.TestCase):
             definition["backup_staging_root"],
             f"{expected_root}/.service-state-backup-staging",
         )
+        self.assertEqual(
+            definition["device_backup_root"],
+            f"{expected_root}/.service-state-backups",
+        )
+        self.assertEqual(definition["backup_retention_count"], 5)
         self.assertTrue(definition["restore_require_all_paths"])
         for path in definition["paths"][:3]:
             self.assertEqual(path["owner"], "deploy")
@@ -379,6 +396,65 @@ class PushServiceStateTests(unittest.TestCase):
                 self.assertEqual(push.main(), 0)
 
 
+class ServiceStateCompressionTests(unittest.TestCase):
+    def test_compresses_pending_archive_and_retains_latest_five_histories(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            root.chmod(0o700)
+            latest = root / "latest.tar"
+            latest.write_bytes(b"current-state")
+            pending = root / "onclave_onramp-state-pending-1.tar"
+            pending.hardlink_to(latest)
+
+            for index in range(5):
+                archive = root / f"onclave_onramp-state-old-{index}.tar.gz"
+                archive.write_bytes(f"old-{index}".encode())
+                archive.with_name(f"{archive.name}.sha256").write_text(
+                    "old\n", encoding="ascii"
+                )
+                os.utime(archive, (index + 1, index + 1))
+
+            history = compression.compress_pending_archive(
+                root,
+                pending,
+                "onclave_onramp-state-new.tar.gz",
+                5,
+            )
+
+            self.assertTrue(latest.exists())
+            self.assertFalse(pending.exists())
+            with gzip.open(history, "rb") as handle:
+                self.assertEqual(handle.read(), b"current-state")
+            sidecar = history.with_name(f"{history.name}.sha256")
+            expected_digest = hashlib.sha256(history.read_bytes()).hexdigest()
+            self.assertEqual(
+                sidecar.read_text(encoding="ascii"),
+                f"{expected_digest}  {history.name}\n",
+            )
+            self.assertEqual(len(list(root.glob("*.tar.gz"))), 5)
+            self.assertFalse((root / "onclave_onramp-state-old-0.tar.gz").exists())
+
+    def test_compression_failure_keeps_pending_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            root.chmod(0o700)
+            pending = root / "onclave_onramp-state-pending-1.tar"
+            pending.write_bytes(b"state")
+            history = root / "onclave_onramp-state-existing.tar.gz"
+            history.write_bytes(b"existing")
+
+            with self.assertRaises(compression.CompressionError):
+                compression.compress_pending_archive(
+                    root,
+                    pending,
+                    history.name,
+                    5,
+                )
+
+            self.assertTrue(pending.exists())
+            self.assertEqual(history.read_bytes(), b"existing")
+
+
 class ServiceStateBackupPlaybookTests(unittest.TestCase):
     def test_quiescing_requires_a_boolean_flag_owner_and_staging_root(self) -> None:
         playbook = yaml.safe_load(BACKUP_PATH.read_text(encoding="utf-8"))
@@ -571,6 +647,44 @@ class ServiceStateBackupPlaybookTests(unittest.TestCase):
             archive["ansible.builtin.command"]["argv"],
         )
 
+    def test_device_backup_installs_latest_before_background_compression(self) -> None:
+        playbook = yaml.safe_load(BACKUP_PATH.read_text(encoding="utf-8"))
+        names = task_names(BACKUP_PATH)
+        device = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name") == "Create device-local Onclave service-state archive"
+        )
+        quiesce = next(
+            task
+            for task in device["block"]
+            if task.get("name")
+            == "Quiesce active user service while creating device-local archive"
+        )
+        archive = next(
+            task
+            for task in quiesce["block"]
+            if task.get("name")
+            == "Create uncompressed temporary device-local service-state archive"
+        )
+        launch = next(
+            task
+            for task in device["block"]
+            if task.get("name") == "Launch device-local service-state compression"
+        )
+
+        self.assertIn("'-cf'", archive["ansible.builtin.command"]["argv"])
+        self.assertIn("--no-block", launch["ansible.builtin.command"]["argv"])
+        self.assertIn("--retention", launch["ansible.builtin.command"]["argv"])
+        self.assertLess(
+            names.index("Atomically replace latest device-local service-state archive"),
+            names.index("Restart active user service after device-local archive"),
+        )
+        self.assertLess(
+            names.index("Restart active user service after device-local archive"),
+            names.index("Launch device-local service-state compression"),
+        )
+
     def test_backup_snapshot_avoids_container_and_compose_control(self) -> None:
         source = BACKUP_PATH.read_text(encoding="utf-8")
         self.assertNotIn("podman", source)
@@ -749,7 +863,7 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
         self.assertIn("--apparent-size", source)
         self.assertIn("-Pk", source)
         self.assertLess(
-            names.index("Require conservative free space for pre-restore staging"),
+            names.index("Require conservative free space for generic pre-restore staging"),
             names.index("Stop managed system services before restore"),
         )
         self.assertLess(
@@ -772,6 +886,7 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
             [
                 "Remove temporary pre-restore service-state manifest directory",
                 "Remove partial pre-restore service-state archive from service host",
+                "Remove partial temporary device-local pre-restore archive",
                 "Remove partial service-state restore archive from service host",
                 "Remove private pre-restore service-state staging directory",
             ],
@@ -784,7 +899,10 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
         staging_cleanup = outer["always"][-1]
         self.assertEqual(
             staging_cleanup["when"],
-            "service_state_definition.backup_staging_root is defined",
+            [
+                "service_state_definition.backup_staging_root is defined",
+                "not (service_state_restore_uses_device_latest | bool)",
+            ],
         )
 
     def test_restore_failure_restarts_before_mutation_and_stops_afterwards(
@@ -845,6 +963,47 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
             "Restrict local pre-restore service-state archive permissions", text
         )
         self.assertGreaterEqual(text.count('mode: "0600"'), 3)
+
+    def test_device_latest_is_validated_and_not_removed_by_restore_cleanup(self) -> None:
+        playbook = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
+        names = task_names(RESTORE_PATH)
+        validation = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Validate device-local latest service-state archive contents"
+        )
+        outer = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name")
+            == "Restore service state after successful preflight and stops"
+        )
+        cleanup = next(
+            task
+            for task in outer["always"]
+            if task.get("name")
+            == "Remove partial service-state restore archive from service host"
+        )
+        launch = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name") == "Launch device-local pre-restore compression"
+        )
+
+        self.assertIn(
+            "service_state_device_latest_archive",
+            validation["ansible.builtin.command"]["argv"],
+        )
+        self.assertLess(
+            names.index("Validate device-local latest service-state archive contents"),
+            names.index("Stop managed system services before restore"),
+        )
+        self.assertEqual(
+            cleanup["when"], "not (service_state_restore_uses_device_latest | bool)"
+        )
+        self.assertNotIn(launch, outer["block"])
+        self.assertIn("--no-block", launch["ansible.builtin.command"]["argv"])
 
     def test_hermes_wrapper_contract_remains_compatible(self) -> None:
         backup = yaml.safe_load(
@@ -910,6 +1069,12 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
                     validator.validate_archive(
                         str(archive), "hermes", ["/home/anvil/.hermes"]
                     )
+
+    def test_uncompressed_archive_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "state.tar"
+            make_archive(archive, compression_mode="")
+            validator.validate_archive(str(archive), "hermes", ["/home/anvil/.hermes"])
 
     def test_legacy_manifestless_hermes_archive_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

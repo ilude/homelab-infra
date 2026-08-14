@@ -12,7 +12,7 @@ Repository collaboration boundaries:
 
 - The sibling `../onclave/` module owns Onclave product code, protocols, services, and provider-neutral application contracts. Its checkout must remain attached to and tracking `origin/feature/v2-broker-core` unless the user explicitly requests a branch change. This repository consumes those contracts and owns host placement, infrastructure resources, deployment orchestration, and live configuration.
 - The dotfiles parent at `../..` owns workstation setup and Pi runtime wiring. Do not put infrastructure implementation or private values in the parent repository.
-- Keep site inventory, credentials, state, and backups in the nested private `values/` repository. Neither the Onclave sibling nor the dotfiles parent may become a second store for them.
+- Keep local site inventory, credentials, state, and backups in the nested private `values/` repository. Remote runtime backups may remain on managed hosts. Neither the Onclave sibling nor the dotfiles parent may become a second store for them.
 - For coordinated changes, edit and validate each owning repository independently. Commit and push homelab-infra changes before the dotfiles parent updates its submodule pointer. Commit `values/` separately to its private remote when requested; never stage it through this public repository.
 
 Tracked source must stay public-safe and free of the operator's real network/domain specifics. Use placeholders such as `example.internal`, `git.example.internal`, `apps.example.net`, and RFC 5737 addresses like `192.0.2.0/24` in tracked files.

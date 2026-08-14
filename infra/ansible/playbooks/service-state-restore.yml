@@ -1,5 +1,5 @@
 ---
-- name: Restore managed service state from controller values directory
+- name: Restore managed service state from controller values directory or device-local latest archive
   hosts: "{{ service_state_hosts | default('all') }}"
   gather_facts: false
   become: true
@@ -16,15 +16,24 @@
           - service_state_service in managed_service_state_catalog
           - service_state_hosts is defined
           - service_state_restore_file | length > 0
-          - service_state_restore_file is match('^/workspace/values/service-backups/' ~ service_state_service ~ '/.+\.tar\.gz$')
+          - >-
+            service_state_restore_file is match('^/workspace/values/service-backups/' ~ service_state_service ~ '/.+\.tar\.gz$') or
+            (service_state_service == 'onclave_onramp' and service_state_restore_file == 'latest')
         fail_msg: >-
-          service_state_service, service_state_hosts, and SERVICE_STATE_RESTORE_FILE under
-          /workspace/values/service-backups/<service>/<archive>.tar.gz are required.
+          service_state_service, service_state_hosts, and a controller archive under
+          /workspace/values/service-backups/<service>/<archive>.tar.gz are required;
+          onclave_onramp also accepts SERVICE_STATE_RESTORE_FILE=latest.
 
     - name: Select managed service-state definition
       ansible.builtin.set_fact:
         service_state_definition: "{{ managed_service_state_catalog[service_state_service] }}"
-        service_state_timestamp: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+        service_state_timestamp: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%S%NZ') }}"
+
+    - name: Select service-state restore storage model
+      ansible.builtin.set_fact:
+        service_state_uses_device_backup: "{{ service_state_definition.device_backup_root is defined }}"
+        service_state_restore_uses_device_latest: >-
+          {{ service_state_service == 'onclave_onramp' and service_state_restore_file == 'latest' }}
 
     - name: Validate service-state restore archive coverage configuration
       ansible.builtin.assert:
@@ -37,6 +46,18 @@
         fail_msg: >-
           restore_require_all_paths must be a Boolean and backup_staging_root
           must be absolute when configured.
+
+    - name: Validate device-local restore configuration
+      ansible.builtin.assert:
+        that:
+          - service_state_definition.device_backup_root is string
+          - service_state_definition.device_backup_root is match('^/')
+          - service_state_definition.backup_retention_count is integer
+          - service_state_definition.backup_retention_count | int > 0
+        fail_msg: >-
+          Device-local restores require an absolute backup root and a positive
+          integer retention count.
+      when: service_state_uses_device_backup | bool
 
     - name: Build managed service-state path and account lists
       ansible.builtin.set_fact:
@@ -87,17 +108,80 @@
         service_state_local_pre_restore: >-
           {{ service_state_backup_root }}/{{ service_state_service }}/{{ service_state_service }}-state-pre-restore-{{ service_state_timestamp }}.tar.gz
 
+    - name: Set device-local restore archive paths
+      ansible.builtin.set_fact:
+        service_state_device_backup_root: "{{ service_state_definition.device_backup_root }}"
+        service_state_device_latest_archive: "{{ service_state_definition.device_backup_root }}/latest.tar"
+        service_state_device_pre_restore: >-
+          {{ service_state_definition.device_backup_root ~ '/' ~ service_state_service ~ '-state-pre-restore-' ~ service_state_timestamp ~ '.tar' }}
+        service_state_device_pre_restore_temporary: >-
+          {{ service_state_definition.device_backup_root ~ '/.' ~ service_state_service ~ '-state-pre-restore-' ~ service_state_timestamp ~ '.tar.tmp' }}
+        service_state_device_pre_restore_history_name: "{{ service_state_service }}-state-pre-restore-{{ service_state_timestamp }}.tar.gz"
+        service_state_device_compression_unit: >-
+          service-state-compress-{{ service_state_service }}-pre-restore-{{ service_state_timestamp }}.service
+      when: service_state_uses_device_backup | bool
+
+    - name: Select effective service-state restore archive
+      ansible.builtin.set_fact:
+        service_state_effective_restore_archive: >-
+          {{ service_state_device_latest_archive
+             if service_state_restore_uses_device_latest | bool
+             else service_state_remote_restore }}
+
+    - name: Create private device-local service-state backup directory
+      ansible.builtin.file:
+        path: "{{ service_state_device_backup_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      when: service_state_uses_device_backup | bool
+
+    - name: Deploy device-local service-state archive validator
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/validate-service-state-archive.py"
+        dest: "{{ service_state_device_backup_root }}/validate-service-state-archive.py"
+        owner: root
+        group: root
+        mode: "0700"
+      when: service_state_uses_device_backup | bool
+
+    - name: Deploy device-local service-state compression helper
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/compress-service-state-backup.py"
+        dest: "{{ service_state_device_backup_root }}/compress-service-state-backup.py"
+        owner: root
+        group: root
+        mode: "0700"
+      when: service_state_uses_device_backup | bool
+
     - name: Check local service-state restore archive exists
       ansible.builtin.stat:
         path: "{{ service_state_restore_file }}"
       register: service_state_restore_stat
       delegate_to: localhost
       become: false
+      when: not (service_state_restore_uses_device_latest | bool)
 
     - name: Fail when local service-state restore archive is missing
       ansible.builtin.fail:
         msg: "Service-state restore archive {{ service_state_restore_file }} does not exist."
-      when: not service_state_restore_stat.stat.exists
+      when:
+        - not (service_state_restore_uses_device_latest | bool)
+        - not service_state_restore_stat.stat.exists
+
+    - name: Check device-local latest service-state restore archive exists
+      ansible.builtin.stat:
+        path: "{{ service_state_device_latest_archive }}"
+      register: service_state_device_latest_stat
+      when: service_state_restore_uses_device_latest | bool
+
+    - name: Fail when device-local latest service-state restore archive is missing
+      ansible.builtin.fail:
+        msg: "Device-local latest service-state archive {{ service_state_device_latest_archive }} does not exist."
+      when:
+        - service_state_restore_uses_device_latest | bool
+        - not service_state_device_latest_stat.stat.exists
 
     - name: Validate service-state restore archive checksum when present
       ansible.builtin.command:
@@ -110,7 +194,9 @@
       changed_when: false
       delegate_to: localhost
       become: false
-      when: lookup('ansible.builtin.fileglob', service_state_restore_file ~ '.sha256', wantlist=True) | length > 0
+      when:
+        - not (service_state_restore_uses_device_latest | bool)
+        - lookup('ansible.builtin.fileglob', service_state_restore_file ~ '.sha256', wantlist=True) | length > 0
 
     - name: Validate service-state restore archive contents
       ansible.builtin.command:
@@ -125,6 +211,20 @@
       changed_when: false
       delegate_to: localhost
       become: false
+      when: not (service_state_restore_uses_device_latest | bool)
+
+    - name: Validate device-local latest service-state archive contents
+      ansible.builtin.command:
+        argv: >-
+          {{ ['/usr/bin/python3', service_state_device_backup_root ~ '/validate-service-state-archive.py',
+              '--archive', service_state_device_latest_archive,
+              '--target', service_state_service,
+              '--paths-json', service_state_managed_paths | to_json]
+             + (['--require-all-paths']
+                if service_state_definition.restore_require_all_paths | default(false) | bool
+                else []) }}
+      changed_when: false
+      when: service_state_restore_uses_device_latest | bool
 
     - name: Validate managed service-state users exist
       ansible.builtin.command:
@@ -161,6 +261,7 @@
         mode: "0700"
       delegate_to: localhost
       become: false
+      when: not (service_state_uses_device_backup | bool)
 
     - name: Check existing managed service-state paths before restore
       ansible.builtin.stat:
@@ -199,7 +300,7 @@
       changed_when: false
       when: service_state_existing_paths | length > 0
 
-    - name: Calculate conservative pre-restore staging requirement
+    - name: Calculate pre-restore staging source size total
       ansible.builtin.set_fact:
         service_state_pre_restore_source_kib: >-
           {{ service_state_pre_restore_source_sizes.results
@@ -209,12 +310,19 @@
              | sum }}
       when: service_state_existing_paths | length > 0
 
-    - name: Calculate conservative pre-restore archive capacity
+    - name: Calculate conservative generic pre-restore archive capacity
       ansible.builtin.set_fact:
         service_state_pre_restore_required_kib: >-
           {{ [((service_state_pre_restore_source_kib | int * 5 / 4) | round(0, 'ceil') | int),
               (((service_state_restore_stat.stat.size | int + 1023) / 1024) | round(0, 'ceil') | int)]
              | max + 1048576 }}
+      when: not (service_state_uses_device_backup | bool)
+
+    - name: Calculate device-local pre-restore archive capacity
+      ansible.builtin.set_fact:
+        service_state_device_pre_restore_required_kib: >-
+          {{ (service_state_pre_restore_source_kib | int * 2) + 1048576 }}
+      when: service_state_uses_device_backup | bool
 
     - name: Create private pre-restore service-state staging directory
       ansible.builtin.file:
@@ -223,9 +331,11 @@
         owner: "{{ service_state_definition.user_service_owner | default('root') }}"
         group: "{{ service_state_definition.user_service_owner | default('root') }}"
         mode: "0700"
-      when: service_state_definition.backup_staging_root is defined
+      when:
+        - service_state_definition.backup_staging_root is defined
+        - not (service_state_restore_uses_device_latest | bool)
 
-    - name: Check free space for pre-restore staging
+    - name: Check free space for generic pre-restore staging
       ansible.builtin.command:
         argv:
           - df
@@ -233,14 +343,64 @@
           - "{{ service_state_remote_archive_root }}"
       register: service_state_pre_restore_staging_space
       changed_when: false
+      when: not (service_state_uses_device_backup | bool)
 
-    - name: Require conservative free space for pre-restore staging
+    - name: Require conservative free space for generic pre-restore staging
       ansible.builtin.assert:
         that:
           - (service_state_pre_restore_staging_space.stdout_lines[-1].split())[3] | int >= service_state_pre_restore_required_kib | int
         fail_msg: >-
           Pre-restore staging needs at least {{ service_state_pre_restore_required_kib }} KiB
           free for {{ service_state_service }}; {{ (service_state_pre_restore_staging_space.stdout_lines[-1].split())[3] }} KiB is available.
+      when: not (service_state_uses_device_backup | bool)
+
+    - name: Check free space for device-local pre-restore backup
+      ansible.builtin.command:
+        argv:
+          - df
+          - -Pk
+          - "{{ service_state_device_backup_root }}"
+      register: service_state_device_pre_restore_space
+      changed_when: false
+      when: service_state_uses_device_backup | bool
+
+    - name: Require capacity for atomic device-local pre-restore backup and compression
+      ansible.builtin.assert:
+        that:
+          - >-
+            (service_state_device_pre_restore_space.stdout_lines[-1].split())[3] | int >=
+            service_state_device_pre_restore_required_kib | int
+        fail_msg: >-
+          Device-local pre-restore backup needs at least
+          {{ service_state_device_pre_restore_required_kib }} KiB free for atomic archive creation
+          and background compression;
+          {{ (service_state_device_pre_restore_space.stdout_lines[-1].split())[3] }} KiB is available.
+      when: service_state_uses_device_backup | bool
+
+    - name: Check free space for device-local controller archive staging
+      ansible.builtin.command:
+        argv:
+          - df
+          - -Pk
+          - "{{ service_state_remote_archive_root }}"
+      register: service_state_device_restore_staging_space
+      changed_when: false
+      when:
+        - service_state_uses_device_backup | bool
+        - not (service_state_restore_uses_device_latest | bool)
+
+    - name: Require capacity for device-local controller archive staging
+      ansible.builtin.assert:
+        that:
+          - >-
+            (service_state_device_restore_staging_space.stdout_lines[-1].split())[3] | int >=
+            (((service_state_restore_stat.stat.size | int + 1023) / 1024) | round(0, 'ceil') | int) + 1048576
+        fail_msg: >-
+          Controller archive staging needs at least one archive plus 1 GiB free for
+          {{ service_state_service }}.
+      when:
+        - service_state_uses_device_backup | bool
+        - not (service_state_restore_uses_device_latest | bool)
 
     - name: Initialize pre-restore recovery and mutation status
       ansible.builtin.set_fact:
@@ -272,7 +432,19 @@
             state: directory
             suffix: "{{ service_state_service }}-pre-restore-manifest"
           register: service_state_pre_restore_manifest_dir
-          when: service_state_existing_paths | length > 0
+          when:
+            - service_state_existing_paths | length > 0
+            - not (service_state_uses_device_backup | bool)
+
+        - name: Create temporary device-local pre-restore service-state manifest directory
+          ansible.builtin.tempfile:
+            state: directory
+            path: "{{ service_state_device_backup_root }}"
+            prefix: ".{{ service_state_service }}-pre-restore-manifest-"
+          register: service_state_pre_restore_manifest_dir
+          when:
+            - service_state_existing_paths | length > 0
+            - service_state_uses_device_backup | bool
 
         - name: Write pre-restore service-state manifest
           ansible.builtin.copy:
@@ -296,7 +468,40 @@
                   '-C', service_state_pre_restore_manifest_dir.path, 'MANIFEST.json', '-C', '/']
                  + service_state_existing_archive_paths }}
           changed_when: true
-          when: service_state_existing_paths | length > 0
+          when:
+            - service_state_existing_paths | length > 0
+            - not (service_state_uses_device_backup | bool)
+
+        - name: Create uncompressed temporary device-local pre-restore archive
+          ansible.builtin.command:
+            argv: >-
+              {{ ['tar', '--numeric-owner', '-cf', service_state_device_pre_restore_temporary,
+                  '-C', service_state_pre_restore_manifest_dir.path, 'MANIFEST.json', '-C', '/']
+                 + service_state_existing_archive_paths }}
+          changed_when: true
+          when:
+            - service_state_existing_paths | length > 0
+            - service_state_uses_device_backup | bool
+
+        - name: Restrict temporary device-local pre-restore archive permissions
+          ansible.builtin.file:
+            path: "{{ service_state_device_pre_restore_temporary }}"
+            mode: "0600"
+          when:
+            - service_state_existing_paths | length > 0
+            - service_state_uses_device_backup | bool
+
+        - name: Atomically save device-local pre-restore archive
+          ansible.builtin.command:
+            argv:
+              - mv
+              - -f
+              - "{{ service_state_device_pre_restore_temporary }}"
+              - "{{ service_state_device_pre_restore }}"
+          changed_when: true
+          when:
+            - service_state_existing_paths | length > 0
+            - service_state_uses_device_backup | bool
 
         - name: Stream pre-restore service-state archive into private values
           ansible.builtin.command:
@@ -311,7 +516,9 @@
           changed_when: true
           delegate_to: localhost
           become: false
-          when: service_state_existing_paths | length > 0
+          when:
+            - service_state_existing_paths | length > 0
+            - not (service_state_uses_device_backup | bool)
 
         - name: Restrict local pre-restore service-state archive permissions
           ansible.builtin.file:
@@ -319,7 +526,9 @@
             mode: "0600"
           delegate_to: localhost
           become: false
-          when: service_state_existing_paths | length > 0
+          when:
+            - service_state_existing_paths | length > 0
+            - not (service_state_uses_device_backup | bool)
 
         - name: Calculate local pre-restore service-state archive checksum
           ansible.builtin.command:
@@ -330,7 +539,9 @@
           changed_when: false
           delegate_to: localhost
           become: false
-          when: service_state_existing_paths | length > 0
+          when:
+            - service_state_existing_paths | length > 0
+            - not (service_state_uses_device_backup | bool)
 
         - name: Write local pre-restore service-state checksum
           ansible.builtin.copy:
@@ -339,7 +550,9 @@
             content: "{{ service_state_pre_restore_checksum.stdout }}\n"
           delegate_to: localhost
           become: false
-          when: service_state_existing_paths | length > 0
+          when:
+            - service_state_existing_paths | length > 0
+            - not (service_state_uses_device_backup | bool)
 
         - name: Validate local pre-restore service-state archive contents
           ansible.builtin.command:
@@ -354,7 +567,24 @@
           changed_when: false
           delegate_to: localhost
           become: false
-          when: service_state_existing_paths | length > 0
+          when:
+            - service_state_existing_paths | length > 0
+            - not (service_state_uses_device_backup | bool)
+
+        - name: Validate device-local pre-restore service-state archive contents
+          ansible.builtin.command:
+            argv: >-
+              {{ ['/usr/bin/python3', service_state_device_backup_root ~ '/validate-service-state-archive.py',
+                  '--archive', service_state_device_pre_restore,
+                  '--target', service_state_service,
+                  '--paths-json', service_state_managed_paths | to_json]
+                 + (['--require-all-paths']
+                    if service_state_definition.restore_require_all_paths | default(false) | bool
+                    else []) }}
+          changed_when: false
+          when:
+            - service_state_existing_paths | length > 0
+            - service_state_uses_device_backup | bool
 
         - name: Mark pre-restore recovery archive as secured
           ansible.builtin.set_fact:
@@ -365,7 +595,9 @@
           ansible.builtin.file:
             path: "{{ service_state_remote_pre_restore }}"
             state: absent
-          when: service_state_existing_paths | length > 0
+          when:
+            - service_state_existing_paths | length > 0
+            - not (service_state_uses_device_backup | bool)
 
         - name: Stream service-state restore archive into service staging
           ansible.builtin.command:
@@ -380,6 +612,7 @@
           changed_when: true
           delegate_to: localhost
           become: false
+          when: not (service_state_restore_uses_device_latest | bool)
 
         - name: Mark destructive service-state restore mutation started
           ansible.builtin.set_fact:
@@ -393,7 +626,7 @@
 
         - name: Restore managed service-state archive
           ansible.builtin.unarchive:
-            src: "{{ service_state_remote_restore }}"
+            src: "{{ service_state_effective_restore_archive }}"
             dest: /
             remote_src: true
 
@@ -467,6 +700,7 @@
             enabled: true
             daemon_reload: true
           loop: "{{ service_state_definition.services | default([]) | reverse | list }}"
+
       rescue:
         - name: Report restore failure recovery details
           ansible.builtin.debug:
@@ -474,11 +708,15 @@
               Restore failed {{ 'after destructive managed path removal; services will be kept stopped.'
               if service_state_restore_mutation_started | bool
               else 'before destructive managed path removal; originally managed services will be restarted.' }}
-              Recovery archive: {{ service_state_local_pre_restore
+              Recovery archive: {{ (service_state_device_pre_restore
+              if service_state_uses_device_backup | bool
+              else service_state_local_pre_restore)
               if service_state_recovery_ready
               else 'not available (no prior paths or failure before recovery archive was secured)' }};
-              checksum: {{ (service_state_local_pre_restore ~ '.sha256')
-              if service_state_recovery_ready else 'not available' }}.
+              checksum: {{ 'not created for the uncompressed device-local recovery archive'
+              if service_state_uses_device_backup | bool
+              else ((service_state_local_pre_restore ~ '.sha256')
+              if service_state_recovery_ready else 'not available') }}.
 
         - name: Restart managed user services after pre-mutation restore failure
           become: true
@@ -540,22 +778,70 @@
           ansible.builtin.file:
             path: "{{ service_state_remote_pre_restore }}"
             state: absent
+          when: not (service_state_uses_device_backup | bool)
+
+        - name: Remove partial temporary device-local pre-restore archive
+          ansible.builtin.file:
+            path: "{{ service_state_device_pre_restore_temporary }}"
+            state: absent
+          when: service_state_uses_device_backup | bool
 
         - name: Remove partial service-state restore archive from service host
           ansible.builtin.file:
             path: "{{ service_state_remote_restore }}"
             state: absent
+          when: not (service_state_restore_uses_device_latest | bool)
 
         - name: Remove private pre-restore service-state staging directory
           ansible.builtin.file:
             path: "{{ service_state_definition.backup_staging_root }}"
             state: absent
-          when: service_state_definition.backup_staging_root is defined
+          when:
+            - service_state_definition.backup_staging_root is defined
+            - not (service_state_restore_uses_device_latest | bool)
 
-    - name: Report service-state restore result
+    - name: Launch device-local pre-restore compression
+      ansible.builtin.command:
+        argv:
+          - systemd-run
+          - --quiet
+          - --no-block
+          - --collect
+          - "--unit={{ service_state_device_compression_unit }}"
+          - --service-type=exec
+          - --property=UMask=0077
+          - /usr/bin/python3
+          - "{{ service_state_device_backup_root }}/compress-service-state-backup.py"
+          - --backup-root
+          - "{{ service_state_device_backup_root }}"
+          - --pending
+          - "{{ service_state_device_pre_restore }}"
+          - --history-name
+          - "{{ service_state_device_pre_restore_history_name }}"
+          - --retention
+          - "{{ service_state_definition.backup_retention_count | string }}"
+      changed_when: true
+      when:
+        - service_state_uses_device_backup | bool
+        - service_state_existing_paths | length > 0
+
+    - name: Report generic service-state restore result
       ansible.builtin.debug:
         msg: >-
           {{ service_state_service }} state restored from {{ service_state_restore_file }};
           pre-restore backup {{ service_state_local_pre_restore
           if service_state_existing_paths | length > 0
           else 'not created because no previous state existed' }}.
+      when: not (service_state_uses_device_backup | bool)
+
+    - name: Report device-local service-state restore result
+      ansible.builtin.debug:
+        msg: >-
+          {{ service_state_service }} state restored from {{ service_state_restore_file }};
+          pre-restore backup {{ service_state_device_pre_restore
+          if service_state_existing_paths | length > 0
+          else 'not created because no previous state existed' }}
+          {{ 'was queued for background compression.'
+          if service_state_existing_paths | length > 0
+          else '' }}
+      when: service_state_uses_device_backup | bool

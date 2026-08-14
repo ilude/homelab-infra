@@ -7,10 +7,11 @@ Usage:
   scripts/service-state.sh list
   scripts/service-state.sh backup <service|all>
   scripts/service-state.sh restore <service> values/service-backups/<service>/<archive>.tar.gz
+  scripts/service-state.sh restore onclave_onramp latest
   scripts/service-state.sh restore-if-present <service> [values/service-backups/<service>/<archive>.tar.gz]
 
-Managed service-state archives are private operational state. They are written
-under values/service-backups/ in the ignored private values repo.
+Managed service-state archives are private operational state. Controller-backed
+targets write under values/service-backups/. Onclave keeps device-local backups.
 USAGE
 }
 
@@ -108,6 +109,9 @@ latest_local_archive() {
 validate_restore_file() {
   local service="$1"
   local file="$2"
+  if [[ "${service}" == "onclave_onramp" && "${file}" == "latest" ]]; then
+    return 0
+  fi
   case "${file}" in
     "/workspace/values/service-backups/${service}/"*.tar.gz) ;;
     *)
@@ -206,13 +210,22 @@ case "${command_name}" in
       usage
       exit 2
     fi
-    secure_local_backup_root
     target="$1"
+    controller_backups_selected=false
     if [[ "${target}" == "all" ]]; then
       mapfile -t selected_services < <(enabled_supported_services)
       if [[ "${#selected_services[@]}" -eq 0 ]]; then
         printf 'No enabled services have service-state backup definitions.\n' >&2
         exit 1
+      fi
+      for service in "${selected_services[@]}"; do
+        if [[ "${service}" != "onclave_onramp" ]]; then
+          controller_backups_selected=true
+          break
+        fi
+      done
+      if [[ "${controller_backups_selected}" == true ]]; then
+        secure_local_backup_root
       fi
       for service in "${selected_services[@]}"; do
         printf 'Backing up %s service state...\n' "${service}" >&2
@@ -223,11 +236,17 @@ case "${command_name}" in
         printf 'Unsupported service-state target: %s\n' "${target}" >&2
         exit 2
       fi
+      if [[ "${target}" != "onclave_onramp" ]]; then
+        controller_backups_selected=true
+        secure_local_backup_root
+      fi
       run_playbook backup "${target}"
     fi
-    # Files created through the Docker bind mount may not inherit the host ACL.
-    # Reapply it after backup creation so later container reads do not fail.
-    secure_local_backup_root
+    if [[ "${controller_backups_selected}" == true ]]; then
+      # Files created through the Docker bind mount may not inherit the host ACL.
+      # Reapply it after backup creation so later container reads do not fail.
+      secure_local_backup_root
+    fi
     ;;
   restore)
     if [[ $# -ne 2 ]]; then
@@ -239,7 +258,11 @@ case "${command_name}" in
       printf 'Unsupported service-state target: %s\n' "${service}" >&2
       exit 2
     fi
-    restore_file="$(container_path "$2")"
+    if [[ "${service}" == "onclave_onramp" && "$2" == "latest" ]]; then
+      restore_file="latest"
+    else
+      restore_file="$(container_path "$2")"
+    fi
     validate_restore_file "${service}" "${restore_file}"
     run_playbook restore "${service}"
     ;;

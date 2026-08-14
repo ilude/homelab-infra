@@ -1,5 +1,5 @@
 ---
-- name: Back up managed service state to controller values directory
+- name: Back up managed service state to controller or device-local storage
   hosts: "{{ service_state_hosts | default('all') }}"
   gather_facts: false
   become: true
@@ -20,7 +20,11 @@
     - name: Select managed service-state definition
       ansible.builtin.set_fact:
         service_state_definition: "{{ managed_service_state_catalog[service_state_service] }}"
-        service_state_timestamp: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+        service_state_timestamp: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%S%NZ') }}"
+
+    - name: Select service-state backup storage model
+      ansible.builtin.set_fact:
+        service_state_uses_device_backup: "{{ service_state_definition.device_backup_root is defined }}"
 
     - name: Validate service-state backup quiescing configuration
       ansible.builtin.assert:
@@ -40,6 +44,18 @@
           Backup user-service quiescing requires a Boolean flag, configured user
           services, a user service owner, and an absolute private staging root.
 
+    - name: Validate device-local backup configuration
+      ansible.builtin.assert:
+        that:
+          - service_state_definition.device_backup_root is string
+          - service_state_definition.device_backup_root is match('^/')
+          - service_state_definition.backup_retention_count is integer
+          - service_state_definition.backup_retention_count | int > 0
+        fail_msg: >-
+          Device-local backups require an absolute backup root and a positive
+          integer retention count.
+      when: service_state_uses_device_backup | bool
+
     - name: Set service-state backup archive paths
       ansible.builtin.set_fact:
         service_state_archive_name: "{{ service_state_service }}-state-{{ service_state_timestamp }}.tar.gz"
@@ -53,12 +69,26 @@
               if service_state_definition.backup_quiesce_user_services | default(false) | bool
               else '/tmp') ~ '/' ~ service_state_service ~ '-state-' ~ service_state_timestamp ~ '.tar.gz' }}
 
+    - name: Set device-local backup paths
+      ansible.builtin.set_fact:
+        service_state_device_backup_root: "{{ service_state_definition.device_backup_root }}"
+        service_state_device_latest_archive: "{{ service_state_definition.device_backup_root }}/latest.tar"
+        service_state_device_temporary_archive: >-
+          {{ service_state_definition.device_backup_root ~ '/.latest.tar.' ~ service_state_timestamp ~ '.tmp' }}
+        service_state_device_pending_archive: >-
+          {{ service_state_definition.device_backup_root ~ '/' ~ service_state_service ~ '-state-pending-' ~ service_state_timestamp ~ '.tar' }}
+        service_state_device_history_name: "{{ service_state_service }}-state-{{ service_state_timestamp }}.tar.gz"
+        service_state_device_compression_unit: >-
+          service-state-compress-{{ service_state_service }}-{{ service_state_timestamp }}.service
+      when: service_state_uses_device_backup | bool
+
     - name: Ensure local service-state backup directory exists  # noqa risky-file-permissions
       ansible.builtin.file:
         path: "{{ service_state_local_dir }}"
         state: directory
       delegate_to: localhost
       become: false
+      when: not (service_state_uses_device_backup | bool)
 
     - name: Restrict local service-state backup directory permissions when supported
       ansible.builtin.command:
@@ -73,12 +103,16 @@
         'Operation not permitted' not in service_state_local_dir_chmod.stderr
       delegate_to: localhost
       become: false
-      when: not service_state_host_acl_enforced
+      when:
+        - not (service_state_uses_device_backup | bool)
+        - not service_state_host_acl_enforced
 
     - name: Confirm host ACL protection for local service-state backups
       ansible.builtin.debug:
         msg: The host filesystem ACL protects the private service-state backup tree.
-      when: service_state_host_acl_enforced
+      when:
+        - not (service_state_uses_device_backup | bool)
+        - service_state_host_acl_enforced
       delegate_to: localhost
       become: false
 
@@ -88,6 +122,7 @@
           The controller filesystem does not support enforcing POSIX mode 0700 on
           {{ service_state_local_dir }}; rely on host filesystem access controls.
       when:
+        - not (service_state_uses_device_backup | bool)
         - not service_state_host_acl_enforced
         - service_state_local_dir_chmod.rc | default(0) != 0
       delegate_to: localhost
@@ -140,7 +175,7 @@
       changed_when: false
       when: service_state_definition.backup_quiesce_user_services | default(false) | bool
 
-    - name: Calculate quiesced backup space requirement
+    - name: Calculate quiesced backup source size total
       ansible.builtin.set_fact:
         service_state_backup_source_kib: >-
           {{ service_state_backup_source_sizes.results
@@ -148,15 +183,17 @@
              | map('regex_replace', '\\s.*$', '')
              | map('int')
              | sum }}
-        service_state_backup_required_kib: >-
-          {{ ((service_state_backup_source_sizes.results
-               | map(attribute='stdout')
-               | map('regex_replace', '\\s.*$', '')
-               | map('int')
-               | sum * 5 / 4) | round(0, 'ceil') | int) + 1048576 }}
       when: service_state_definition.backup_quiesce_user_services | default(false) | bool
 
-    - name: Check free space for quiesced backup staging
+    - name: Calculate generic quiesced backup space requirement
+      ansible.builtin.set_fact:
+        service_state_backup_required_kib: >-
+          {{ ((service_state_backup_source_kib | int * 5 / 4) | round(0, 'ceil') | int) + 1048576 }}
+      when:
+        - service_state_definition.backup_quiesce_user_services | default(false) | bool
+        - not (service_state_uses_device_backup | bool)
+
+    - name: Check free space for generic quiesced backup staging
       ansible.builtin.command:
         argv:
           - df
@@ -164,16 +201,72 @@
           - "{{ service_state_definition.backup_staging_root | dirname }}"
       register: service_state_backup_staging_space
       changed_when: false
-      when: service_state_definition.backup_quiesce_user_services | default(false) | bool
+      when:
+        - service_state_definition.backup_quiesce_user_services | default(false) | bool
+        - not (service_state_uses_device_backup | bool)
 
-    - name: Require conservative free space for quiesced backup staging
+    - name: Require conservative free space for generic quiesced backup staging
       ansible.builtin.assert:
         that:
           - (service_state_backup_staging_space.stdout_lines[-1].split())[3] | int >= service_state_backup_required_kib | int
         fail_msg: >-
           Quiesced backup staging needs at least {{ service_state_backup_required_kib }} KiB
           free for {{ service_state_service }}; {{ (service_state_backup_staging_space.stdout_lines[-1].split())[3] }} KiB is available.
-      when: service_state_definition.backup_quiesce_user_services | default(false) | bool
+      when:
+        - service_state_definition.backup_quiesce_user_services | default(false) | bool
+        - not (service_state_uses_device_backup | bool)
+
+    - name: Create private device-local service-state backup directory
+      ansible.builtin.file:
+        path: "{{ service_state_device_backup_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      when: service_state_uses_device_backup | bool
+
+    - name: Deploy device-local service-state archive validator
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/validate-service-state-archive.py"
+        dest: "{{ service_state_device_backup_root }}/validate-service-state-archive.py"
+        owner: root
+        group: root
+        mode: "0700"
+      when: service_state_uses_device_backup | bool
+
+    - name: Deploy device-local service-state compression helper
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/compress-service-state-backup.py"
+        dest: "{{ service_state_device_backup_root }}/compress-service-state-backup.py"
+        owner: root
+        group: root
+        mode: "0700"
+      when: service_state_uses_device_backup | bool
+
+    - name: Calculate device-local backup space requirement
+      ansible.builtin.set_fact:
+        service_state_device_backup_required_kib: >-
+          {{ (service_state_backup_source_kib | int * 2) + 1048576 }}
+      when: service_state_uses_device_backup | bool
+
+    - name: Check free space for device-local backup storage
+      ansible.builtin.command:
+        argv:
+          - df
+          - -Pk
+          - "{{ service_state_device_backup_root }}"
+      register: service_state_device_backup_space
+      changed_when: false
+      when: service_state_uses_device_backup | bool
+
+    - name: Require capacity for atomic device-local backup and compression
+      ansible.builtin.assert:
+        that:
+          - (service_state_device_backup_space.stdout_lines[-1].split())[3] | int >= service_state_device_backup_required_kib | int
+        fail_msg: >-
+          Device-local backup needs at least {{ service_state_device_backup_required_kib }} KiB
+          free for atomic archive creation and background compression; {{ (service_state_device_backup_space.stdout_lines[-1].split())[3] }} KiB is available.
+      when: service_state_uses_device_backup | bool
 
     - name: Resolve service-state backup user service owner UID
       ansible.builtin.command:
@@ -264,7 +357,9 @@
       when: not (service_state_definition.backup_quiesce_user_services | default(false) | bool)
 
     - name: Create and stream quiesced service-state archive
-      when: service_state_definition.backup_quiesce_user_services | default(false) | bool
+      when:
+        - service_state_definition.backup_quiesce_user_services | default(false) | bool
+        - not (service_state_uses_device_backup | bool)
       block:
         - name: Create temporary quiesced service-state manifest directory
           ansible.builtin.tempfile:
@@ -389,6 +484,143 @@
             path: "{{ service_state_definition.backup_staging_root }}"
             state: absent
 
+    - name: Create device-local Onclave service-state archive
+      when: service_state_uses_device_backup | bool
+      block:
+        - name: Create temporary device-local service-state manifest directory
+          ansible.builtin.tempfile:
+            state: directory
+            path: "{{ service_state_device_backup_root }}"
+            prefix: ".{{ service_state_service }}-manifest-"
+          register: service_state_device_manifest_dir
+
+        - name: Write device-local service-state backup manifest
+          ansible.builtin.copy:
+            dest: "{{ service_state_device_manifest_dir.path }}/MANIFEST.json"
+            mode: "0600"
+            content: |
+              {
+                "schema_version": 1,
+                "target": {{ service_state_service | to_json }},
+                "archive_kind": "backup",
+                "created_utc": {{ service_state_timestamp | to_json }},
+                "description": {{ service_state_definition.description | default('') | to_json }},
+                "paths": {{ service_state_existing_paths | to_json }}
+              }
+
+        - name: Quiesce active user service while creating device-local archive
+          block:
+            - name: Check configured user services are active before device-local backup
+              become: true
+              become_user: "{{ service_state_definition.user_service_owner }}"
+              ansible.builtin.command:
+                argv:
+                  - systemctl
+                  - --user
+                  - is-active
+                  - "{{ item }}"
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ service_state_backup_user_service_uid.stdout | trim }}"
+              loop: "{{ service_state_definition.user_services | default([]) }}"
+              register: service_state_user_service_activity
+              changed_when: false
+              failed_when: service_state_user_service_activity.rc not in [0, 3]
+
+            - name: Build active user service list for device-local backup
+              ansible.builtin.set_fact:
+                service_state_active_user_services: >-
+                  {{ service_state_user_service_activity.results
+                     | selectattr('rc', 'equalto', 0)
+                     | map(attribute='item')
+                     | list }}
+
+            - name: Stop active user service before device-local archive
+              become: true
+              become_user: "{{ service_state_definition.user_service_owner }}"
+              ansible.builtin.systemd_service:
+                name: "{{ item }}"
+                scope: user
+                state: stopped
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ service_state_backup_user_service_uid.stdout | trim }}"
+              loop: "{{ service_state_active_user_services }}"
+              when: service_state_active_user_services | length > 0
+
+            - name: Create uncompressed temporary device-local service-state archive
+              ansible.builtin.command:
+                argv: >-
+                  {{ ['tar', '--numeric-owner', '-cf', service_state_device_temporary_archive,
+                      '-C', service_state_device_manifest_dir.path, 'MANIFEST.json', '-C', '/']
+                     + service_state_existing_archive_paths }}
+              changed_when: true
+
+            - name: Restrict temporary device-local service-state archive permissions
+              ansible.builtin.file:
+                path: "{{ service_state_device_temporary_archive }}"
+                mode: "0600"
+
+            - name: Atomically replace latest device-local service-state archive
+              ansible.builtin.command:
+                argv:
+                  - mv
+                  - -f
+                  - "{{ service_state_device_temporary_archive }}"
+                  - "{{ service_state_device_latest_archive }}"
+              changed_when: true
+          always:
+            - name: Restart active user service after device-local archive
+              become: true
+              become_user: "{{ service_state_definition.user_service_owner }}"
+              ansible.builtin.systemd_service:
+                name: "{{ item }}"
+                scope: user
+                state: started
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ service_state_backup_user_service_uid.stdout | trim }}"
+              loop: "{{ service_state_active_user_services }}"
+              when: service_state_active_user_services | length > 0
+
+        - name: Create unique pending input for device-local compression
+          ansible.builtin.command:
+            argv:
+              - ln
+              - "{{ service_state_device_latest_archive }}"
+              - "{{ service_state_device_pending_archive }}"
+          changed_when: true
+
+        - name: Launch device-local service-state compression
+          ansible.builtin.command:
+            argv:
+              - systemd-run
+              - --quiet
+              - --no-block
+              - --collect
+              - "--unit={{ service_state_device_compression_unit }}"
+              - --service-type=exec
+              - --property=UMask=0077
+              - /usr/bin/python3
+              - "{{ service_state_device_backup_root }}/compress-service-state-backup.py"
+              - --backup-root
+              - "{{ service_state_device_backup_root }}"
+              - --pending
+              - "{{ service_state_device_pending_archive }}"
+              - --history-name
+              - "{{ service_state_device_history_name }}"
+              - --retention
+              - "{{ service_state_definition.backup_retention_count | string }}"
+          changed_when: true
+      always:
+        - name: Remove temporary device-local service-state manifest directory
+          ansible.builtin.file:
+            path: "{{ service_state_device_manifest_dir.path }}"
+            state: absent
+          when: service_state_device_manifest_dir is defined
+
+        - name: Remove partial temporary device-local service-state archive
+          ansible.builtin.file:
+            path: "{{ service_state_device_temporary_archive }}"
+            state: absent
+
     - name: Calculate local service-state archive checksum
       ansible.builtin.command:
         argv:
@@ -398,6 +630,7 @@
       changed_when: false
       delegate_to: localhost
       become: false
+      when: not (service_state_uses_device_backup | bool)
 
     - name: Write local service-state checksum manifest
       ansible.builtin.copy:
@@ -406,7 +639,16 @@
         content: "{{ service_state_checksum.stdout }}\n"
       delegate_to: localhost
       become: false
+      when: not (service_state_uses_device_backup | bool)
 
-    - name: Report service-state backup path
+    - name: Report controller service-state backup path
       ansible.builtin.debug:
         msg: "{{ service_state_service }} state backup written to {{ service_state_local_dir }}/{{ service_state_archive_name }}"
+      when: not (service_state_uses_device_backup | bool)
+
+    - name: Report device-local service-state backup path
+      ansible.builtin.debug:
+        msg: >-
+          {{ service_state_service }} state backup written to {{ service_state_device_latest_archive }};
+          compression continues in {{ service_state_device_compression_unit }}.
+      when: service_state_uses_device_backup | bool

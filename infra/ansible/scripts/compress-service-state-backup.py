@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import gzip
 import hashlib
 import os
@@ -78,13 +79,32 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def valid_history_pairs(root: Path) -> list[tuple[Path, Path]]:
+    pairs: list[tuple[Path, Path]] = []
+    for sidecar in root.glob("*.tar.gz.sha256"):
+        archive = root / sidecar.name.removesuffix(".sha256")
+        if not archive.is_file():
+            continue
+        fields = sidecar.read_text(encoding="ascii").split()
+        if (
+            len(fields) != 2
+            or fields[1] != archive.name
+            or len(fields[0]) != 64
+            or sha256(archive) != fields[0]
+        ):
+            continue
+        pairs.append((archive, sidecar))
+    return pairs
+
+
 def retain_histories(root: Path, retention: int) -> None:
-    histories = sorted(
-        root.glob("*.tar.gz"), key=lambda path: (path.stat().st_mtime_ns, path.name)
+    pairs = sorted(
+        valid_history_pairs(root),
+        key=lambda pair: (pair[0].stat().st_mtime_ns, pair[0].name),
     )
-    for archive in histories[:-retention]:
+    for archive, sidecar in pairs[:-retention]:
         archive.unlink()
-        archive.with_name(f"{archive.name}.sha256").unlink(missing_ok=True)
+        sidecar.unlink()
 
 
 def compress_pending_archive(
@@ -96,33 +116,50 @@ def compress_pending_archive(
     if retention < 1:
         raise CompressionError("retention must be at least one")
     root = private_backup_root(backup_root)
-    pending_path = direct_child(root, pending, suffix=".tar")
-    history = history_path(root, history_name)
-    sidecar = history.with_name(f"{history.name}.sha256")
-    if history.exists() or sidecar.exists():
-        raise CompressionError(f"refusing to replace existing archive: {history}")
+    lock_path = root / ".compression.lock"
+    with lock_path.open("a+b") as lock_handle:
+        os.fchmod(lock_handle.fileno(), 0o600)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        pending_path = direct_child(root, pending, suffix=".tar")
+        history = history_path(root, history_name)
+        sidecar = history.with_name(f"{history.name}.sha256")
+        if history.exists() != sidecar.exists():
+            history.unlink(missing_ok=True)
+            sidecar.unlink(missing_ok=True)
+        if history.exists():
+            raise CompressionError(f"refusing to replace existing archive: {history}")
 
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{history.name}.", dir=root
-    )
-    temporary = Path(temporary_name)
-    try:
-        os.fchmod(descriptor, 0o600)
-        with pending_path.open("rb") as source, os.fdopen(descriptor, "wb") as output:
-            with gzip.GzipFile(
-                filename="", mode="wb", fileobj=output, compresslevel=1, mtime=0
-            ) as compressed:
-                shutil.copyfileobj(source, compressed, length=1024 * 1024)
-            output.flush()
-            os.fsync(output.fileno())
-        atomic_link(temporary, history)
-        write_sidecar(sidecar, sha256(history))
-        retain_histories(root, retention)
-        pending_path.unlink()
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
-    return history
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{history.name}.", dir=root
+        )
+        temporary = Path(temporary_name)
+        try:
+            os.fchmod(descriptor, 0o600)
+            with pending_path.open("rb") as source, os.fdopen(
+                descriptor, "wb"
+            ) as output:
+                with gzip.GzipFile(
+                    filename="", mode="wb", fileobj=output, compresslevel=1, mtime=0
+                ) as compressed:
+                    shutil.copyfileobj(source, compressed, length=1024 * 1024)
+                output.flush()
+                os.fsync(output.fileno())
+            digest = sha256(temporary)
+            atomic_link(temporary, history)
+            try:
+                write_sidecar(sidecar, digest)
+            except BaseException:
+                history.unlink(missing_ok=True)
+                raise
+            pending_path.unlink()
+            pending_path.with_name(f"{pending_path.name}.sha256").unlink(
+                missing_ok=True
+            )
+            retain_histories(root, retention)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        return history
 
 
 def parse_args() -> argparse.Namespace:

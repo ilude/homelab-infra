@@ -409,8 +409,9 @@ class ServiceStateCompressionTests(unittest.TestCase):
             for index in range(5):
                 archive = root / f"onclave_onramp-state-old-{index}.tar.gz"
                 archive.write_bytes(f"old-{index}".encode())
+                digest = hashlib.sha256(archive.read_bytes()).hexdigest()
                 archive.with_name(f"{archive.name}.sha256").write_text(
-                    "old\n", encoding="ascii"
+                    f"{digest}  {archive.name}\n", encoding="ascii"
                 )
                 os.utime(archive, (index + 1, index + 1))
 
@@ -434,25 +435,48 @@ class ServiceStateCompressionTests(unittest.TestCase):
             self.assertEqual(len(list(root.glob("*.tar.gz"))), 5)
             self.assertFalse((root / "onclave_onramp-state-old-0.tar.gz").exists())
 
-    def test_compression_failure_keeps_pending_archive(self) -> None:
+    def test_sidecar_failure_keeps_pending_and_allows_retry(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             root.chmod(0o700)
             pending = root / "onclave_onramp-state-pending-1.tar"
             pending.write_bytes(b"state")
-            history = root / "onclave_onramp-state-existing.tar.gz"
-            history.write_bytes(b"existing")
+            history_name = "onclave_onramp-state-new.tar.gz"
+            history = root / history_name
 
-            with self.assertRaises(compression.CompressionError):
-                compression.compress_pending_archive(
-                    root,
-                    pending,
-                    history.name,
-                    5,
-                )
+            with (
+                mock.patch.object(
+                    compression, "write_sidecar", side_effect=OSError("sidecar failed")
+                ),
+                self.assertRaises(OSError),
+            ):
+                compression.compress_pending_archive(root, pending, history_name, 5)
 
             self.assertTrue(pending.exists())
-            self.assertEqual(history.read_bytes(), b"existing")
+            self.assertFalse(history.exists())
+            completed = compression.compress_pending_archive(
+                root, pending, history_name, 5
+            )
+            self.assertTrue(completed.exists())
+            self.assertTrue(completed.with_name(f"{completed.name}.sha256").exists())
+            self.assertFalse(pending.exists())
+
+    def test_compression_takes_publication_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            root.chmod(0o700)
+            pending = root / "onclave_onramp-state-pending-1.tar"
+            pending.write_bytes(b"state")
+
+            with mock.patch.object(
+                compression.fcntl, "flock", wraps=compression.fcntl.flock
+            ) as lock:
+                compression.compress_pending_archive(
+                    root, pending, "onclave_onramp-state-new.tar.gz", 5
+                )
+
+            lock.assert_called_once()
+            self.assertEqual(lock.call_args.args[1], compression.fcntl.LOCK_EX)
 
 
 class ServiceStateBackupPlaybookTests(unittest.TestCase):
@@ -682,6 +706,14 @@ class ServiceStateBackupPlaybookTests(unittest.TestCase):
         )
         self.assertLess(
             names.index("Restart active user service after device-local archive"),
+            names.index("Calculate device-local latest archive checksum"),
+        )
+        self.assertLess(
+            names.index("Publish device-local latest archive checksum"),
+            names.index("Create unique pending input for device-local compression"),
+        )
+        self.assertLess(
+            names.index("Create unique pending input for device-local compression"),
             names.index("Launch device-local service-state compression"),
         )
 
@@ -716,6 +748,14 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
         )
         self.assertLess(
             names.index("Validate service-state restore archive contents"),
+            names.index("Stop managed system services before restore"),
+        )
+        self.assertLess(
+            names.index("Verify pinned device-local archive checksum"),
+            names.index("Stop managed system services before restore"),
+        )
+        self.assertLess(
+            names.index("Validate pinned device-local service-state archive contents"),
             names.index("Stop managed system services before restore"),
         )
 
@@ -888,6 +928,7 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
                 "Remove partial pre-restore service-state archive from service host",
                 "Remove partial temporary device-local pre-restore archive",
                 "Remove partial service-state restore archive from service host",
+                "Remove pinned device-local restore archive",
                 "Remove private pre-restore service-state staging directory",
             ],
         )
@@ -901,7 +942,7 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
             staging_cleanup["when"],
             [
                 "service_state_definition.backup_staging_root is defined",
-                "not (service_state_restore_uses_device_latest | bool)",
+                "not (service_state_restore_uses_device_archive | bool)",
             ],
         )
 
@@ -962,16 +1003,21 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
         self.assertIn(
             "Restrict local pre-restore service-state archive permissions", text
         )
+        names = task_names(RESTORE_PATH)
+        self.assertLess(
+            names.index("Publish device-local pre-restore archive checksum"),
+            names.index("Mark pre-restore recovery archive as secured"),
+        )
         self.assertGreaterEqual(text.count('mode: "0600"'), 3)
 
-    def test_device_latest_is_validated_and_not_removed_by_restore_cleanup(self) -> None:
+    def test_device_archive_is_pinned_validated_and_cleaned_after_restore(self) -> None:
         playbook = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
         names = task_names(RESTORE_PATH)
         validation = next(
             task
             for task in playbook[0]["tasks"]
             if task.get("name")
-            == "Validate device-local latest service-state archive contents"
+            == "Validate pinned device-local service-state archive contents"
         )
         outer = next(
             task
@@ -992,15 +1038,44 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "service_state_device_latest_archive",
+            "service_state_device_restore_pinned",
             validation["ansible.builtin.command"]["argv"],
         )
         self.assertLess(
-            names.index("Validate device-local latest service-state archive contents"),
+            names.index("Validate pinned device-local service-state archive contents"),
             names.index("Stop managed system services before restore"),
         )
         self.assertEqual(
-            cleanup["when"], "not (service_state_restore_uses_device_latest | bool)"
+            cleanup["when"], "not (service_state_restore_uses_device_archive | bool)"
+        )
+        pin = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name") == "Pin selected device-local archive for this restore"
+        )
+        checksum = next(
+            task
+            for task in playbook[0]["tasks"]
+            if task.get("name") == "Calculate pinned device-local archive checksum"
+        )
+        pinned_cleanup = next(
+            task
+            for task in outer["always"]
+            if task.get("name") == "Remove pinned device-local restore archive"
+        )
+        self.assertIn("service_state_device_restore_source", str(pin))
+        self.assertIn("service_state_device_restore_pinned", str(checksum))
+        self.assertEqual(
+            pinned_cleanup["when"],
+            "service_state_restore_uses_device_archive | bool",
+        )
+        self.assertLess(
+            names.index("Verify Onclave health after restore"),
+            names.index("Launch device-local pre-restore compression"),
+        )
+        self.assertLess(
+            names.index("Verify Onclave dependency readiness after restore"),
+            names.index("Launch device-local pre-restore compression"),
         )
         self.assertNotIn(launch, outer["block"])
         self.assertIn("--no-block", launch["ansible.builtin.command"]["argv"])
@@ -1075,6 +1150,30 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
             archive = Path(temp) / "state.tar"
             make_archive(archive, compression_mode="")
             validator.validate_archive(str(archive), "hermes", ["/home/anvil/.hermes"])
+
+    def test_uncompressed_complete_onclave_archive_passes_strict_validation(
+        self,
+    ) -> None:
+        managed_paths = [
+            "/srv/onramp/onclave",
+            "/srv/onramp/menos/data/postgres",
+            "/srv/onramp/menos/data/minio",
+            "/etc/caddy/sites.d/onclave.caddy",
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "latest.tar"
+            make_archive(
+                archive,
+                target="onclave_onramp",
+                state_paths=managed_paths,
+                compression_mode="",
+            )
+            validator.validate_archive(
+                str(archive),
+                "onclave_onramp",
+                managed_paths,
+                require_all_paths=True,
+            )
 
     def test_legacy_manifestless_hermes_archive_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

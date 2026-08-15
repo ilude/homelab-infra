@@ -7,7 +7,7 @@ Usage:
   scripts/service-state.sh list
   scripts/service-state.sh backup <service|all>
   scripts/service-state.sh restore <service> values/service-backups/<service>/<archive>.tar.gz
-  scripts/service-state.sh restore onclave_onramp latest
+  scripts/service-state.sh restore onclave_onramp <latest|device-archive-basename>
   scripts/service-state.sh restore-if-present <service> [values/service-backups/<service>/<archive>.tar.gz]
 
 Managed service-state archives are private operational state. Controller-backed
@@ -18,6 +18,7 @@ USAGE
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 backup_root="${SERVICE_STATE_BACKUP_ROOT:-/workspace/values/service-backups}"
 host_backup_root="${repo_root}/values/service-backups"
+onclave_operation_lock="${repo_root}/.tmp/onclave-service-state.lock"
 service_state_host_acl_enforced=false
 
 secure_local_backup_root() {
@@ -106,16 +107,23 @@ latest_local_archive() {
     -printf '%T@ %p\n' | sort -nr | awk 'NR == 1 { $1=""; sub(/^ /, ""); print }'
 }
 
+is_onclave_device_selector() {
+  local selector="$1"
+  [[ "${selector}" == "latest" ]] && return 0
+  [[ "${selector}" =~ ^onclave_onramp-state-[0-9]{8}T[0-9]{6,}Z\.tar\.gz$ ]] && return 0
+  [[ "${selector}" =~ ^onclave_onramp-state-pre-restore-[0-9]{8}T[0-9]{6,}Z\.tar(\.gz)?$ ]]
+}
+
 validate_restore_file() {
   local service="$1"
   local file="$2"
-  if [[ "${service}" == "onclave_onramp" && "${file}" == "latest" ]]; then
+  if [[ "${service}" == "onclave_onramp" ]] && is_onclave_device_selector "${file}"; then
     return 0
   fi
   case "${file}" in
     "/workspace/values/service-backups/${service}/"*.tar.gz) ;;
     *)
-      printf 'Restore archive must be under values/service-backups/%s/ and end in .tar.gz\n' "${service}" >&2
+      printf 'Restore archive must be a valid device selector or a .tar.gz under values/service-backups/%s/.\n' "${service}" >&2
       exit 2
       ;;
   esac
@@ -188,6 +196,37 @@ run_playbook() {
   fi
 }
 
+release_onclave_operation_lock() {
+  local owner_file="${onclave_operation_lock}/pid"
+  if [[ -f "${owner_file}" && "$(<"${owner_file}")" == "$$" ]]; then
+    rm -rf -- "${onclave_operation_lock}"
+  fi
+}
+
+run_service_operation() {
+  local mode="$1"
+  local service="$2"
+  if [[ "${service}" != "onclave_onramp" ]]; then
+    run_playbook "${mode}" "${service}"
+    return
+  fi
+
+  mkdir -p "${repo_root}/.tmp"
+  if ! mkdir "${onclave_operation_lock}" 2>/dev/null; then
+    printf 'Another Onclave backup or restore is active. If it is not running, remove %s.\n' \
+      "${onclave_operation_lock}" >&2
+    return 1
+  fi
+  printf '%s\n' "$$" >"${onclave_operation_lock}/pid"
+  trap release_onclave_operation_lock EXIT HUP INT TERM
+
+  local status=0
+  run_playbook "${mode}" "${service}" || status=$?
+  release_onclave_operation_lock
+  trap - EXIT HUP INT TERM
+  return "${status}"
+}
+
 if [[ $# -lt 1 ]]; then
   usage
   exit 2
@@ -229,7 +268,7 @@ case "${command_name}" in
       fi
       for service in "${selected_services[@]}"; do
         printf 'Backing up %s service state...\n' "${service}" >&2
-        run_playbook backup "${service}"
+        run_service_operation backup "${service}"
       done
     else
       if ! is_supported_service "${target}"; then
@@ -240,7 +279,7 @@ case "${command_name}" in
         controller_backups_selected=true
         secure_local_backup_root
       fi
-      run_playbook backup "${target}"
+      run_service_operation backup "${target}"
     fi
     if [[ "${controller_backups_selected}" == true ]]; then
       # Files created through the Docker bind mount may not inherit the host ACL.
@@ -258,13 +297,13 @@ case "${command_name}" in
       printf 'Unsupported service-state target: %s\n' "${service}" >&2
       exit 2
     fi
-    if [[ "${service}" == "onclave_onramp" && "$2" == "latest" ]]; then
-      restore_file="latest"
+    if [[ "${service}" == "onclave_onramp" ]] && is_onclave_device_selector "$2"; then
+      restore_file="$2"
     else
       restore_file="$(container_path "$2")"
     fi
     validate_restore_file "${service}" "${restore_file}"
-    run_playbook restore "${service}"
+    run_service_operation restore "${service}"
     ;;
   restore-if-present)
     if [[ $# -lt 1 || $# -gt 2 ]]; then
@@ -274,6 +313,10 @@ case "${command_name}" in
     service="$1"
     if ! is_supported_service "${service}"; then
       printf 'Unsupported service-state target: %s\n' "${service}" >&2
+      exit 2
+    fi
+    if [[ "${service}" == "onclave_onramp" ]]; then
+      printf 'restore-if-present is controller-backed only; use restore onclave_onramp latest.\n' >&2
       exit 2
     fi
     if [[ $# -eq 2 ]]; then
@@ -291,7 +334,7 @@ case "${command_name}" in
     fi
     restore_file="$(container_path "${local_restore_file}")"
     validate_restore_file "${service}" "${restore_file}"
-    run_playbook restore "${service}"
+    run_service_operation restore "${service}"
     ;;
   *)
     usage

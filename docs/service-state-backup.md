@@ -25,16 +25,22 @@ values/service-backups/<service>/<service>-state-<timestamp>.tar.gz.sha256
 Onclave writes an atomic uncompressed `latest.tar` under its private device
 backup root, restarts the service, and then launches compression with
 `systemd-run --no-block`. The background job uses gzip level 1, writes a
-checksummed timestamped history archive, and retains the newest five compressed
-history archives. The uncompressed `latest.tar` remains available for immediate
-restore.
+checksummed timestamped history archive, and retains five compressed archives
+total: the current snapshot and up to four older snapshots. The checksummed
+uncompressed `latest.tar` remains available for immediate restore.
 
 Restore a controller archive or the device-local Onclave backup with:
 
 ```bash
 scripts/service-state.sh restore hermes values/service-backups/hermes/hermes-state-<timestamp>.tar.gz
 scripts/service-state.sh restore onclave_onramp latest
+scripts/service-state.sh restore onclave_onramp onclave_onramp-state-<timestamp>.tar.gz
 ```
+
+Onclave restore also accepts a reported pre-restore archive basename. Device
+selectors are basenames only; paths and traversal are rejected. Backup and
+restore commands fail immediately when another local Onclave state operation is
+active.
 
 For rebuild/bootstrap automation where a backup may not exist yet, use the
 no-op-on-missing form:
@@ -44,12 +50,13 @@ scripts/service-state.sh restore-if-present hermes
 scripts/service-state.sh restore-if-present hermes values/service-backups/hermes/hermes-state-<timestamp>.tar.gz
 ```
 
-With no archive argument, `restore-if-present` restores the newest normal backup
-for that service when one exists. Pre-restore recovery archives are excluded
-from implicit selection. If no backup exists, it logs a skip message and exits
-successfully.
+With no archive argument, `restore-if-present` restores the newest normal
+controller backup for that service when one exists. Pre-restore recovery
+archives are excluded from implicit selection. If no backup exists, it logs a
+skip message and exits successfully. Onclave rejects `restore-if-present` because
+its device-local archive is an application rollback, not bootstrap state.
 
-Before stopping services, restore verifies the checksum when a sidecar exists,
+Before stopping services, restore requires and verifies device-local checksums,
 checks that the archive belongs to the selected target, rejects unsafe members
 and links, validates the catalog and destination accounts, and requires exactly
 one destination host. It then stops system units followed by user units. Stop
@@ -58,8 +65,8 @@ failures abort before any managed path is changed.
 When current state exists, restore creates a private pre-restore archive before
 removing configured paths. Controller-backed targets stream and checksum it under
 `values/service-backups/<service>/`. Onclave keeps it uncompressed on the Onramp
-host, validates it there, and queues background compression only after a
-successful restore. Restore repairs each path's catalog-declared ownership
+host with a checksum, validates it there, and queues background compression only
+after a successful restore. Restore repairs each path's catalog-declared ownership
 without changing archived modes, then starts user units before system units in
 reverse declared order. A failure before managed path removal restarts managed
 services and exits failed. A failure after mutation leaves services stopped and

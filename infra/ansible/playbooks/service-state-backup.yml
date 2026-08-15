@@ -73,6 +73,7 @@
       ansible.builtin.set_fact:
         service_state_device_backup_root: "{{ service_state_definition.device_backup_root }}"
         service_state_device_latest_archive: "{{ service_state_definition.device_backup_root }}/latest.tar"
+        service_state_device_latest_checksum: "{{ service_state_definition.device_backup_root }}/latest.tar.sha256"
         service_state_device_temporary_archive: >-
           {{ service_state_definition.device_backup_root ~ '/.latest.tar.' ~ service_state_timestamp ~ '.tmp' }}
         service_state_device_pending_archive: >-
@@ -580,6 +581,22 @@
               loop: "{{ service_state_active_user_services }}"
               when: service_state_active_user_services | length > 0
 
+        - name: Calculate device-local latest archive checksum
+          ansible.builtin.command:
+            argv:
+              - sha256sum
+              - "{{ service_state_device_latest_archive }}"
+          register: service_state_device_latest_checksum_result
+          changed_when: false
+
+        - name: Publish device-local latest archive checksum
+          ansible.builtin.copy:
+            dest: "{{ service_state_device_latest_checksum }}"
+            owner: root
+            group: root
+            mode: "0600"
+            content: "{{ service_state_device_latest_checksum_result.stdout.split()[0] }}  latest.tar\n"
+
         - name: Create unique pending input for device-local compression
           ansible.builtin.command:
             argv:
@@ -650,5 +667,6 @@
       ansible.builtin.debug:
         msg: >-
           {{ service_state_service }} state backup written to {{ service_state_device_latest_archive }};
-          compression continues in {{ service_state_device_compression_unit }}.
+          compression continues in {{ service_state_device_compression_unit }} as
+          {{ service_state_device_history_name }}.
       when: service_state_uses_device_backup | bool

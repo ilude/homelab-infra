@@ -187,7 +187,7 @@ class ServiceStateCliTests(unittest.TestCase):
             SERVICE_SCRIPT, "restore", "hermes", "elsewhere/state.tar.gz"
         )
         self.assertEqual(2, archive.returncode)
-        self.assertIn("Restore archive must be under", archive.stderr)
+        self.assertIn("Restore archive must be a valid device selector", archive.stderr)
 
     def test_restore_if_present_missing_archive_is_a_noop(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -236,6 +236,67 @@ class ServiceStateCliTests(unittest.TestCase):
             self.assertIn("SERVICE_STATE_RESTORE_FILE=latest", output)
             self.assertIn("service_state_service='onclave_onramp'", output)
             self.assertFalse((root / "values/service-backups").exists())
+
+    def test_onclave_device_archive_selectors_are_constrained(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = self.make_registry_fixture(root)
+            capture = root / "run-infra.txt"
+            selectors = [
+                "onclave_onramp-state-20260101T000000123456789Z.tar.gz",
+                "onclave_onramp-state-pre-restore-20260101T000000123456789Z.tar",
+                "onclave_onramp-state-pre-restore-20260101T000000123456789Z.tar.gz",
+            ]
+
+            for selector in selectors:
+                result = run_script(
+                    script,
+                    "restore",
+                    "onclave_onramp",
+                    selector,
+                    cwd=root,
+                    env={"CAPTURE_FILE": str(capture)},
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+
+            output = capture.read_text(encoding="utf-8")
+            for selector in selectors:
+                self.assertIn(f"SERVICE_STATE_RESTORE_FILE={selector}", output)
+
+            rejected = run_script(
+                script,
+                "restore",
+                "onclave_onramp",
+                "../onclave_onramp-state-20260101T000000123456789Z.tar.gz",
+                cwd=root,
+            )
+            self.assertEqual(2, rejected.returncode)
+
+    def test_onclave_operations_are_serialized_and_restore_if_present_is_rejected(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = self.make_registry_fixture(root)
+            lock = root / ".tmp/onclave-service-state.lock"
+            lock.mkdir(parents=True)
+            (lock / "pid").write_text("999999\n", encoding="ascii")
+
+            blocked = run_script(
+                script,
+                "backup",
+                "onclave_onramp",
+                cwd=root,
+                env={"CAPTURE_FILE": str(root / "run-infra.txt")},
+            )
+            self.assertEqual(1, blocked.returncode)
+            self.assertIn("Another Onclave backup or restore is active", blocked.stderr)
+
+            rejected = run_script(
+                script, "restore-if-present", "onclave_onramp", cwd=root
+            )
+            self.assertEqual(2, rejected.returncode)
+            self.assertIn("controller-backed only", rejected.stderr)
 
     def test_implicit_selection_excludes_pre_restore_archives(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

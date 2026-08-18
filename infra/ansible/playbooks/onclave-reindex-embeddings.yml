@@ -1,6 +1,11 @@
 ---
+- name: Run verified direct access handoff for the onramp VM
+  ansible.builtin.import_playbook: vm-direct-access-ready.yml
+  vars:
+    direct_vm_access_target_group: onramp_host
+
 - name: Rebuild Onclave YouTube embeddings from stored transcripts
-  hosts: onramp_host_vm
+  hosts: onramp_host
   gather_facts: false
   tasks:
     - name: Resolve Onclave deploy user UID

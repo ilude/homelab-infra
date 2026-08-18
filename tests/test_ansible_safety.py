@@ -829,6 +829,8 @@ class AnsibleSafetyTests(unittest.TestCase):
         options = argument_specs["argument_specs"]["main"]["options"]
         template = (role / "templates" / "onclave.env.j2").read_text(encoding="utf-8")
         self.assertEqual(defaults["onclave_onramp_s3_bucket"], "menos")
+        self.assertEqual(defaults["onclave_onramp_embedding_provider"], "openrouter")
+        self.assertEqual(defaults["onclave_onramp_embedding_model"], "intfloat/e5-large-v2")
         for name in (
             "onclave_onramp_authorized_keys",
             "onclave_onramp_postgres_password",
@@ -867,6 +869,8 @@ class AnsibleSafetyTests(unittest.TestCase):
             "ONCLAVE_VAULT_CALLBACK_URL={{ onclave_onramp_callback_url }}",
             "ONCLAVE_VAULT_CALLBACK_SECRET={{ onclave_onramp_callback_secret }}",
             "ONCLAVE_VAULT_S3_BUCKET={{ onclave_onramp_s3_bucket }}",
+            "ONCLAVE_VAULT_EMBEDDING_PROVIDER={{ onclave_onramp_embedding_provider }}",
+            "ONCLAVE_VAULT_EMBEDDING_MODEL={{ onclave_onramp_embedding_model }}",
         ):
             self.assertIn(key, template)
         for retired_key in (
@@ -1019,13 +1023,14 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertEqual(helpers["ansible.builtin.get_url"]["mode"], "0750")
         model = task_by_name(
-            role_tasks, "Ensure unified Onclave embedding model is available"
+            role_tasks, "Verify configured Onclave embedding provider"
         )
         bucket = task_by_name(
             role_tasks, "Ensure unified Onclave managed MinIO bucket exists"
         )
         self.assertIn("/api/pull", command_text(model))
-        self.assertIn("/api/embeddings", command_text(model))
+        self.assertIn("/api/embed", command_text(model))
+        self.assertIn("https://openrouter.ai/api/v1/embeddings", command_text(model))
         self.assertIn("bucketExists", command_text(bucket))
         self.assertIn("makeBucket", command_text(bucket))
         self.assertTrue(model.get("no_log"))

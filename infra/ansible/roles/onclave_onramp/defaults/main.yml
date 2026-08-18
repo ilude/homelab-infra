@@ -13,6 +13,8 @@ onclave_onramp_max_total_tokens: 200000
 onclave_onramp_s3_bucket: menos
 onclave_onramp_s3_region: us-east-1
 onclave_onramp_openai_api_key: ""
+onclave_onramp_embedding_provider: openrouter
+onclave_onramp_embedding_model: intfloat/e5-large-v2
 onclave_onramp_unified_pipeline_model: ""
 onclave_onramp_callback_url: ""
 onclave_onramp_callback_secret: ""

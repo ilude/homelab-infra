@@ -483,7 +483,7 @@
     quiet: true
   no_log: true
 
-- name: Ensure unified Onclave embedding model is available
+- name: Verify configured Onclave embedding provider
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
@@ -495,21 +495,31 @@
       - --input-type=module
       - -e
       - >-
+        const provider = process.env.ONCLAVE_VAULT_EMBEDDING_PROVIDER || 'ollama';
+        const model = process.env.ONCLAVE_VAULT_EMBEDDING_MODEL || process.env.ONCLAVE_VAULT_OLLAMA_MODEL;
+        let downloaded = false;
+        if (provider === 'openrouter') {
+        const response = await fetch('https://openrouter.ai/api/v1/embeddings',
+        {method: 'POST', headers: {authorization: 'Bearer ' + process.env.ONCLAVE_VAULT_OPENROUTER_API_KEY,
+        'content-type': 'application/json'}, body: JSON.stringify({model, input: ['deployment readiness']})});
+        const body = response.ok ? await response.json() : {};
+        if (!response.ok || !Array.isArray(body.data) || body.data[0]?.embedding?.length !== 1024)
+        throw new Error('OpenRouter embedding verification failed');
+        } else if (provider === 'ollama') {
         const base = process.env.ONCLAVE_VAULT_OLLAMA_URL.replace(/\/$/, '');
-        const model = process.env.ONCLAVE_VAULT_OLLAMA_MODEL;
         const tags = await fetch(base + '/api/tags').then(response => response.json());
         const names = new Set((tags.models || []).map(item => item.name));
         const present = names.has(model) || names.has(model + ':latest');
         if (!present) { const response = await fetch(base + '/api/pull',
         {method: 'POST', headers: {'content-type': 'application/json'},
         body: JSON.stringify({name: model, stream: false})}); if (!response.ok) throw new Error('Ollama model pull failed'); }
-        const verified = await fetch(base + '/api/tags').then(response => response.json());
-        const verifiedNames = new Set((verified.models || []).map(item => item.name));
-        if (!verifiedNames.has(model) && !verifiedNames.has(model + ':latest')) throw new Error('Ollama model unavailable');
-        const warmup = await fetch(base + '/api/embeddings', {method: 'POST',
-        headers: {'content-type': 'application/json'}, body: JSON.stringify({model, prompt: 'deployment readiness'})});
-        if (!warmup.ok || (await warmup.json()).embedding.length !== 1024) throw new Error('Ollama embedding warmup failed');
-        console.log(JSON.stringify({downloaded: !present, warmed: true}));
+        downloaded = !present;
+        const warmup = await fetch(base + '/api/embed', {method: 'POST',
+        headers: {'content-type': 'application/json'}, body: JSON.stringify({model, input: 'deployment readiness', truncate: true})});
+        const body = warmup.ok ? await warmup.json() : {};
+        if (!warmup.ok || body.embeddings?.[0]?.length !== 1024) throw new Error('Ollama embedding verification failed');
+        } else { throw new Error('Unsupported embedding provider: ' + provider); }
+        console.log(JSON.stringify({provider, downloaded, verified: true}));
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_embedding_model

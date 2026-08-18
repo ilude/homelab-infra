@@ -145,6 +145,15 @@ argument_specs:
       onclave_onramp_openai_api_key:
         type: str
         required: false
+      onclave_onramp_embedding_provider:
+        type: str
+        required: false
+        choices:
+          - ollama
+          - openrouter
+      onclave_onramp_embedding_model:
+        type: str
+        required: false
       onclave_onramp_unified_pipeline_model:
         type: str
         required: false

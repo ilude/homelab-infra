@@ -1,0 +1,210 @@
+---
+- name: Prepare verified direct access for the Onramp VM
+  ansible.builtin.import_playbook: vm-direct-access-ready.yml
+  vars:
+    direct_vm_access_target_group: onramp_host
+
+- name: Roll out only the Onclave core Compose service
+  hosts: onramp_host
+  gather_facts: false
+  become: true
+  vars:
+    onclave_core_rollout_base_dir: "{{ onramp_host_deploy_dir }}/onclave"
+    onclave_core_rollout_compose: "{{ onclave_core_rollout_base_dir }}/compose.yaml"
+    onclave_core_rollout_env: "{{ onclave_core_rollout_base_dir }}/.env"
+    onclave_core_rollout_override: "{{ onclave_core_rollout_base_dir }}/.core-rollout.override.yaml"
+    onclave_core_rollout_provider: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
+    onclave_core_rollout_port: "{{ onclave_onramp_core_port | default(18080) }}"
+    onclave_core_rollout_image: >-
+      {{ onclave_core_rollout_image_repository }}:{{ onclave_core_rollout_image_tag
+      }}@{{ onclave_core_rollout_image_digest }}
+    onclave_core_rollout_redactor: /tmp/onclave-core-log-redactor.py
+  pre_tasks:
+    - name: Validate core-only rollout inputs
+      ansible.builtin.assert:
+        that:
+          - onclave_core_rollout_mode in ['desired', 'rollback']
+          - onclave_core_rollout_expected_sha is match('^[0-9a-f]{40}$')
+          - onclave_core_rollout_image_repository is match('^ghcr.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
+          - onclave_core_rollout_image_tag == onclave_core_rollout_expected_sha
+          - onclave_core_rollout_image_digest is match('^sha256:[0-9a-f]{64}$')
+          - onclave_core_rollout_port | int > 0
+          - onclave_core_rollout_port | int < 65536
+        fail_msg: "Core-only rollout pins or mode are invalid."
+
+    - name: Resolve the rootless deploy user UID
+      ansible.builtin.command:
+        argv:
+          - id
+          - -u
+          - "{{ onramp_host_deploy_user }}"
+      register: onclave_core_rollout_uid
+      changed_when: false
+
+    - name: Install ephemeral core log redactor
+      ansible.builtin.copy:
+        content: "{{ lookup('file', playbook_dir ~ '/../../../scripts/redact-core-logs.py') }}"
+        dest: "{{ onclave_core_rollout_redactor }}"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        mode: "0700"
+
+  tasks:
+    - name: Deploy and validate only onclave-core
+      become: true
+      become_user: "{{ onramp_host_deploy_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ onclave_core_rollout_uid.stdout | trim }}"
+      block:
+        - name: Verify the existing Onclave Compose project is present
+          ansible.builtin.stat:
+            path: "{{ onclave_core_rollout_compose }}"
+          register: onclave_core_rollout_compose_stat
+
+        - name: Fail closed when the existing Compose project is absent
+          ansible.builtin.assert:
+            that:
+              - onclave_core_rollout_compose_stat.stat.exists
+              - onclave_core_rollout_compose_stat.stat.isreg
+            fail_msg: "The existing Onclave Compose project is required for a core-only rollout."
+
+        - name: Persist the selected core image pins
+          ansible.builtin.lineinfile:
+            path: "{{ onclave_core_rollout_env }}"
+            regexp: "^{{ item.key }}="
+            line: "{{ item.key }}={{ item.value }}"
+          loop:
+            - key: ONCLAVE_CORE_IMAGE_REPOSITORY
+              value: "{{ onclave_core_rollout_image_repository }}"
+            - key: ONCLAVE_CORE_IMAGE_TAG
+              value: "{{ onclave_core_rollout_image_tag }}"
+            - key: ONCLAVE_CORE_IMAGE_DIGEST
+              value: "{{ onclave_core_rollout_image_digest }}"
+
+        - name: Persist the selected core source revision
+          ansible.builtin.lineinfile:
+            path: "{{ onclave_core_rollout_compose }}"
+            regexp: '^(\s+GIT_SHA:\s*).*$'
+            line: '\g<1>{{ onclave_core_rollout_expected_sha }}'
+            backrefs: true
+
+        - name: Render a core-only immutable image override
+          ansible.builtin.copy:
+            content: |
+              services:
+                onclave-core:
+                  image: {{ onclave_core_rollout_image }}
+                  environment:
+                    GIT_SHA: {{ onclave_core_rollout_expected_sha }}
+            dest: "{{ onclave_core_rollout_override }}"
+            owner: "{{ onramp_host_deploy_user }}"
+            group: "{{ onramp_host_deploy_user }}"
+            mode: "0600"
+
+        - name: Pull only the pinned core image
+          ansible.builtin.command:
+            argv:
+              - "{{ onclave_core_rollout_provider }}"
+              - -f
+              - "{{ onclave_core_rollout_compose }}"
+              - -f
+              - "{{ onclave_core_rollout_override }}"
+              - pull
+              - onclave-core
+            args:
+              chdir: "{{ onclave_core_rollout_base_dir }}"
+
+        - name: Recreate only onclave-core without dependencies
+          ansible.builtin.command:
+            argv:
+              - "{{ onclave_core_rollout_provider }}"
+              - -f
+              - "{{ onclave_core_rollout_compose }}"
+              - -f
+              - "{{ onclave_core_rollout_override }}"
+              - up
+              - -d
+              - --no-deps
+              - onclave-core
+            args:
+              chdir: "{{ onclave_core_rollout_base_dir }}"
+
+        - name: Validate core health, source revision, broker state, and lifecycle
+          ansible.builtin.shell: |
+            set -euo pipefail
+            core_id="$({{ onclave_core_rollout_provider }} -f {{ onclave_core_rollout_compose | quote }} -f {{ onclave_core_rollout_override | quote }} ps -q onclave-core | head -n 1)"
+            test -n "$core_id"
+            for attempt in $(seq 1 120); do
+              state="$(podman inspect --format '{{ '{{' }}.State.Status{{ '}}' }} {{ '{{' }}.State.ExitCode{{ '}}' }} {{ '{{' }}.RestartCount{{ '}}' }}' "$core_id" 2>/dev/null || true)"
+              read -r status exit_code restart_count <<< "$state"
+              if [[ "$status" != running || "$exit_code" != 0 || "$restart_count" != 0 ]]; then
+                printf 'core lifecycle failed: status=%s exit=%s restarts=%s\n' "$status" "$exit_code" "$restart_count" >&2
+                exit 1
+              fi
+              if body="$(curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:{{ onclave_core_rollout_port }}/health" 2>/dev/null)" \
+                && python3 - "{{ onclave_core_rollout_expected_sha }}" "$body" <<'PY'
+            import json
+            import sys
+            try:
+                health = json.loads(sys.argv[2])
+            except (json.JSONDecodeError, IndexError):
+                raise SystemExit(1)
+            raise SystemExit(not (
+                health.get("status") == "ok"
+                and health.get("git_sha") == sys.argv[1]
+                and health.get("broker", {}).get("connected") is True
+            ))
+            PY
+              then
+                printf 'core health validated\n'
+                exit 0
+              fi
+              sleep 1
+            done
+            printf 'core health validation timed out\n' >&2
+            exit 1
+          args:
+            chdir: "{{ onclave_core_rollout_base_dir }}"
+            executable: /bin/bash
+          changed_when: false
+
+      rescue:
+        - name: Capture bounded redacted core logs
+          ansible.builtin.shell: |
+            set -o pipefail
+            core_id="$({{ onclave_core_rollout_provider }} -f {{ onclave_core_rollout_compose | quote }} -f {{ onclave_core_rollout_override | quote }} ps -q onclave-core | head -n 1 || true)"
+            if [[ -n "$core_id" ]]; then
+              podman logs --tail 200 "$core_id" 2>&1 | python3 "{{ onclave_core_rollout_redactor }}"
+            else
+              printf 'onclave-core container was not found\n'
+            fi
+          args:
+            chdir: "{{ onclave_core_rollout_base_dir }}"
+            executable: /bin/bash
+          register: onclave_core_rollout_failure_logs
+          changed_when: false
+          failed_when: false
+
+        - name: Fail the core rollout after bounded diagnostics
+          ansible.builtin.fail:
+            msg: >-
+              Onclave core {{ onclave_core_rollout_mode }} validation failed.
+              Bounded redacted logs follow:
+              {{ onclave_core_rollout_failure_logs.stdout | default('no logs captured') }}
+
+      always:
+        - name: Remove the temporary core-only override
+          ansible.builtin.file:
+            path: "{{ onclave_core_rollout_override }}"
+            state: absent
+
+        - name: Remove ephemeral core log redactor after the attempt
+          ansible.builtin.file:
+            path: "{{ onclave_core_rollout_redactor }}"
+            state: absent
+
+  post_tasks:
+    - name: Remove ephemeral core log redactor
+      ansible.builtin.file:
+        path: "{{ onclave_core_rollout_redactor }}"
+        state: absent

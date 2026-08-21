@@ -13,6 +13,7 @@ Public-safe documentation for this homelab infrastructure runbook.
 - [Onramp app-platform contract](onramp-app-platform-contract.md) defines the `homelab-infra`, `onramp-vNext`, and Hermes ownership split for onramp-host services.
 - [Debian baseline](debian-baseline.md) documents the verified Debian 13 LXC baseline and the separately pinned Debian 13 onramp-host image.
 - [App-host runbook](onramp-host-runbook.md) covers `onramp_host` and its remaining app workloads.
+- [Onclave core-only rollout](onclave-core-rollout.md) documents the bounded managed core deployment and rollback path.
 - [Service update policy](service-update-policy.md) defines the managed update workflow and the target model for Technitium version/checksum management.
 
 ## Workflow reminder

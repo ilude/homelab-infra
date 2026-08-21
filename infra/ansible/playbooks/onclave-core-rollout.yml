@@ -111,8 +111,8 @@
               - "{{ onclave_core_rollout_override }}"
               - pull
               - onclave-core
-            args:
-              chdir: "{{ onclave_core_rollout_base_dir }}"
+          args:
+            chdir: "{{ onclave_core_rollout_base_dir }}"
 
         - name: Recreate only onclave-core without dependencies
           ansible.builtin.command:
@@ -126,13 +126,13 @@
               - -d
               - --no-deps
               - onclave-core
-            args:
-              chdir: "{{ onclave_core_rollout_base_dir }}"
+          args:
+            chdir: "{{ onclave_core_rollout_base_dir }}"
 
         - name: Validate core health, source revision, broker state, and lifecycle
           ansible.builtin.shell: |
             set -euo pipefail
-            core_id="$({{ onclave_core_rollout_provider }} -f {{ onclave_core_rollout_compose | quote }} -f {{ onclave_core_rollout_override | quote }} ps -q onclave-core | head -n 1)"
+            core_id="$(podman ps --filter label=io.podman.compose.service=onclave-core --quiet | head -n 1)"
             test -n "$core_id"
             for attempt in $(seq 1 120); do
               state="$(podman inspect --format '{{ '{{' }}.State.Status{{ '}}' }} {{ '{{' }}.State.ExitCode{{ '}}' }} {{ '{{' }}.RestartCount{{ '}}' }}' "$core_id" 2>/dev/null || true)"
@@ -172,7 +172,7 @@
         - name: Capture bounded redacted core logs
           ansible.builtin.shell: |
             set -o pipefail
-            core_id="$({{ onclave_core_rollout_provider }} -f {{ onclave_core_rollout_compose | quote }} -f {{ onclave_core_rollout_override | quote }} ps -q onclave-core | head -n 1 || true)"
+            core_id="$(podman ps -a --filter label=io.podman.compose.service=onclave-core --quiet | head -n 1 || true)"
             if [[ -n "$core_id" ]]; then
               podman logs --tail 200 "$core_id" 2>&1 | python3 "{{ onclave_core_rollout_redactor }}"
             else

@@ -226,7 +226,7 @@ def run_playbook(mode: str, values_dir: Path, pins: Mapping[str, str]) -> None:
 
 
 def update_bws_inventory(expected: str, replacement: str, bws) -> None:
-    settings = Path(os.environ["INFRA_SETTINGS_FILE"])
+    settings = REPO / "settings.local.json"
     locator = bws.load_locator(settings)
     records = bws.list_bws_records_with_ids(locator, os.environ.get("BITWARDEN_ACCESS_KEY", ""))
     record = records.get(INVENTORY_FAMILY)
@@ -245,7 +245,7 @@ def update_bws_inventory(expected: str, replacement: str, bws) -> None:
 
 
 def restore_bws_inventory(old: str, desired: str, bws) -> None:
-    settings = Path(os.environ["INFRA_SETTINGS_FILE"])
+    settings = REPO / "settings.local.json"
     locator = bws.load_locator(settings)
     records = bws.list_bws_records_with_ids(locator, os.environ.get("BITWARDEN_ACCESS_KEY", ""))
     record = records.get(INVENTORY_FAMILY)

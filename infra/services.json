@@ -229,7 +229,8 @@
           "herdr_allowed_ssh_cidrs": "herdr_allowed_ssh_cidrs"
         }
       },
-      "terraform_module": "herdr"
+      "terraform_module": "herdr",
+      "runtime_profile": "config"
     },
     "onramp_host": {
       "runtime_profile": "config",

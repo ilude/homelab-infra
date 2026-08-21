@@ -51,6 +51,7 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
                 "forgejo_runner",
                 "infisical",
                 "hermes",
+                "herdr",
             },
         )
         waves = apply_ansible_services.dependency_waves(sorted(direct_lxc_services))

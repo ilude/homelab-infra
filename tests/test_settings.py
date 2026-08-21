@@ -95,6 +95,7 @@ class SettingsTests(unittest.TestCase):
             "infisical": "config",
             "infisical_onramp": "config",
             "hermes": "config",
+            "herdr": "config",
             "onramp_host": "config",
             "searxng_onramp": "onclave",
             "onclave_onramp": "onclave",

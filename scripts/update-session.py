@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Create and validate local update-run journal episode evidence."""
+"""Record advisory evidence while observing one existing public recipe at a time.
+
+This optional diagnostic never owns or advances the update workflow.
+"""
 from __future__ import annotations
 
 import argparse
@@ -95,15 +98,6 @@ def restricted_mode(path: Path, mode: int) -> None:
         path.chmod(mode)
     except OSError:
         pass
-
-
-@dataclass(frozen=True)
-class ReducedCommand:
-    command_id: str
-    event_id: str
-    sequence: int
-    status: str
-    failure_code: str | None
 
 
 class EpisodeLock:
@@ -482,20 +476,6 @@ def validate_events(events: Iterable[dict[str, Any]], episode_id: str, episode_d
                 raise JournalError("reflection_completed is invalid")
 
 
-def reduce_commands(events: Iterable[dict[str, Any]]) -> list[ReducedCommand]:
-    starts: dict[str, dict[str, Any]] = {}
-    reduced: list[ReducedCommand] = []
-    for event in sorted(events, key=lambda item: item["sequence"]):
-        if event["event_type"] == "command_started":
-            starts[event["command_id"]] = event
-        elif event["event_type"] in {"command_completed", "command_interrupted", "command_spawn_failed"}:
-            starts.pop(event["command_id"], None)
-            reduced.append(ReducedCommand(event["command_id"], event["event_id"], event["sequence"], event["status"], event["failure_code"]))
-    for event in starts.values():
-        reduced.append(ReducedCommand(event["command_id"], event["event_id"], event["sequence"], "incomplete", "interrupted-unknown"))
-    return sorted(reduced, key=lambda item: item.sequence)
-
-
 RECOMMENDATIONS = {
     "spawn-not-found": "preflight",
     "spawn-denied": "preflight",
@@ -758,7 +738,7 @@ RECIPE_BOUNDARIES = {
 
 
 class RecipeRunner:
-    """Observe one immutable public recipe without capturing its output."""
+    """Observe one existing public recipe without owning or advancing workflow."""
 
     def __init__(
         self,
@@ -946,10 +926,14 @@ def repository_root() -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Observe one existing public recipe at a time; never advance the update workflow."
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("start")
-    run_parser = subparsers.add_parser("run")
+    run_parser = subparsers.add_parser(
+        "run", help="observe one existing public recipe without advancing the workflow"
+    )
     run_parser.add_argument("--episode", required=True)
     run_parser.add_argument("recipe", choices=tuple(sorted(RECIPES)))
     for command in ("reflect", "verify"):

@@ -97,7 +97,9 @@ class JournalTests(unittest.TestCase):
                 command_id="command-1", recipe="validate", command_argv=["just", "validate"],
                 mutation_boundaries=["episode_files"],
             ))
-            reduced = journal_module.reduce_commands(journal.read_events())
+            reduced = journal_module.report_commands(journal.read_events())
+            self.assertEqual(len(reduced), 1)
+            self.assertEqual(reduced[0].event["command_id"], "command-1")
             self.assertEqual(reduced[0].status, "incomplete")
             self.assertEqual(reduced[0].failure_code, "interrupted-unknown")
 

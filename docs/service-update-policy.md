@@ -13,7 +13,7 @@ just apply
 
 ## Local update-run journal
 
-Use the host-side journal only to observe one existing public recipe at a time:
+The host-side journal is an optional diagnostic. Each `run` invocation observes exactly one existing public recipe at a time. It never owns or advances the update workflow, chooses another recipe, or runs `apply`:
 
 ```bash
 episode_id="$(scripts/host-python.sh scripts/update-session.py start)"
@@ -22,7 +22,7 @@ scripts/host-python.sh scripts/update-session.py reflect --episode "$episode_id"
 scripts/host-python.sh scripts/update-session.py verify --episode "$episode_id"
 ```
 
-Run later `validate` or `plan` observations explicitly with the same episode ID; the journal never advances the workflow or runs `apply`. Episode files under `.tmp/update-runs/` are sensitive local operational data. Windows ACLs do not guarantee confidentiality, so inspect the exact ignored episode before manually purging it. The journal does not persist command output, environment values, or private inventory; it stores only structured command and report metadata. A successful `plan` observation only records that `just plan` exited successfully and does not mean the plan is reviewed, safe, or approved for apply.
+Run later `validate` or `plan` observations explicitly with the same episode ID; the operator retains ownership of the workflow and its review boundaries. Episode files under `.tmp/update-runs/` are sensitive local operational data. Windows ACLs do not guarantee confidentiality, so inspect the exact ignored episode before manually purging it. The journal does not persist command output, environment values, or private inventory; it stores only structured command and report metadata. A successful `plan` observation only records that `just plan` exited successfully and does not mean the plan is reviewed, safe, or approved for apply.
 
 ## Managed pins
 

@@ -98,6 +98,15 @@
 - name: Flush FreeLLMAPI restarts before endpoint checks
   ansible.builtin.meta: flush_handlers
 
+- name: Verify FreeLLMAPI service activation
+  ansible.builtin.include_role:
+    name: onramp_service_activation
+  vars:
+    onramp_service_unit_name: freellmapi-onramp.service
+    onramp_service_deploy_user: "{{ onramp_host_deploy_user }}"
+    onramp_service_uid: "{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+    onramp_service_runtime_dir: "/run/user/{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+
 - name: Verify FreeLLMAPI loopback health endpoint
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ freellmapi_onramp_host_port }}/api/ping"

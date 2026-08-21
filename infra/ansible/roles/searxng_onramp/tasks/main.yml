@@ -116,34 +116,14 @@
 - name: Flush SearXNG service restarts before endpoint checks
   ansible.builtin.meta: flush_handlers
 
-- name: Verify SearXNG rootless service is active
-  become: true
-  become_user: "{{ onramp_host_deploy_user }}"
-  ansible.builtin.command:
-    argv:
-      - systemctl
-      - --user
-      - is-active
-      - searxng-onramp.service
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
-  changed_when: false
-  register: searxng_onramp_service_active
-  retries: 6
-  delay: 5
-  until: searxng_onramp_service_active.rc == 0
-
-- name: Verify SearXNG Caddy service is active
-  ansible.builtin.command:
-    argv:
-      - systemctl
-      - is-active
-      - caddy
-  changed_when: false
-  register: searxng_onramp_caddy_active
-  retries: 6
-  delay: 5
-  until: searxng_onramp_caddy_active.rc == 0
+- name: Verify SearXNG service activation
+  ansible.builtin.include_role:
+    name: onramp_service_activation
+  vars:
+    onramp_service_unit_name: searxng-onramp.service
+    onramp_service_deploy_user: "{{ onramp_host_deploy_user }}"
+    onramp_service_uid: "{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
+    onramp_service_runtime_dir: "/run/user/{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
 
 - name: Verify SearXNG loopback health endpoint
   ansible.builtin.uri:

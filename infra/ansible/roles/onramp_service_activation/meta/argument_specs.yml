@@ -1,0 +1,21 @@
+---
+argument_specs:
+  main:
+    short_description: "Fail fast when an Onramp service or shared Caddy is inactive."
+    options:
+      onramp_service_unit_name:
+        type: str
+        required: true
+        description: "Validated rootless systemd user unit name, including .service."
+      onramp_service_deploy_user:
+        type: str
+        required: true
+        description: "Non-root user that owns and runs the rootless service."
+      onramp_service_uid:
+        type: str
+        required: true
+        description: "Numeric UID used to locate the user's systemd runtime."
+      onramp_service_runtime_dir:
+        type: path
+        required: true
+        description: "The matching /run/user/<UID> systemd runtime directory."

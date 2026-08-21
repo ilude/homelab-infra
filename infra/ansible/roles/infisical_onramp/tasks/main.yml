@@ -124,34 +124,14 @@
 - name: Flush Infisical onramp restarts before endpoint checks
   ansible.builtin.meta: flush_handlers
 
-- name: Verify Infisical onramp rootless service is active
-  become: true
-  become_user: "{{ onramp_host_deploy_user }}"
-  ansible.builtin.command:
-    argv:
-      - systemctl
-      - --user
-      - is-active
-      - infisical-onramp.service
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ infisical_onramp_deploy_user_uid.stdout | trim }}"
-  changed_when: false
-  register: infisical_onramp_service_active
-  retries: 6
-  delay: 5
-  until: infisical_onramp_service_active.rc == 0
-
-- name: Verify Infisical onramp Caddy service is active
-  ansible.builtin.command:
-    argv:
-      - systemctl
-      - is-active
-      - caddy
-  changed_when: false
-  register: infisical_onramp_caddy_active
-  retries: 6
-  delay: 5
-  until: infisical_onramp_caddy_active.rc == 0
+- name: Verify Infisical onramp service activation
+  ansible.builtin.include_role:
+    name: onramp_service_activation
+  vars:
+    onramp_service_unit_name: infisical-onramp.service
+    onramp_service_deploy_user: "{{ onramp_host_deploy_user }}"
+    onramp_service_uid: "{{ infisical_onramp_deploy_user_uid.stdout | trim }}"
+    onramp_service_runtime_dir: "/run/user/{{ infisical_onramp_deploy_user_uid.stdout | trim }}"
 
 - name: Verify Infisical onramp loopback endpoint
   ansible.builtin.uri:

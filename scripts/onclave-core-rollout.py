@@ -225,7 +225,11 @@ def run_playbook(mode: str, values_dir: Path, pins: Mapping[str, str]) -> None:
         raise RolloutError(f"Onclave core playbook failed in {mode} mode")
 
 
-def update_bws_inventory(expected: str, replacement: str, bws) -> None:
+def update_bws_inventory(
+    expected_pins: Mapping[str, str],
+    replacement_pins: Mapping[str, str],
+    bws,
+) -> tuple[str, str]:
     settings = REPO / "settings.local.json"
     locator = bws.load_locator(settings)
     records = bws.list_bws_records_with_ids(locator, os.environ.get("BITWARDEN_ACCESS_KEY", ""))
@@ -233,8 +237,18 @@ def update_bws_inventory(expected: str, replacement: str, bws) -> None:
     if record is None:
         raise RolloutError(f"BWS is missing {INVENTORY_FAMILY}")
     secret_id, current = record
-    if current != expected:
-        raise RolloutError("BWS inventory changed during rollout; refusing overwrite")
+    manifest = bws.load_manifest()
+    family = next(family for family in manifest.families if family.key == INVENTORY_FAMILY)
+    current_text = bws.decode_family(family, current)
+
+    def parse(text: str, key: str):
+        return bws.parse_yaml(text, key)
+
+    if pin_values(current_text, parse) != dict(expected_pins):
+        raise RolloutError("BWS Onclave pins changed during rollout; refusing overwrite")
+    replacement_text = update_inventory_pins(current_text, replacement_pins)
+    assert_only_pins_changed(current_text, replacement_text, parse)
+    replacement = bws.encode_family(family, replacement_text)
     bws.edit_bws_secret(
         locator,
         os.environ.get("BITWARDEN_ACCESS_KEY", ""),
@@ -242,6 +256,7 @@ def update_bws_inventory(expected: str, replacement: str, bws) -> None:
         INVENTORY_FAMILY,
         replacement,
     )
+    return current, replacement
 
 
 def restore_bws_inventory(old: str, desired: str, bws) -> None:
@@ -344,15 +359,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     record = record_path(args.record_dir)
     write_record(record, "planned", previous, desired)
-    old_encoded = bws.read_source_values(values_dir.parent, bws.load_manifest())[INVENTORY_FAMILY]
     inventory_path.write_text(inventory_after, encoding="utf-8")
-    new_encoded = bws.read_source_values(values_dir.parent, bws.load_manifest())[INVENTORY_FAMILY]
+    old_encoded = ""
+    new_encoded = ""
     bws_updated = False
+    deployment_started = False
     try:
-        update_bws_inventory(old_encoded, new_encoded, bws)
+        old_encoded, new_encoded = update_bws_inventory(previous, desired, bws)
         bws_updated = True
         desired_playbook_pins = dict(desired)
         desired_playbook_pins["onclave_core_image_repository"] = repository
+        deployment_started = True
         run_playbook("desired", values_dir, desired_playbook_pins)
     except Exception as error:
         rollback_error = None
@@ -362,13 +379,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             except Exception as restore_error:
                 # Report both boundaries without hiding the first failure.
                 rollback_error = restore_error
-        try:
-            inventory_path.write_text(inventory_before, encoding="utf-8")
-            old_playbook_pins = dict(previous)
-            old_playbook_pins["onclave_core_image_repository"] = repository
-            run_playbook("rollback", values_dir, old_playbook_pins)
-        except Exception as redeploy_error:
-            rollback_error = rollback_error or redeploy_error
+        inventory_path.write_text(inventory_before, encoding="utf-8")
+        if deployment_started:
+            try:
+                old_playbook_pins = dict(previous)
+                old_playbook_pins["onclave_core_image_repository"] = repository
+                run_playbook("rollback", values_dir, old_playbook_pins)
+            except Exception as redeploy_error:
+                rollback_error = rollback_error or redeploy_error
         rollback_status = "rolled_back" if rollback_error is None else "rollback-failed"
         write_record(record, rollback_status, previous, desired)
         detail = f"Onclave core rollout failed and rollback was attempted: {error}"

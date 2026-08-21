@@ -120,10 +120,10 @@
   ansible.builtin.include_role:
     name: onramp_service_activation
   vars:
-    onramp_service_unit_name: searxng-onramp.service
-    onramp_service_deploy_user: "{{ onramp_host_deploy_user }}"
-    onramp_service_uid: "{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
-    onramp_service_runtime_dir: "/run/user/{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
+    onramp_service_activation_unit_name: searxng-onramp.service
+    onramp_service_activation_deploy_user: "{{ onramp_host_deploy_user }}"
+    onramp_service_activation_uid: "{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
+    onramp_service_activation_runtime_dir: "/run/user/{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
 
 - name: Verify SearXNG loopback health endpoint
   ansible.builtin.uri:

@@ -2,33 +2,33 @@
 - name: Validate Onramp service activation inputs
   ansible.builtin.assert:
     that:
-      - onramp_service_unit_name is string
-      - onramp_service_unit_name is match('^[A-Za-z0-9_.:@-]+\\.service$')
-      - onramp_service_deploy_user is string
-      - onramp_service_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
-      - onramp_service_deploy_user != 'root'
-      - (onramp_service_uid | string) is match('^[1-9][0-9]{0,9}$')
-      - onramp_service_runtime_dir is string
-      - onramp_service_runtime_dir is match('^/run/user/[1-9][0-9]{0,9}$')
-      - onramp_service_runtime_dir == ('/run/user/' ~ (onramp_service_uid | string))
+      - onramp_service_activation_unit_name is string
+      - onramp_service_activation_unit_name is match('^[A-Za-z0-9_.:@-]+\\.service$')
+      - onramp_service_activation_deploy_user is string
+      - onramp_service_activation_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_service_activation_deploy_user != 'root'
+      - (onramp_service_activation_uid | string) is match('^[1-9][0-9]{0,9}$')
+      - onramp_service_activation_runtime_dir is string
+      - onramp_service_activation_runtime_dir is match('^/run/user/[1-9][0-9]{0,9}$')
+      - onramp_service_activation_runtime_dir == ('/run/user/' ~ (onramp_service_activation_uid | string))
     fail_msg: >-
       Onramp service activation requires a valid systemd unit, non-root deploy
       user, numeric user ID, and matching /run/user runtime directory.
 
 - name: Check Onramp rootless systemd user unit activation
   become: true
-  become_user: "{{ onramp_service_deploy_user }}"
+  become_user: "{{ onramp_service_activation_deploy_user }}"
   ansible.builtin.command:
     argv:
       - systemctl
       - --user
       - is-active
-      - "{{ onramp_service_unit_name }}"
+      - "{{ onramp_service_activation_unit_name }}"
   environment:
-    XDG_RUNTIME_DIR: "{{ onramp_service_runtime_dir }}"
+    XDG_RUNTIME_DIR: "{{ onramp_service_activation_runtime_dir }}"
   changed_when: false
   failed_when: false
-  register: onramp_service_unit_active
+  register: onramp_service_activation_unit_active
 
 - name: Check shared Caddy systemd unit activation
   become: true
@@ -39,11 +39,11 @@
       - caddy
   changed_when: false
   failed_when: false
-  register: onramp_caddy_active
+  register: onramp_service_activation_caddy_active
 
 - name: Collect bounded Onramp user unit status evidence
   become: true
-  become_user: "{{ onramp_service_deploy_user }}"
+  become_user: "{{ onramp_service_activation_deploy_user }}"
   ansible.builtin.command:
     argv:
       - systemctl
@@ -51,13 +51,13 @@
       - show
       - --no-pager
       - --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus
-      - "{{ onramp_service_unit_name }}"
+      - "{{ onramp_service_activation_unit_name }}"
   environment:
-    XDG_RUNTIME_DIR: "{{ onramp_service_runtime_dir }}"
+    XDG_RUNTIME_DIR: "{{ onramp_service_activation_runtime_dir }}"
   changed_when: false
   failed_when: false
-  register: onramp_service_unit_status
-  when: onramp_service_unit_active.rc != 0
+  register: onramp_service_activation_unit_status
+  when: onramp_service_activation_unit_active.rc != 0
 
 - name: Collect bounded Caddy status evidence
   become: true
@@ -70,16 +70,16 @@
       - caddy
   changed_when: false
   failed_when: false
-  register: onramp_caddy_status
-  when: onramp_caddy_active.rc != 0
+  register: onramp_service_activation_caddy_status
+  when: onramp_service_activation_caddy_active.rc != 0
 
 - name: Fail when an Onramp service is not active
   ansible.builtin.assert:
     that:
-      - onramp_service_unit_active.rc == 0
-      - onramp_caddy_active.rc == 0
+      - onramp_service_activation_unit_active.rc == 0
+      - onramp_service_activation_caddy_active.rc == 0
     fail_msg: >-
-      Onramp activation failed: {{ onramp_service_unit_name }} is-active rc={{ onramp_service_unit_active.rc }}
-      status={{ onramp_service_unit_status.stdout | default('not collected') | trim }};
-      caddy is-active rc={{ onramp_caddy_active.rc }}
-      status={{ onramp_caddy_status.stdout | default('not collected') | trim }}.
+      Onramp activation failed: {{ onramp_service_activation_unit_name }} is-active rc={{ onramp_service_activation_unit_active.rc }}
+      status={{ onramp_service_activation_unit_status.stdout | default('not collected') | trim }};
+      caddy is-active rc={{ onramp_service_activation_caddy_active.rc }}
+      status={{ onramp_service_activation_caddy_status.stdout | default('not collected') | trim }}.

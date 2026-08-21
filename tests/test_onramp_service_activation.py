@@ -49,10 +49,10 @@ class OnrampServiceActivationTests(unittest.TestCase):
         self.assertEqual(
             set(specs),
             {
-                "onramp_service_unit_name",
-                "onramp_service_deploy_user",
-                "onramp_service_uid",
-                "onramp_service_runtime_dir",
+                "onramp_service_activation_unit_name",
+                "onramp_service_activation_deploy_user",
+                "onramp_service_activation_uid",
+                "onramp_service_activation_runtime_dir",
             },
         )
         self.assertTrue(all(option["required"] for option in specs.values()))
@@ -103,8 +103,8 @@ class OnrampServiceActivationTests(unittest.TestCase):
         self.assertEqual(
             final["ansible.builtin.assert"]["that"],
             [
-                "onramp_service_unit_active.rc == 0",
-                "onramp_caddy_active.rc == 0",
+                "onramp_service_activation_unit_active.rc == 0",
+                "onramp_service_activation_caddy_active.rc == 0",
             ],
         )
         self.assertIn("status=", final["ansible.builtin.assert"]["fail_msg"])
@@ -123,13 +123,13 @@ class OnrampServiceActivationTests(unittest.TestCase):
             include = activation["ansible.builtin.include_role"]
             self.assertEqual(include["name"], "onramp_service_activation")
             variables = activation["vars"]
-            self.assertEqual(variables["onramp_service_unit_name"], unit_name)
+            self.assertEqual(variables["onramp_service_activation_unit_name"], unit_name)
             self.assertEqual(
-                variables["onramp_service_deploy_user"],
+                variables["onramp_service_activation_deploy_user"],
                 "{{ onramp_host_deploy_user }}",
             )
-            self.assertIn(uid_register, variables["onramp_service_uid"])
-            self.assertIn(uid_register, variables["onramp_service_runtime_dir"])
+            self.assertIn(uid_register, variables["onramp_service_activation_uid"])
+            self.assertIn(uid_register, variables["onramp_service_activation_runtime_dir"])
 
             flush_index = next(
                 index

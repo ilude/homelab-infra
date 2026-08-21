@@ -132,10 +132,19 @@
         - name: Validate core health, source revision, broker state, and lifecycle
           ansible.builtin.shell: |
             set -euo pipefail
-            core_id="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --quiet | head -n 1)"
+            core_id="$(
+              podman ps \
+                --filter label=io.podman.compose.project=onclave \
+                --filter label=com.docker.compose.service=onclave-core \
+                --quiet | head -n 1
+            )"
             test -n "$core_id"
             for attempt in $(seq 1 120); do
-              state="$(podman inspect --format '{{ '{{' }}.State.Status{{ '}}' }} {{ '{{' }}.State.ExitCode{{ '}}' }} {{ '{{' }}.RestartCount{{ '}}' }}' "$core_id" 2>/dev/null || true)"
+              state="$(
+                podman inspect \
+                  --format '{{ '{{' }}.State.Status{{ '}}' }} {{ '{{' }}.State.ExitCode{{ '}}' }} {{ '{{' }}.RestartCount{{ '}}' }}' \
+                  "$core_id" 2>/dev/null || true
+              )"
               read -r status exit_code restart_count <<< "$state"
               if [[ "$status" != running || "$exit_code" != 0 || "$restart_count" != 0 ]]; then
                 printf 'core lifecycle failed: status=%s exit=%s restarts=%s\n' "$status" "$exit_code" "$restart_count" >&2
@@ -172,7 +181,12 @@
         - name: Capture bounded redacted core logs
           ansible.builtin.shell: |
             set -o pipefail
-            core_id="$(podman ps -a --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --quiet | head -n 1 || true)"
+            core_id="$(
+              podman ps -a \
+                --filter label=io.podman.compose.project=onclave \
+                --filter label=com.docker.compose.service=onclave-core \
+                --quiet | head -n 1 || true
+            )"
             if [[ -n "$core_id" ]]; then
               podman logs --tail 200 "$core_id" 2>&1 | python3 "{{ onclave_core_rollout_redactor }}"
             else

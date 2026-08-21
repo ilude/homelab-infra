@@ -102,10 +102,10 @@
   ansible.builtin.include_role:
     name: onramp_service_activation
   vars:
-    onramp_service_unit_name: freellmapi-onramp.service
-    onramp_service_deploy_user: "{{ onramp_host_deploy_user }}"
-    onramp_service_uid: "{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
-    onramp_service_runtime_dir: "/run/user/{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+    onramp_service_activation_unit_name: freellmapi-onramp.service
+    onramp_service_activation_deploy_user: "{{ onramp_host_deploy_user }}"
+    onramp_service_activation_uid: "{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+    onramp_service_activation_runtime_dir: "/run/user/{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
 
 - name: Verify FreeLLMAPI loopback health endpoint
   ansible.builtin.uri:

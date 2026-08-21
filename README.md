@@ -175,9 +175,9 @@ Hermes dashboard uses a form-login provider named `basic`. Store
 `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH` in the BWS environment family instead of a
 plaintext password; generate it with `python scripts/hermes-password-hash.py`.
 The service-local Caddy config rewrites the upstream provider redirect to the
-form login route and proxies only to the loopback-bound dashboard. SearXNG remains
-an internal dependency of the Onclave app workload and is not a standalone
-homelab-infra service or Hermes endpoint.
+form login route and proxies only to the loopback-bound dashboard. Onclave keeps
+its internal SearXNG dependency, while the separately enabled `searxng_onramp`
+service provides the managed HTTPS search endpoint used by workstation and Hermes tooling.
 
 The temporary `.env` compatibility snapshot is parsed as dotenv-style data by `scripts/parse-env.py`; it is never sourced as shell. BWS updates must preserve the required variables validated by the public fixture and routing manifest.
 

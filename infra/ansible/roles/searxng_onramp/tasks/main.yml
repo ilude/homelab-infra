@@ -1,0 +1,199 @@
+---
+- name: Validate SearXNG onramp required variables
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version | int >= 13
+      - onramp_host_deploy_user is defined
+      - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_host_deploy_user != 'root'
+      - onramp_host_deploy_dir is defined
+      - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
+      - searxng_server_name is defined
+      - searxng_server_name is match('^[A-Za-z0-9.-]+$')
+      - searxng_public_url is defined
+      - searxng_public_url is match('^https://')
+      - searxng_secret_key is defined
+      - searxng_secret_key | length >= 16
+      - searxng_onramp_bind_address in ['127.0.0.1', '::1']
+      - searxng_onramp_container_port | int > 0
+      - searxng_onramp_container_port | int < 65536
+    fail_msg: SearXNG onramp requires a Debian 13 onramp host, loopback bind address, HTTPS public URL, and secret key.
+  no_log: true
+
+- name: Install SearXNG onramp OS dependencies
+  ansible.builtin.apt:
+    name: "{{ searxng_onramp_required_packages }}"
+    state: present
+    update_cache: true
+  when: searxng_onramp_required_packages | length > 0
+
+- name: Ensure SearXNG deployment directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ searxng_onramp_base_dir }}"
+      mode: "0750"
+    - path: "{{ searxng_onramp_base_dir }}/data"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
+      mode: "0750"
+
+- name: Install SearXNG settings
+  ansible.builtin.template:
+    src: settings.yml.j2
+    dest: "{{ searxng_onramp_base_dir }}/settings.yml"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart searxng
+
+- name: Install SearXNG compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ searxng_onramp_base_dir }}/docker-compose.yml"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  notify: Restart searxng
+
+- name: Resolve SearXNG deploy user UID
+  ansible.builtin.command:
+    argv:
+      - id
+      - -u
+      - "{{ onramp_host_deploy_user }}"
+  register: searxng_onramp_deploy_user_uid
+  changed_when: false
+
+- name: Install SearXNG rootless systemd unit
+  ansible.builtin.template:
+    src: searxng-onramp.service.j2
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/searxng-onramp.service"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  notify: Restart searxng
+
+- name: Enable SearXNG rootless systemd unit
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: searxng-onramp.service
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
+
+- name: Install SearXNG Caddy site snippet
+  ansible.builtin.template:
+    src: searxng.caddy.j2
+    dest: /etc/caddy/sites.d/searxng.caddy
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Restart caddy
+
+- name: Validate SearXNG Caddy config
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
+  changed_when: false
+
+- name: Flush SearXNG service restarts before endpoint checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify SearXNG rootless service is active
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - is-active
+      - searxng-onramp.service
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ searxng_onramp_deploy_user_uid.stdout | trim }}"
+  changed_when: false
+  register: searxng_onramp_service_active
+  retries: 6
+  delay: 5
+  until: searxng_onramp_service_active.rc == 0
+
+- name: Verify SearXNG Caddy service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - caddy
+  changed_when: false
+  register: searxng_onramp_caddy_active
+  retries: 6
+  delay: 5
+  until: searxng_onramp_caddy_active.rc == 0
+
+- name: Verify SearXNG loopback health endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ searxng_onramp_container_port }}/healthz"
+    status_code: 200
+    return_content: true
+    follow_redirects: none
+    use_proxy: false
+    timeout: 10
+  register: searxng_onramp_loopback_check
+  retries: 24
+  delay: 5
+  until:
+    - searxng_onramp_loopback_check.status == 200
+    - searxng_onramp_loopback_check.content == 'OK'
+
+- name: Verify SearXNG HTTPS configuration endpoint
+  ansible.builtin.uri:
+    url: "{{ searxng_public_url | regex_replace('/$', '') }}/config"
+    status_code: 200
+    return_content: true
+    follow_redirects: none
+    use_proxy: false
+    validate_certs: true
+    timeout: 10
+  delegate_to: localhost
+  become: false
+  register: searxng_onramp_https_check
+  retries: 24
+  delay: 5
+  until:
+    - searxng_onramp_https_check.status == 200
+    - searxng_onramp_https_check.json.instance_name | default('') == searxng_onramp_instance_name
+    - searxng_onramp_https_check.json.safe_search | default(0) | int == 1
+    - searxng_onramp_https_check.json.version | default('') | length > 0
+    - searxng_onramp_https_check.json.engines | default([]) | length > 0
+    - searxng_onramp_https_check.json.categories | default([]) | length > 0
+
+- name: Verify SearXNG JSON search handler rejects a missing query
+  ansible.builtin.uri:
+    url: "{{ searxng_public_url | regex_replace('/$', '') }}/search?format=json"
+    status_code: 400
+    return_content: true
+    follow_redirects: none
+    use_proxy: false
+    validate_certs: true
+    timeout: 10
+  delegate_to: localhost
+  become: false
+  register: searxng_onramp_missing_query_check
+  failed_when: >-
+    searxng_onramp_missing_query_check.status != 400 or
+    searxng_onramp_missing_query_check.json.error | default('') != 'No query'

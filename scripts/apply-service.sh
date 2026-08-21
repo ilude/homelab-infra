@@ -10,7 +10,7 @@ service="$1"
 runtime_profile="config"
 case "${service}" in
   seaweedfs_onramp) runtime_profile="seaweedfs" ;;
-  onclave_onramp) runtime_profile="onclave" ;;
+  onclave_onramp|searxng_onramp) runtime_profile="onclave" ;;
   freellmapi_onramp) runtime_profile="freellmapi" ;;
 esac
 

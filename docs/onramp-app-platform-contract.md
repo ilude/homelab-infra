@@ -4,7 +4,7 @@
 
 This contract defines the boundary between `homelab-infra`, `onramp-vNext`, and Hermes for general Docker application services. It keeps this repository focused on durable infrastructure while allowing Hermes to operate across infrastructure and app-platform workflows. Cross-repository architecture decisions are governed by the 2026-07-26 Homelab Platform Architecture PRD, held in the Onclave repository at `docs/PRDS/2026-07-26-homelab-platform-architecture-PRD.md`.
 
-The selected future direction is option 3: `homelab-infra remains the durable infrastructure substrate`, `onramp-vNext owns Docker app services`, and `Hermes operates across both` through approved repo-native commands. SearXNG is internal to the Onclave app workload; this repository does not own a standalone SearXNG deployment.
+The selected future direction is option 3: `homelab-infra remains the durable infrastructure substrate`, `onramp-vNext owns Docker app services`, and `Hermes operates across both` through approved repo-native commands. Onclave retains an internal SearXNG dependency, while this repository currently owns a dedicated `searxng_onramp` endpoint for workstation and Hermes search tooling.
 
 ## Current operating reality
 
@@ -34,13 +34,13 @@ Provisioning cannot be split between control planes because OpenTofu holds the s
 
 `homelab-infra` may provision DNS needed for the onramp-host substrate and durable infrastructure services. Onramp app services should normally use an approved app-platform DNS convention, such as a wildcard or delegated subdomain, rather than one OpenTofu-managed static record per app.
 
-Specific app DNS records can be promoted into `homelab-infra` only when a separate approved infrastructure plan justifies that they are durable platform resources or a temporary repo-owned exception. Onclave's internal SearXNG has no standalone DNS record in this repository.
+Specific app DNS records can be promoted into `homelab-infra` only when a separate approved infrastructure plan justifies that they are durable platform resources or a temporary repo-owned exception. The dedicated `searxng_onramp` endpoint is one such repo-owned exception and has an explicit DNS record; Onclave's internal SearXNG has none.
 
 ## Caddy Contract
 
 First-class infrastructure services in this repository continue to use service-local Caddy by default. Technitium must not become a general ingress proxy for unrelated app services.
 
-Onramp owns Caddy or reverse-proxy configuration for Onramp app services by default. Onclave's internal SearXNG is not routed through the host Caddy instance. The Onramp service `port` field means the container/service port reachable on the Compose network; it must not be reinterpreted as a host-published port unless a later contract explicitly changes that convention.
+Onramp owns Caddy or reverse-proxy configuration for Onramp app services by default. The dedicated `searxng_onramp` endpoint uses the shared host Caddy instance, while Onclave's internal SearXNG is not routed through it. The Onramp service `port` field means the container/service port reachable on the Compose network; it must not be reinterpreted as a host-published port unless a later contract explicitly changes that convention.
 
 Onclave does not publish AMQP on LAN or public interfaces. RabbitMQ AMQP and management bind to loopback only; clients outside the onramp host require an approved local transport or tunnel. The Onclave API uses the onramp host's shared Caddy instance.
 
@@ -70,7 +70,7 @@ Podman-in-LXC is experimental. It may be tested for lightweight workloads, but i
 
 ## SearXNG boundary
 
-SearXNG is an internal dependency of the Onclave app workload. Its image, secret, Compose definition, network, and runtime behavior remain owned by the Onclave application contract. `homelab-infra` consumes that contract through `onclave_onramp` and does not expose or manage a standalone SearXNG service.
+Two SearXNG deployments have separate contracts. Onclave's internal dependency remains owned by the Onclave application contract and private to that workload. The dedicated `searxng_onramp` service is owned by `homelab-infra`, runs rootless on the onramp host, and exposes only its managed HTTPS endpoint through shared Caddy.
 
 ## App Workload Decisions
 

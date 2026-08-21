@@ -1,6 +1,6 @@
 # App-host runbook
 
-The optional `onramp_host` service creates a Debian 13 VM substrate for rootless Podman services and owns the shared Caddy instance. It is not an app deployment by itself; enable app services such as `infisical_onramp` or `onclave_onramp` with `onramp_host` when this repo should manage those workloads on that VM. SearXNG is internal to the Onclave workload and is not a standalone service here.
+The optional `onramp_host` service creates a Debian 13 VM substrate for rootless Podman services and owns the shared Caddy instance. It is not an app deployment by itself; enable app services such as `infisical_onramp`, `searxng_onramp`, or `onclave_onramp` with `onramp_host` when this repo should manage those workloads on that VM. Onclave retains its separate internal SearXNG dependency.
 
 ## Enable or disable
 
@@ -58,6 +58,6 @@ Before applying a rollback, decide whether the VM should be retained or deleted.
 - Retain VM: remove or pause Onramp workloads, remove `onramp_host` from active orchestration only when a reviewed `just plan` shows acceptable changes, and keep the BWS DNS and inventory families for future reuse.
 - Delete VM: stop Onramp workloads first, clean up Onramp app state and proxy records, remove `onramp_host` from the BWS `HOMELAB_SETTINGS` service list, review `just plan`, then apply only after explicit approval.
 
-DNS cleanup belongs to the component that created the records. Onclave's SearXNG remains an internal workload dependency and has no standalone Technitium record or `homelab-infra` endpoint contract.
+DNS cleanup belongs to the component that created the records. The dedicated `searxng_onramp` endpoint has a Technitium record managed by this repository; Onclave's internal SearXNG remains private to its workload.
 
 Do not perform OpenTofu state surgery, import, destroy, or live mutation without explicit approval and a rollback path.

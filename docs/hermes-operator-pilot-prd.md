@@ -4,7 +4,7 @@
 
 This pilot defines Hermes as an operator cockpit for `homelab-infra` without making Hermes a second source of truth. The selected architecture is option 3: `homelab-infra remains the durable infrastructure substrate`, `onramp-vNext owns Docker app services`, and `Hermes operates across both` through their approved native workflows.
 
-SearXNG is an internal dependency of the Onclave app workload. The Onclave application contract owns its image, secret, network, and runtime behavior; `homelab-infra` consumes that contract through `onclave_onramp`.
+Onclave retains its internal SearXNG dependency under the Onclave application contract. Separately, `homelab-infra` owns the dedicated `searxng_onramp` endpoint used by workstation and Hermes search tooling.
 
 No live mutation is in scope for this PRD. Provisioning a Debian 13 VM and changes to the Onclave workload are deferred until separate reviewed implementation plans exist.
 
@@ -125,7 +125,7 @@ The default runtime target is a Debian 13 VM running Podman. Podman-in-LXC is ex
 - Hermes refuses or pauses for approval before any live mutation command.
 - Hermes does not print secrets, tokens, real domains, real IPs, private DNS records, or private inventory in summaries.
 - Adding a plugin backend includes an explicit classification decision: Hermes-local, durable platform service, or app-platform service.
-- SearXNG remains internal to the Onclave workload and is not promoted to a standalone infrastructure service.
+- Onclave's SearXNG remains internal; the separately managed `searxng_onramp` endpoint is a repo-owned onramp service.
 
 ## Dependencies
 

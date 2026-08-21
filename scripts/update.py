@@ -196,6 +196,16 @@ OCI_TARGETS = (
         "infisical",
     ),
     OciTarget(
+        "SearXNG image",
+        CONFIG_VALUES_DIR / "terraform.tfvars",
+        r'(?m)^(\s*searxng_container_image\s*=\s*")([^"\s]+)("\s*)$',
+        r"\g<1>{reference}\g<3>",
+        "searxng/searxng",
+        r"2026\.7\.2-[0-9a-f]+",
+        "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb",
+        "searxng",
+    ),
+    OciTarget(
         "SeaweedFS image",
         Path("infra/ansible/roles/seaweedfs_onramp/defaults/main.yml"),
         r"(?m)^(seaweedfs_onramp_image:\s*)(\S+)\s*$",

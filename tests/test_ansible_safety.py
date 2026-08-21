@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from jinja2 import Environment
 
 REPO = Path(__file__).resolve().parents[1]
 RUNNER_TASKS = (
@@ -26,6 +27,18 @@ ONCLAVE_ONRAMP_PLAYBOOK = (
 ONCLAVE_ONRAMP_TASKS = (
     REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "tasks" / "main.yml"
 )
+SEARXNG_ONRAMP_TASKS = (
+    REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml"
+)
+SEARXNG_SETTINGS_TEMPLATE = (
+    REPO
+    / "infra"
+    / "ansible"
+    / "roles"
+    / "searxng_onramp"
+    / "templates"
+    / "settings.yml.j2"
+)
 ZFS_DATASET_TASKS = REPO / "infra" / "ansible" / "tasks" / "zfs-dataset.yml"
 ONRAMP_HOST_TASKS = (
     REPO / "infra" / "ansible" / "roles" / "onramp_host" / "tasks" / "main.yml"
@@ -38,6 +51,7 @@ ROOTLESS_ONRAMP_UNITS = tuple(
     for role, unit in (
         ("infisical_onramp", "infisical-onramp.service.j2"),
         ("freellmapi_onramp", "freellmapi-onramp.service.j2"),
+        ("searxng_onramp", "searxng-onramp.service.j2"),
         ("onclave_onramp", "onclave-onramp.service.j2"),
     )
 )
@@ -46,6 +60,7 @@ CADDY_TASK_FILES = (
     REPO / "infra" / "ansible" / "roles" / "forgejo" / "tasks" / "caddy.yml",
     REPO / "infra" / "ansible" / "roles" / "infisical" / "tasks" / "main.yml",
     REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",
+    REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml",
 )
 ANSIBLE_TASK_FILES = tuple((REPO / "infra" / "ansible" / "roles").glob("*/tasks/*.yml"))
 SERVICE_SMOKE_TASK_FILES = (
@@ -61,6 +76,7 @@ SERVICE_SMOKE_TASK_FILES = (
     / "tasks"
     / "main.yml",
     REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",
+    REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml",
 )
 ALLOWLIST_PCT = {
     REPO / "infra" / "ansible" / "roles" / "lxc_ready" / "tasks" / "main.yml",
@@ -620,6 +636,9 @@ class AnsibleSafetyTests(unittest.TestCase):
             "infra/ansible/roles/forgejo_runner/tasks/main.yml": (
                 "/etc/forgejo-runner/config.yml"
             ),
+            "infra/ansible/roles/searxng_onramp/tasks/main.yml": (
+                "{{ searxng_onramp_base_dir }}/settings.yml"
+            ),
         }
         for rel_path, dest in checks.items():
             tasks = load_tasks(REPO / rel_path)
@@ -627,6 +646,20 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertTrue(matches, rel_path)
             self.assertTrue(any(task.get("no_log") for task in matches), rel_path)
             self.assertTrue(any("mode" in str(task) for task in matches), rel_path)
+
+    def test_hermes_exports_native_searxng_url_key(self) -> None:
+        template = (
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "hermes"
+            / "templates"
+            / "hermes-dashboard.env.j2"
+        )
+        text = template.read_text(encoding="utf-8")
+        self.assertIn("HERMES_WEB_SEARXNG_URL={{ hermes_web_searxng_url }}", text)
+        self.assertIn("SEARXNG_URL={{ hermes_web_searxng_url }}", text)
 
     def test_hermes_dashboard_uses_packaged_tui_bundle(self) -> None:
         env_template = (
@@ -1085,6 +1118,122 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("change_password", reconcile["ansible.builtin.command"]["argv"])
         self.assertEqual(reconcile["when"], "onclave_onramp_rabbitmq_auth.rc != 0")
         self.assertTrue(reconcile["no_log"])
+
+    def test_onramp_default_http_ports_do_not_collide(self) -> None:
+        onclave_defaults = yaml.safe_load(
+            (
+                REPO
+                / "infra"
+                / "ansible"
+                / "roles"
+                / "onclave_onramp"
+                / "defaults"
+                / "main.yml"
+            ).read_text(encoding="utf-8")
+        )
+        searxng_defaults = yaml.safe_load(
+            (
+                REPO
+                / "infra"
+                / "ansible"
+                / "roles"
+                / "searxng_onramp"
+                / "defaults"
+                / "main.yml"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertNotEqual(
+            onclave_defaults["onclave_onramp_core_port"],
+            searxng_defaults["searxng_onramp_container_port"],
+        )
+
+    def test_searxng_onramp_uses_deterministic_json_endpoints(self) -> None:
+        environment = Environment(autoescape=False)
+        environment.filters["bool"] = bool
+        rendered = environment.from_string(
+            SEARXNG_SETTINGS_TEMPLATE.read_text(encoding="utf-8")
+        ).render(
+            searxng_secret_key="public-safe-placeholder",
+            searxng_onramp_enable_public_url=True,
+            searxng_public_url="https://searxng.example.internal",
+            searxng_onramp_instance_name="Homelab SearXNG",
+        )
+        settings = yaml.safe_load(rendered)
+        self.assertEqual(settings["search"]["formats"], ["html", "json"])
+
+        health = task_by_name(
+            SEARXNG_ONRAMP_TASKS, "Verify SearXNG loopback health endpoint"
+        )
+        self.assertTrue(health.get("retries"))
+        self.assertEqual(health["ansible.builtin.uri"]["status_code"], 200)
+        self.assertTrue(health["ansible.builtin.uri"]["return_content"])
+        self.assertIn("/healthz", health["ansible.builtin.uri"]["url"])
+        self.assertIn("searxng_onramp_loopback_check.content == 'OK'", health["until"])
+
+        config = task_by_name(
+            SEARXNG_ONRAMP_TASKS, "Verify SearXNG HTTPS configuration endpoint"
+        )
+        self.assertTrue(config.get("retries"))
+        self.assertEqual(config.get("delegate_to"), "localhost")
+        self.assertFalse(config.get("become"))
+        config_uri = config["ansible.builtin.uri"]
+        self.assertTrue(config_uri["validate_certs"])
+        self.assertFalse(config_uri["use_proxy"])
+        self.assertEqual(config_uri["follow_redirects"], "none")
+        for field in (
+            "instance_name",
+            "safe_search",
+            "version",
+            "engines",
+            "categories",
+        ):
+            self.assertIn(field, str(config["until"]))
+
+        search = task_by_name(
+            SEARXNG_ONRAMP_TASKS,
+            "Verify SearXNG JSON search handler rejects a missing query",
+        )
+        self.assertEqual(search.get("delegate_to"), "localhost")
+        self.assertFalse(search.get("become"))
+        search_uri = search["ansible.builtin.uri"]
+        self.assertEqual(search_uri["status_code"], 400)
+        self.assertIn("/search?format=json", search_uri["url"])
+        self.assertNotIn("retries", search)
+        self.assertIn("No query", search["failed_when"])
+
+    def test_searxng_onramp_ports_are_loopback_only(self) -> None:
+        compose = (
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "searxng_onramp"
+            / "templates"
+            / "docker-compose.yml.j2"
+        )
+        text = compose.read_text(encoding="utf-8")
+        self.assertIn(
+            "{{ searxng_onramp_bind_address }}:"
+            "{{ searxng_onramp_container_port }}:8080",
+            text,
+        )
+        self.assertNotIn(
+            "0.0.0.0:{{ searxng_onramp_container_port }}:8080", text
+        )  # public-safety: allow-ip
+        task = task_by_name(
+            REPO
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "searxng_onramp"
+            / "tasks"
+            / "main.yml",
+            "Validate SearXNG onramp required variables",
+        )
+        self.assertIn(
+            "searxng_onramp_bind_address in ['127.0.0.1', '::1']", str(task)
+        )  # public-safety: allow-ip
+
 
 if __name__ == "__main__":
     unittest.main()

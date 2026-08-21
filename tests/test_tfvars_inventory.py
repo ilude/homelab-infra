@@ -176,6 +176,38 @@ class TfvarsInventoryTests(unittest.TestCase):
         )
         self.assertEqual(inventory["services"]["children"], ["onramp_host"])
 
+    def test_searxng_onramp_reuses_onramp_host_and_promotes_endpoint_vars(self) -> None:
+        inventory = tfvars_inventory.build_inventory(
+            {
+                "proxmox_node_name": "pve",
+                "onramp_host_vmid": 112,
+                "onramp_host_ipv4_address": "192.0.2.72/24",
+                "onramp_host_deploy_user": "onramp",
+                "onramp_host_deploy_dir": "/srv/onramp",
+                "onramp_host_data_device": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1",
+                "onramp_host_data_disk_gb": 512,
+                "onramp_host_var_lv_gb": 96,
+                "onramp_host_srv_lv_gb": 352,
+                "onramp_host_vg_min_free_percent": 10,
+                "searxng_server_name": "searxng.apps.example.net",
+                "searxng_public_url": "https://searxng.apps.example.net",
+            },
+            ["onramp_host", "searxng_onramp"],
+            pve_host="proxmox.example.internal",
+        )
+
+        hostvars = inventory["_meta"]["hostvars"]["onramp_host_vm"]
+        self.assertEqual(hostvars["ansible_host"], "192.0.2.72")
+        self.assertEqual(hostvars["ansible_user"], "onramp")
+        self.assertEqual(
+            inventory["all"]["vars"]["searxng_server_name"], "searxng.apps.example.net"
+        )
+        self.assertEqual(
+            inventory["all"]["vars"]["searxng_public_url"],
+            "https://searxng.apps.example.net",
+        )
+        self.assertEqual(inventory["services"]["children"], ["onramp_host"])
+
     def test_tailscale_enabled_is_promoted_to_all_vars(self) -> None:
         inventory = tfvars_inventory.build_inventory(
             {

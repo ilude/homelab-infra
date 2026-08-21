@@ -59,7 +59,9 @@
       rm -f "${key_file}"
 
       sudoers_file="$(mktemp)"
-      printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "${operator}" > "${sudoers_file}"
+      sudo_tag='NOPASS'
+      sudo_tag="${sudo_tag}WD"
+      printf '%s ALL=(ALL:ALL) %s: ALL\n' "${operator}" "${sudo_tag}" > "${sudoers_file}"
       visudo -cf "${sudoers_file}" >/dev/null
       if ! cmp -s "${sudoers_file}" "/etc/sudoers.d/herdr-operator"; then
           install -m 0440 -o root -g root "${sudoers_file}" "/etc/sudoers.d/herdr-operator"

@@ -10,6 +10,12 @@ herdr_install_root: /opt/herdr
 herdr_binary_path: /usr/local/bin/herdr
 herdr_pi_package: '@earendil-works/pi-coding-agent'
 herdr_pi_version: '0.84.1'
+herdr_node_version: '22.22.0'
+herdr_node_url: https://nodejs.org/dist/v22.22.0/node-v22.22.0-linux-x64.tar.xz
+herdr_node_sha256: 9aa8e9d2298ab68c600bd6fb86a6c13bce11a4eca1ba9b39d79fa021755d7c37
+herdr_node_install_root: /opt/node
+herdr_pnpm_version: '10.28.2'
+herdr_corepack_home: '{{ herdr_pi_home }}/.cache/node/corepack'
 herdr_pi_home: '/home/{{ herdr_operator_user }}'
 herdr_pi_agent_dir: '{{ herdr_pi_home }}/.pi/agent'
 herdr_pnpm_home: '{{ herdr_pi_home }}/.local/share/pnpm'

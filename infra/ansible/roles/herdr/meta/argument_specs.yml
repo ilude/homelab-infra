@@ -44,3 +44,27 @@ argument_specs:
         type: str
         required: false
         description: "Pinned Pi version."
+      herdr_node_version:
+        type: str
+        required: false
+        description: "Pinned official Node release satisfying the Pi runtime contract."
+      herdr_node_url:
+        type: str
+        required: false
+        description: "Immutable official Node release URL."
+      herdr_node_sha256:
+        type: str
+        required: false
+        description: "Pinned official Node release SHA256."
+      herdr_node_install_root:
+        type: str
+        required: false
+        description: "Versioned official Node installation root."
+      herdr_pnpm_version:
+        type: str
+        required: false
+        description: "Pinned pnpm version activated through Debian Corepack."
+      herdr_corepack_home:
+        type: str
+        required: false
+        description: "Private Corepack cache owned by the Herdr operator."

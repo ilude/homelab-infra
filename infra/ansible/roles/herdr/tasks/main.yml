@@ -22,6 +22,12 @@
       - herdr_binary_sha256 is match('^[0-9a-f]{64}$')
       - herdr_pi_version == '0.84.1'
       - herdr_pi_package == '@earendil-works/pi-coding-agent'
+      - herdr_node_version == '22.22.0'
+      - herdr_node_url == 'https://nodejs.org/dist/v22.22.0/node-v22.22.0-linux-x64.tar.xz'
+      - herdr_node_sha256 == '9aa8e9d2298ab68c600bd6fb86a6c13bce11a4eca1ba9b39d79fa021755d7c37'
+      - herdr_node_sha256 is match('^[0-9a-f]{64}$')
+      - herdr_pnpm_version == '10.28.2'
+      - herdr_corepack_home == herdr_pi_home + '/.cache/node/corepack'
     fail_msg: >-
       Herdr requires Debian 13 x86_64, a non-root operator, disabled password
       and root SSH, valid SSH source CIDRs, and the pinned Herdr and Pi releases.
@@ -58,12 +64,11 @@
       - curl
       - '{{ herdr_docker_cli_package }}'
       - git
-      - nodejs
       - openssh-client
       - python3-apt
-      - pnpm
       - sudo
       - ufw
+      - xz-utils
     state: present
     update_cache: true
 
@@ -360,6 +365,150 @@
   register: herdr_binary_install
   changed_when: "'changed' in herdr_binary_install.stdout_lines"
 
+- name: Install the pinned official Node release with atomic activation
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        version={{ herdr_node_version | quote }}
+        url={{ herdr_node_url | quote }}
+        sha256={{ herdr_node_sha256 | quote }}
+        root={{ herdr_node_install_root | quote }}
+        release="${root}/releases/${version}-${sha256:0:12}"
+        changed=0
+
+        install -d -m 0755 "${root}/releases"
+        if [[ ! -f "${release}/.artifact-sha256" || ! -x "${release}/bin/node" || ! -x "${release}/bin/corepack" ]]; then
+            if [[ -e "${release}" ]]; then
+                echo "incomplete Node release: ${release}" >&2
+                exit 1
+            fi
+            artifact="$(mktemp)"
+            staging="$(mktemp -d "${root}/releases/.${version}.XXXXXX")"
+            cleanup() {
+                rm -f "${artifact}"
+                if [[ -n "${staging:-}" ]]; then
+                    rm -rf "${staging}"
+                fi
+            }
+            trap cleanup EXIT
+            curl -fsSL -o "${artifact}" "${url}"
+            printf '%s  %s\n' "${sha256}" "${artifact}" | sha256sum -c -
+            tar -xJf "${artifact}" --strip-components=1 -C "${staging}"
+            printf '%s\n' "${sha256}" > "${staging}/.artifact-sha256"
+            chmod 0644 "${staging}/.artifact-sha256"
+            chmod 0755 "${staging}"
+            mv "${staging}" "${release}"
+            staging=
+            changed=1
+        fi
+
+        test "$(cat "${release}/.artifact-sha256")" = "${sha256}"
+        chmod 0755 "${release}"
+        current=''
+        if [[ -e "${root}/current" ]]; then
+            current="$(readlink -f "${root}/current")"
+        fi
+        if [[ "${current}" != "${release}" ]]; then
+            rm -f "${root}/.current-new"
+            ln -s "${release}" "${root}/.current-new"
+            mv -Tf "${root}/.current-new" "${root}/current"
+            changed=1
+        fi
+        for binary in node corepack; do
+            target="/usr/local/bin/${binary}"
+            active=''
+            if [[ -e "${target}" ]]; then
+                active="$(readlink -f "${target}")"
+            fi
+            if [[ "${active}" != "${release}/bin/${binary}" ]]; then
+                rm -f "${target}.new"
+                ln -s "${root}/current/bin/${binary}" "${target}.new"
+                mv -Tf "${target}.new" "${target}"
+                changed=1
+            fi
+        done
+        if [[ "${changed}" -ne 0 ]]; then
+            echo changed
+        fi
+  register: herdr_node_install
+  changed_when: "'changed' in herdr_node_install.stdout_lines"
+
+- name: Remove incompatible distro Node and Corepack packages
+  ansible.builtin.apt:
+    name:
+      - node-corepack
+      - nodejs
+    state: absent
+    autoremove: false
+
+- name: Verify the pinned official Node runtime
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/node
+      - --version
+  register: herdr_node_version_check
+  changed_when: false
+  failed_when: herdr_node_version_check.stdout | trim != 'v' + herdr_node_version
+
+- name: Ensure the operator-owned Corepack cache exists
+  ansible.builtin.file:
+    path: '{{ herdr_corepack_home }}'
+    state: directory
+    owner: '{{ herdr_operator_user }}'
+    group: '{{ herdr_operator_user }}'
+    mode: '0700'
+
+- name: Remove the obsolete system pnpm shim
+  ansible.builtin.file:
+    path: /usr/local/bin/pnpm
+    state: absent
+
+- name: Enable the operator pnpm executable shim through official Corepack
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - corepack
+      - enable
+      - --install-directory
+      - '{{ herdr_pnpm_home }}'
+      - pnpm
+  environment:
+    COREPACK_HOME: '{{ herdr_corepack_home }}'
+    HOME: '{{ herdr_pi_home }}'
+    PATH: '/usr/local/bin:/usr/bin:/bin'
+  changed_when: false
+
+- name: Activate the pinned pnpm release through official Corepack
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - corepack
+      - install
+      - --global
+      - 'pnpm@{{ herdr_pnpm_version }}'
+  environment:
+    COREPACK_HOME: '{{ herdr_corepack_home }}'
+    HOME: '{{ herdr_pi_home }}'
+    PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'
+  changed_when: false
+
+- name: Verify the pinned pnpm release as the operator
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - pnpm
+      - --version
+  environment:
+    COREPACK_HOME: '{{ herdr_corepack_home }}'
+    HOME: '{{ herdr_pi_home }}'
+    PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'
+  register: herdr_pnpm_version_check
+  changed_when: false
+  failed_when: herdr_pnpm_version_check.stdout | trim != herdr_pnpm_version
+
 - name: Configure the operator pnpm global bin directory
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
@@ -370,6 +519,7 @@
       - global-bin-dir
       - '{{ herdr_pnpm_home }}'
   environment:
+    COREPACK_HOME: '{{ herdr_corepack_home }}'
     HOME: '{{ herdr_pi_home }}'
     PNPM_HOME: '{{ herdr_pnpm_home }}'
     PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'
@@ -387,6 +537,7 @@
       - --allow-build=protobufjs
       - '{{ herdr_pi_package }}@{{ herdr_pi_version }}'
   environment:
+    COREPACK_HOME: '{{ herdr_corepack_home }}'
     HOME: '{{ herdr_pi_home }}'
     PNPM_HOME: '{{ herdr_pnpm_home }}'
     PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'

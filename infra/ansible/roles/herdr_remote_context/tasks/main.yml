@@ -88,7 +88,7 @@
         printf '%s\n' "${rendered}" | grep -F "userknownhostsfile ${known_hosts}" >/dev/null
         printf '%s\n' "${rendered}" | grep -F 'globalknownhostsfile /dev/null' >/dev/null
         printf '%s\n' "${rendered}" | grep -F 'stricthostkeychecking true' >/dev/null
-        printf '%s\n' "${rendered}" | grep -F 'forwardagent false' >/dev/null
+        printf '%s\n' "${rendered}" | grep -F 'forwardagent no' >/dev/null
         printf '%s\n' "${rendered}" | grep -F 'identityagent none' >/dev/null
   changed_when: false
 

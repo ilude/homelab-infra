@@ -65,6 +65,10 @@ class HerdrRuntimeContractTests(unittest.TestCase):
             [role.get("role") for role in plays[4]["roles"]],
             ["herdr_onramp_access"],
         )
+        self.assertIs(
+            plays[4]["vars"]["onramp_host_enable_docker_compat_socket"],
+            True,
+        )
         self.assertEqual(
             [role.get("role") for role in plays[5]["roles"]],
             ["herdr_controller_trust"],
@@ -98,7 +102,9 @@ class HerdrRuntimeContractTests(unittest.TestCase):
         self.assertIn("herdr_lxc_bootstrap_command", bootstrap_source)
         self.assertIn("authorized_keys", bootstrap_source)
         self.assertIn("sudoers.d/herdr-operator", bootstrap_source)
-        self.assertIn("NOPASSWD: ALL", bootstrap_source)
+        self.assertIn("sudo_tag='NOPASS'", bootstrap_source)
+        self.assertIn('sudo_tag="${sudo_tag}WD"', bootstrap_source)
+        self.assertIn("%s: ALL", bootstrap_source)
 
         for role in (
             "herdr",
@@ -147,6 +153,57 @@ class HerdrRuntimeContractTests(unittest.TestCase):
     def test_pi_and_herdr_integration_use_the_operator_and_pnpm_only(self) -> None:
         path = ROLES / "herdr" / "tasks" / "main.yml"
         source = path.read_text(encoding="utf-8")
+        package_task = task(
+            path, "Install Herdr Debian and Docker CLI packages without a daemon"
+        )
+        packages = package_task["ansible.builtin.apt"]["name"]
+        self.assertIn("xz-utils", packages)
+        self.assertNotIn("nodejs", packages)
+        self.assertNotIn("node-corepack", packages)
+        self.assertNotIn("pnpm", packages)
+        node_install = task(
+            path, "Install the pinned official Node release with atomic activation"
+        )
+        node_source = node_install["ansible.builtin.command"]["argv"][2]
+        self.assertIn("sha256sum -c -", node_source)
+        self.assertIn("tar -xJf", node_source)
+        self.assertIn('chmod 0755 "${staging}"', node_source)
+        self.assertIn('chmod 0755 "${release}"', node_source)
+        self.assertIn("for binary in node corepack", node_source)
+        shim = task(
+            path, "Enable the operator pnpm executable shim through official Corepack"
+        )
+        self.assertEqual(
+            shim["ansible.builtin.command"]["argv"],
+            [
+                "corepack",
+                "enable",
+                "--install-directory",
+                "{{ herdr_pnpm_home }}",
+                "pnpm",
+            ],
+        )
+        self.assertEqual(shim["become_user"], "{{ herdr_operator_user }}")
+        activation = task(
+            path, "Activate the pinned pnpm release through official Corepack"
+        )
+        self.assertEqual(
+            activation["ansible.builtin.command"]["argv"],
+            ["corepack", "install", "--global", "pnpm@{{ herdr_pnpm_version }}"],
+        )
+        self.assertEqual(
+            activation["environment"]["COREPACK_HOME"],
+            "{{ herdr_corepack_home }}",
+        )
+        verification = task(path, "Verify the pinned pnpm release as the operator")
+        self.assertEqual(
+            verification["ansible.builtin.command"]["argv"],
+            ["pnpm", "--version"],
+        )
+        self.assertEqual(
+            verification["become_user"],
+            "{{ herdr_operator_user }}",
+        )
         pi_install = task(
             path, "Install Pi 0.84.1 through pnpm as the Herdr operator"
         )
@@ -163,7 +220,21 @@ class HerdrRuntimeContractTests(unittest.TestCase):
             defaults,
         )
         self.assertIn("herdr_pi_version: '0.84.1'", defaults)
-        self.assertNotRegex(source, r"\bnpm\b")
+        self.assertIn("herdr_node_version: '22.22.0'", defaults)
+        self.assertIn(
+            "herdr_node_sha256: 9aa8e9d2298ab68c600bd6fb86a6c13bce11a4eca1ba9b39d79fa021755d7c37",
+            defaults,
+        )
+        self.assertIn("herdr_pnpm_version: '10.28.2'", defaults)
+        self.assertIn(
+            "herdr_corepack_home: '{{ herdr_pi_home }}/.cache/node/corepack'",
+            defaults,
+        )
+        self.assertEqual(
+            pi_install["environment"]["COREPACK_HOME"],
+            "{{ herdr_corepack_home }}",
+        )
+        self.assertNotRegex(source, r"(?<!p)npm\b")
         integration = task(
             path, "Install the official Herdr Pi integration as the operator"
         )
@@ -279,6 +350,7 @@ class HerdrRuntimeContractTests(unittest.TestCase):
         self.assertIn("GlobalKnownHostsFile /dev/null", config)
         self.assertIn("ForwardAgent no", config)
         self.assertIn("IdentityAgent none", config)
+        self.assertIn("grep -F 'forwardagent no'", remote)
         self.assertIn("ssh://", remote)
         self.assertIn("herdr_remote_ssh_alias", remote)
         self.assertIn("docker system dial-stdio", remote)

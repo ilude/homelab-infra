@@ -30,6 +30,8 @@
   hosts: onramp_host
   gather_facts: false
   become: true
+  vars:
+    onramp_host_enable_docker_compat_socket: true
   roles:
     - role: herdr_onramp_access
 

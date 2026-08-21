@@ -23,13 +23,12 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
                 "forgejo",
                 "forgejo_runner",
                 "onramp_host",
-                "searxng_onramp",
                 "hermes",
             ]
         )
 
         self.assertEqual(waves[0], ["technitium", "onramp_host"])
-        self.assertEqual(waves[1], ["forgejo", "searxng_onramp"])
+        self.assertEqual(waves[1], ["forgejo"])
         self.assertEqual(waves[2], ["forgejo_runner"])
         self.assertEqual(waves[3], ["hermes"])
 
@@ -58,11 +57,11 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
 
     def test_dependency_waves_serialize_shared_execution_resources(self) -> None:
         waves = apply_ansible_services.dependency_waves(
-            ["onramp_host", "infisical_onramp", "searxng_onramp", "hermes"]
+            ["onramp_host", "infisical_onramp", "hermes"]
         )
 
         self.assertEqual(
-            waves, [["onramp_host", "hermes"], ["infisical_onramp"], ["searxng_onramp"]]
+            waves, [["onramp_host", "hermes"], ["infisical_onramp"]]
         )
 
     def test_recovery_selection_targets_only_enabled_services(self) -> None:

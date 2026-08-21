@@ -173,7 +173,6 @@ class ServiceStateCliTests(unittest.TestCase):
                 "  technitium",
                 "  onramp_host",
                 "  infisical_onramp",
-                "  searxng_onramp",
                 "  onclave_onramp",
             ],
         )

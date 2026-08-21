@@ -28,7 +28,6 @@
     "app.apps.example.net": "192.0.2.20",
     "infisical.example.internal": "192.0.2.70",
     "hermes.example.internal": "192.0.2.71",
-    "searxng.apps.example.net": "192.0.2.72",
     "onclave.example.internal": "192.0.2.72"
   },
   "cname_records": {

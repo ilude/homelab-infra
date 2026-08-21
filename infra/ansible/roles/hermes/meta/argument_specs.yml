@@ -146,7 +146,3 @@ argument_specs:
         type: str
         required: false
         description: "Required when hermes_dashboard_enabled is true; Hermes dashboard auth secret."
-      hermes_web_searxng_url:
-        type: str
-        required: false
-        description: "Optional public/searxng URL injected for web search integration if set."

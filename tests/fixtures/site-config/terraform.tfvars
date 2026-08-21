@@ -191,14 +191,6 @@ onramp_host_allowed_ssh_cidrs       = ["192.0.2.0/24"]
 onramp_host_started                 = true
 onramp_host_start_on_boot           = true
 
-# Optional SearXNG workload on the onramp host. Enable by adding searxng_onramp and onramp_host to settings.local.json services.
-searxng_server_name       = "searxng.apps.example.net"
-searxng_public_url        = "https://searxng.apps.example.net"
-searxng_container_image   = "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb"
-searxng_container_port    = 8080
-searxng_bind_address      = "127.0.0.1"
-searxng_instance_name     = "Homelab SearXNG"
-searxng_enable_public_url = true
 
 # Optional Tailscale client LXC. Leave disabled until a reviewed plan should create it.
 tailscale_client_enabled       = false

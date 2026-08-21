@@ -1,0 +1,78 @@
+---
+- name: Validate Herdr LXC bootstrap inputs
+  ansible.builtin.assert:
+    that:
+      - herdr_vmid is defined
+      - herdr_vmid | string is match('^[1-9][0-9]*$')
+      - herdr_lxc_bootstrap_command == 'pct'
+      - herdr_operator_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - herdr_operator_user != 'root'
+      - herdr_ssh_public_keys is defined
+      - herdr_ssh_public_keys | length > 0
+      - >-
+        herdr_ssh_public_keys |
+        select('match', '^ssh-ed25519 [A-Za-z0-9+/]+={0,2}( .*)?$') |
+        list | length == herdr_ssh_public_keys | length
+    fail_msg: >-
+      Herdr bootstrap requires a numeric VMID, a non-root operator, and at
+      least one valid ed25519 public key.
+  no_log: true
+
+- name: Bootstrap the Herdr operator through the PVE lifecycle boundary
+  ansible.builtin.command:
+    argv:
+      - '{{ herdr_lxc_bootstrap_command }}'
+      - exec
+      - '{{ herdr_vmid | string }}'
+      - --
+      - sh
+      - -s
+    stdin: |
+      set -eu
+      export DEBIAN_FRONTEND=noninteractive
+      operator={{ herdr_operator_user | quote }}
+      shell={{ herdr_lxc_bootstrap_shell | quote }}
+      changed=0
+
+      apt-get update
+      apt-get install -y {{ herdr_lxc_bootstrap_packages | map('quote') | join(' ') }}
+
+      if ! getent passwd "${operator}" >/dev/null; then
+          useradd --create-home --shell "${shell}" "${operator}"
+          changed=1
+      else
+          usermod --shell "${shell}" "${operator}"
+      fi
+      passwd --lock "${operator}" >/dev/null 2>&1
+
+      install -d -m 0700 -o "${operator}" -g "${operator}" "/home/${operator}/.ssh"
+      key_file="$(mktemp)"
+      sudoers_file=''
+      trap 'rm -f "${key_file}" "${sudoers_file}"' EXIT
+      cat > "${key_file}" <<'HERDR_AUTHORIZED_KEYS'
+      {{ herdr_ssh_public_keys | join('\n') }}
+      HERDR_AUTHORIZED_KEYS
+      if ! cmp -s "${key_file}" "/home/${operator}/.ssh/authorized_keys"; then
+          install -m 0600 -o "${operator}" -g "${operator}" "${key_file}" "/home/${operator}/.ssh/authorized_keys"
+          changed=1
+      fi
+      rm -f "${key_file}"
+
+      sudoers_file="$(mktemp)"
+      printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "${operator}" > "${sudoers_file}"
+      visudo -cf "${sudoers_file}" >/dev/null
+      if ! cmp -s "${sudoers_file}" "/etc/sudoers.d/herdr-operator"; then
+          install -m 0440 -o root -g root "${sudoers_file}" "/etc/sudoers.d/herdr-operator"
+          changed=1
+      fi
+      rm -f "${sudoers_file}"
+
+      sshd -t
+      systemctl enable --now ssh
+      if [ "${changed}" -eq 1 ]; then
+          echo herdr-bootstrap-changed
+      fi
+      echo herdr-bootstrap-complete
+  register: herdr_lxc_bootstrap_result
+  changed_when: "'herdr-bootstrap-changed' in herdr_lxc_bootstrap_result.stdout"
+  no_log: true

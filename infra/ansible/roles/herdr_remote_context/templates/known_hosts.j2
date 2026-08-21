@@ -1,0 +1,3 @@
+{% for key in hostvars[groups['onramp_host'][0]].herdr_verified_onramp_host_keys | unique %}
+{{ herdr_remote_ssh_alias }} {{ key }}
+{% endfor %}

@@ -150,6 +150,14 @@ hermes_runtime_user  = "anvil"
 hermes_started       = true
 hermes_start_on_boot = true
 
+# Optional Herdr management LXC. Enable by adding herdr and onramp_host to settings.local.json services.
+herdr_container_vmid          = 113
+herdr_lan_ip                  = "192.0.2.73"
+herdr_operator_user           = "herdr"
+herdr_password_authentication = false
+herdr_permit_root_login       = false
+herdr_allowed_ssh_cidrs       = ["192.0.2.0/24"]
+
 # Optional Debian 13 Podman onramp-host VM for Onramp-managed services. Enable by adding onramp_host to settings.local.json services.
 # The onramp host is created from a clean Debian 13 genericcloud image, not from a mutable local template.
 onramp_host_vmid                     = 112

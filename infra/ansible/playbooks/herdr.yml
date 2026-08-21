@@ -1,0 +1,58 @@
+---
+- name: Prepare Herdr LXC lifecycle boundary
+  hosts: pve
+  gather_facts: false
+  roles:
+    - role: lxc_ready
+      vars:
+        lxc_ready_vmid: '{{ herdr_vmid }}'
+        lxc_ready_name: herdr
+    - role: herdr_lxc_bootstrap
+
+- name: Run strict direct access handoff for Herdr
+  ansible.builtin.import_playbook: direct-access-ready.yml
+  vars:
+    direct_access_target_group: herdr
+
+- name: Configure Herdr directly
+  hosts: herdr
+  gather_facts: true
+  become: true
+  roles:
+    - role: herdr
+
+- name: Run verified direct access handoff for the onramp VM
+  ansible.builtin.import_playbook: vm-direct-access-ready.yml
+  vars:
+    direct_vm_access_target_group: onramp_host
+
+- name: Install the Herdr Docker access key on the onramp VM
+  hosts: onramp_host
+  gather_facts: false
+  become: true
+  roles:
+    - role: herdr_onramp_access
+
+- name: Preserve verified Herdr host trust for the return handoff
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    herdr_controller_known_hosts_file: /tmp/homelab-infra/ansible/herdr-known_hosts
+    herdr_controller_host_keys: >-
+      {{ hostvars[groups['herdr'][0]].direct_access_host_keys.stdout_lines }}
+  roles:
+    - role: herdr_controller_trust
+
+- name: Configure the Herdr remote Docker context
+  hosts: herdr
+  gather_facts: false
+  become: true
+  vars:
+    ansible_ssh_common_args: >-
+      -o UserKnownHostsFile=/tmp/homelab-infra/ansible/herdr-known_hosts
+      -o GlobalKnownHostsFile=/dev/null
+      -o StrictHostKeyChecking=yes
+      -o ForwardAgent=no
+  roles:
+    - role: herdr_remote_context

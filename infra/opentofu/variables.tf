@@ -919,6 +919,207 @@ variable "hermes_startup_down_delay" {
   default     = "10"
 }
 
+variable "herdr_container_vmid" {
+  description = "Proxmox VMID for the Herdr LXC."
+  type        = number
+  default     = 113
+
+  validation {
+    condition     = var.herdr_container_vmid > 0 && var.herdr_container_vmid < 1000000000
+    error_message = "herdr_container_vmid must be a positive Proxmox VMID."
+  }
+}
+
+variable "herdr_container_hostname" {
+  description = "Hostname for the Herdr LXC."
+  type        = string
+  default     = "herdr"
+}
+
+variable "herdr_container_description" {
+  description = "Description for the Herdr LXC."
+  type        = string
+  default     = "Herdr management LXC managed by OpenTofu."
+}
+
+variable "herdr_container_ipv4_address" {
+  description = "IPv4 address/CIDR for the Herdr LXC, or dhcp when the router supplies a static DHCP reservation."
+  type        = string
+  default     = "dhcp"
+
+  validation {
+    condition = var.herdr_container_ipv4_address == "dhcp" || (
+      can(cidrhost(var.herdr_container_ipv4_address, 0)) &&
+      !strcontains(var.herdr_container_ipv4_address, ":")
+    )
+    error_message = "herdr_container_ipv4_address must be dhcp or a valid IPv4 CIDR address."
+  }
+}
+
+variable "herdr_container_ipv4_gateway" {
+  description = "IPv4 gateway for the Herdr LXC. Use null when herdr_container_ipv4_address is dhcp."
+  type        = string
+  default     = null
+}
+
+variable "herdr_container_mac_address" {
+  description = "MAC address for the Herdr LXC, useful when the router supplies a static DHCP reservation."
+  type        = string
+  default     = "BC:24:11:00:00:05"
+
+  validation {
+    condition     = can(regex("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$", var.herdr_container_mac_address))
+    error_message = "herdr_container_mac_address must use colon-separated hex octets, for example BC:24:11:00:00:05."
+  }
+}
+
+variable "herdr_lan_ip" {
+  description = "Expected LAN IP for Herdr, without CIDR. Used for inventory and DNS when the LXC uses DHCP reservation."
+  type        = string
+  default     = "192.0.2.73"
+
+  validation {
+    condition     = can(cidrhost("${var.herdr_lan_ip}/32", 0)) && !strcontains(var.herdr_lan_ip, ":")
+    error_message = "herdr_lan_ip must be a valid IPv4 address without CIDR."
+  }
+}
+
+variable "herdr_server_name" {
+  description = "DNS hostname users should use for Herdr."
+  type        = string
+  default     = "herdr.example.internal"
+}
+
+variable "herdr_container_dns_servers" {
+  description = "DNS servers used by the Herdr LXC."
+  type        = list(string)
+  default     = ["192.0.2.1"]
+}
+
+variable "herdr_container_search_domain" {
+  description = "DNS search domain for the Herdr LXC."
+  type        = string
+  default     = "example.internal"
+}
+
+variable "herdr_container_bridge" {
+  description = "Proxmox bridge for the Herdr LXC interface."
+  type        = string
+  default     = "vmbr0"
+}
+
+variable "herdr_container_vlan_id" {
+  description = "Optional VLAN tag for the Herdr LXC interface. Null leaves the interface untagged."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.herdr_container_vlan_id == null || (var.herdr_container_vlan_id >= 1 && var.herdr_container_vlan_id <= 4094)
+    error_message = "herdr_container_vlan_id must be null or a VLAN ID from 1 through 4094."
+  }
+}
+
+variable "herdr_container_cores" {
+  description = "CPU cores for the Herdr LXC."
+  type        = number
+  default     = 2
+}
+
+variable "herdr_container_memory_mb" {
+  description = "Dedicated memory for the Herdr LXC."
+  type        = number
+  default     = 2048
+}
+
+variable "herdr_container_swap_mb" {
+  description = "Swap for the Herdr LXC."
+  type        = number
+  default     = 512
+}
+
+variable "herdr_container_disk_gb" {
+  description = "Root filesystem size in GB for the Herdr LXC."
+  type        = number
+  default     = 64
+}
+
+variable "herdr_started" {
+  description = "Whether OpenTofu should start the Herdr LXC after creation."
+  type        = bool
+  default     = true
+}
+
+variable "herdr_operator_user" {
+  description = "Non-root Herdr operator user managed by Ansible."
+  type        = string
+  default     = "herdr"
+
+  validation {
+    condition     = can(regex("^[a-z_][a-z0-9_-]{0,31}$", var.herdr_operator_user)) && var.herdr_operator_user != "root"
+    error_message = "herdr_operator_user must be a valid non-root Linux user name."
+  }
+}
+
+variable "herdr_password_authentication" {
+  description = "Whether SSH password authentication should remain enabled on Herdr. Keep false."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = var.herdr_password_authentication == false
+    error_message = "herdr_password_authentication must be false."
+  }
+}
+
+variable "herdr_permit_root_login" {
+  description = "Whether SSH root login should remain enabled on Herdr. Keep false."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = var.herdr_permit_root_login == false
+    error_message = "herdr_permit_root_login must be false."
+  }
+}
+
+variable "herdr_allowed_ssh_cidrs" {
+  description = "Private source CIDRs allowed to reach Herdr SSH. Use placeholders in tracked configuration."
+  type        = list(string)
+  default     = ["192.0.2.0/24"]
+
+  validation {
+    condition = length(var.herdr_allowed_ssh_cidrs) > 0 && alltrue([
+      for cidr in var.herdr_allowed_ssh_cidrs :
+      can(cidrhost(cidr, 0)) && !strcontains(cidr, ":") && cidr != "0.0.0.0/0"
+    ])
+    error_message = "herdr_allowed_ssh_cidrs must contain bounded IPv4 CIDR ranges and must not include 0.0.0.0/0."
+  }
+}
+
+variable "herdr_start_on_boot" {
+  description = "Whether Proxmox should start the Herdr LXC on host boot."
+  type        = bool
+  default     = true
+}
+
+variable "herdr_startup_order" {
+  description = "Proxmox startup order for the Herdr LXC."
+  type        = string
+  default     = "7"
+}
+
+variable "herdr_startup_up_delay" {
+  description = "Seconds to wait after starting the Herdr LXC before starting the next guest."
+  type        = string
+  default     = "10"
+}
+
+variable "herdr_startup_down_delay" {
+  description = "Seconds to wait after shutting down the Herdr LXC before shutting down the next guest."
+  type        = string
+  default     = "10"
+}
+
 variable "onramp_host_vmid" {
   description = "Proxmox VMID for the optional Debian 13 Podman onramp-host VM. Set in terraform.tfvars before enabling onramp_host."
   type        = number

@@ -1,0 +1,5 @@
+---
+- name: Restart Herdr ssh
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: restarted

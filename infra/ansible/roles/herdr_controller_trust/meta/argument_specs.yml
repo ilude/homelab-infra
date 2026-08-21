@@ -1,0 +1,14 @@
+---
+argument_specs:
+  main:
+    short_description: "Restore only verified Herdr host trust on the controller."
+    options:
+      herdr_controller_known_hosts_file:
+        type: str
+        required: false
+        description: "Ephemeral controller trust file for the return Herdr handoff."
+      herdr_controller_host_keys:
+        type: list
+        elements: str
+        required: true
+        description: "Host keys verified by the direct LXC handoff."

@@ -204,6 +204,33 @@
       },
       "terraform_module": "hermes"
     },
+    "herdr": {
+      "execution_resource": "direct_lxc_known_hosts",
+      "state_capable": false,
+      "playbooks": [
+        "infra/ansible/playbooks/herdr.yml"
+      ],
+      "dependencies": [
+        "onramp_host"
+      ],
+      "inventory": {
+        "host": "herdr_lxc",
+        "group": "herdr",
+        "vmid_var": "herdr_vmid",
+        "tf_vmid": "herdr_container_vmid",
+        "tf_host": "herdr_lan_ip",
+        "user_var": "herdr_operator_user",
+        "tf_user": "herdr_operator_user",
+        "extra_play_vars": {
+          "herdr_operator_user": "herdr_operator_user",
+          "herdr_ssh_public_keys": "lxc_ssh_public_keys",
+          "herdr_password_authentication": "herdr_password_authentication",
+          "herdr_permit_root_login": "herdr_permit_root_login",
+          "herdr_allowed_ssh_cidrs": "herdr_allowed_ssh_cidrs"
+        }
+      },
+      "terraform_module": "herdr"
+    },
     "onramp_host": {
       "runtime_profile": "config",
       "state_capable": true,

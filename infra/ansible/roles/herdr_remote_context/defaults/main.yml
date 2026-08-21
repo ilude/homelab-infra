@@ -1,0 +1,11 @@
+---
+herdr_pi_home: '/home/{{ herdr_operator_user }}'
+herdr_pnpm_home: '{{ herdr_pi_home }}/.local/share/pnpm'
+herdr_remote_identity_file: '{{ herdr_pi_home }}/.ssh/id_ed25519_herdr_onramp'
+herdr_remote_context_name: herdr-onramp
+herdr_remote_ssh_alias: herdr-onramp
+herdr_remote_command: docker system dial-stdio
+herdr_remote_known_hosts_file: '{{ herdr_pi_home }}/.ssh/known_hosts.herdr-onramp'
+herdr_remote_ssh_config_file: '{{ herdr_pi_home }}/.ssh/config'
+herdr_remote_host: '{{ hostvars[groups["onramp_host"][0]].ansible_host }}'
+herdr_remote_user: '{{ hostvars[groups["onramp_host"][0]].onramp_host_deploy_user }}'

@@ -36,6 +36,11 @@
     state: present
     update_cache: true
 
+- name: Ensure socat is installed for the Podman Docker stdio relay
+  ansible.builtin.apt:
+    name: socat
+    state: present
+
 - name: Ensure onramp-host deploy user exists
   ansible.builtin.user:
     name: "{{ onramp_host_deploy_user }}"
@@ -286,6 +291,22 @@
   register: onramp_host_deploy_user_uid
   changed_when: false
 
+- name: Ensure onramp-host local libexec directory exists
+  ansible.builtin.file:
+    path: "{{ onramp_host_podman_docker_stdio_relay_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install root-owned Podman Docker stdio SSH relay
+  ansible.builtin.template:
+    src: podman-docker-stdio.j2
+    dest: "{{ onramp_host_podman_docker_stdio_relay_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Ensure rootless Podman socket unit is enabled for deploy user
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
@@ -296,6 +317,16 @@
     state: started
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onramp_host_deploy_user_uid.stdout | trim }}"
+  when: onramp_host_enable_docker_compat_socket | bool
+
+- name: Verify rootless Podman socket is a Unix socket
+  ansible.builtin.stat:
+    path: "/run/user/{{ onramp_host_deploy_user_uid.stdout | trim }}/podman/podman.sock"
+  register: onramp_host_podman_socket
+  changed_when: false
+  failed_when: >-
+    not onramp_host_podman_socket.stat.exists or
+    not (onramp_host_podman_socket.stat.issock | default(false))
   when: onramp_host_enable_docker_compat_socket | bool
 
 - name: Verify onramp-host deployment directory ownership

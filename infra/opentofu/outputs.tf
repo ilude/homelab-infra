@@ -98,6 +98,21 @@ output "hermes_ssh_target" {
   value       = local.hermes_enabled ? "${var.hermes_runtime_user}@${var.hermes_server_name}" : null
 }
 
+output "herdr_container_vmid" {
+  description = "Proxmox VMID for the Herdr LXC, or null when disabled."
+  value       = local.herdr_enabled ? module.herdr[0].vm_id : null
+}
+
+output "herdr_lan_ip" {
+  description = "Expected Herdr LAN IP, usually supplied by static DHCP, or null when disabled."
+  value       = local.herdr_enabled ? var.herdr_lan_ip : null
+}
+
+output "herdr_ssh_target" {
+  description = "Herdr operator SSH target, or null when disabled."
+  value       = local.herdr_enabled ? "${var.herdr_operator_user}@${var.herdr_server_name}" : null
+}
+
 output "onramp_host_vmid" {
   description = "Proxmox VMID for the optional onramp-host VM, or null when disabled."
   value       = local.onramp_host_enabled ? proxmox_virtual_environment_vm.onramp_host[0].vm_id : null

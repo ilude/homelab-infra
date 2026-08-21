@@ -1,0 +1,145 @@
+---
+- name: Validate the Herdr remote-context handoff facts
+  ansible.builtin.assert:
+    that:
+      - groups['onramp_host'] is defined
+      - groups['onramp_host'] | length == 1
+      - hostvars[groups['onramp_host'][0]].direct_vm_access_host_keys is defined
+      - hostvars[groups['onramp_host'][0]].direct_vm_access_host_keys.rc == 0
+      - hostvars[groups['onramp_host'][0]].direct_vm_access_host_keys.stdout_lines | length > 0
+      - hostvars[groups['onramp_host'][0]].herdr_verified_onramp_host_keys is defined
+      - hostvars[groups['onramp_host'][0]].herdr_verified_onramp_host_keys | length > 0
+      - >-
+        hostvars[groups['onramp_host'][0]].herdr_verified_onramp_host_keys |
+        select('match', '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,2}$') |
+        list | length == hostvars[groups['onramp_host'][0]].herdr_verified_onramp_host_keys | length
+      - >-
+        hostvars[groups['onramp_host'][0]].herdr_verified_onramp_host_keys ==
+        hostvars[groups['onramp_host'][0]].direct_vm_access_host_keys.stdout_lines | unique
+      - herdr_remote_ssh_alias is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
+      - herdr_remote_context_name is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
+      - herdr_remote_host is match('^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+      - herdr_remote_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - herdr_remote_command == 'docker system dial-stdio'
+      - herdr_remote_identity_file == herdr_pi_home + '/.ssh/id_ed25519_herdr_onramp'
+      - herdr_remote_known_hosts_file == herdr_pi_home + '/.ssh/known_hosts.herdr-onramp'
+      - herdr_remote_ssh_config_file == herdr_pi_home + '/.ssh/config'
+    fail_msg: >-
+      Herdr remote context requires the verified onramp VM host keys, a strict
+      SSH alias, an inventory-derived host and user, and the fixed Docker stdio command.
+  no_log: true
+
+- name: Verify the dedicated Herdr private identity exists locally
+  ansible.builtin.stat:
+    path: '{{ herdr_remote_identity_file }}'
+  register: herdr_remote_identity
+  changed_when: false
+
+- name: Fail when the dedicated Herdr private identity is unavailable
+  ansible.builtin.assert:
+    that:
+      - herdr_remote_identity.stat.exists
+      - herdr_remote_identity.stat.isreg
+      - herdr_remote_identity.stat.pw_name == herdr_operator_user
+      - herdr_remote_identity.stat.mode == '0600'
+    fail_msg: The dedicated Herdr private identity must remain local to Herdr.
+  no_log: true
+
+- name: Ensure the persistent Herdr SSH directory exists
+  ansible.builtin.file:
+    path: '{{ herdr_pi_home }}/.ssh'
+    state: directory
+    owner: '{{ herdr_operator_user }}'
+    group: '{{ herdr_operator_user }}'
+    mode: '0700'
+
+- name: Install the persistent Herdr known_hosts from the verified VM fact only
+  ansible.builtin.template:
+    src: known_hosts.j2
+    dest: '{{ herdr_remote_known_hosts_file }}'
+    owner: '{{ herdr_operator_user }}'
+    group: '{{ herdr_operator_user }}'
+    mode: '0600'
+  no_log: true
+
+- name: Install the dedicated strict Herdr SSH config
+  ansible.builtin.template:
+    src: ssh_config.j2
+    dest: '{{ herdr_remote_ssh_config_file }}'
+    owner: '{{ herdr_operator_user }}'
+    group: '{{ herdr_operator_user }}'
+    mode: '0600'
+  no_log: true
+
+- name: Validate the dedicated Herdr SSH config without connecting
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        config={{ herdr_remote_ssh_config_file | quote }}
+        alias={{ herdr_remote_ssh_alias | quote }}
+        identity={{ herdr_remote_identity_file | quote }}
+        known_hosts={{ herdr_remote_known_hosts_file | quote }}
+        rendered="$(ssh -G -F "${config}" "${alias}")"
+        printf '%s\n' "${rendered}" | grep -F "identityfile ${identity}" >/dev/null
+        printf '%s\n' "${rendered}" | grep -F "userknownhostsfile ${known_hosts}" >/dev/null
+        printf '%s\n' "${rendered}" | grep -F 'globalknownhostsfile /dev/null' >/dev/null
+        printf '%s\n' "${rendered}" | grep -F 'stricthostkeychecking true' >/dev/null
+        printf '%s\n' "${rendered}" | grep -F 'forwardagent false' >/dev/null
+        printf '%s\n' "${rendered}" | grep -F 'identityagent none' >/dev/null
+  changed_when: false
+
+- name: Create or reconcile the persistent SSH Docker context endpoint
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        context={{ herdr_remote_context_name | quote }}
+        endpoint={{ ('ssh://' ~ herdr_remote_ssh_alias) | quote }}
+        if docker context inspect "${context}" >/dev/null 2>&1; then
+            current="$(docker context inspect "${context}" --format '{% raw %}{{(index .Endpoints "docker").Host}}{% endraw %}')"
+            if [[ "${current}" != "${endpoint}" ]]; then
+                docker context update "${context}" --docker "host=${endpoint}"
+                echo updated
+            else
+                echo unchanged
+            fi
+        else
+            docker context create "${context}" --docker "host=${endpoint}"
+            echo created
+        fi
+        test "$(docker context inspect "${context}" --format '{% raw %}{{(index .Endpoints "docker").Host}}{% endraw %}')" = "${endpoint}"
+        printf 'herdr-context-endpoint=%s\\n' "${endpoint}"
+  environment:
+    HOME: '{{ herdr_pi_home }}'
+    PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'
+  register: herdr_remote_context_install
+  changed_when: "'created' in herdr_remote_context_install.stdout or 'updated' in herdr_remote_context_install.stdout"
+
+- name: Assert the Docker context uses the SSH alias and fixed stdio command
+  ansible.builtin.assert:
+    that:
+      - herdr_remote_command == 'docker system dial-stdio'
+      - ('herdr-context-endpoint=ssh://' ~ herdr_remote_ssh_alias) in herdr_remote_context_install.stdout
+    fail_msg: >-
+      The Herdr Docker context must use ssh://{{ herdr_remote_ssh_alias }} and
+      the fixed remote command {{ herdr_remote_command }}.
+
+- name: Verify the SSH-backed Docker context reaches the remote Podman API
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - docker
+      - --context
+      - '{{ herdr_remote_context_name }}'
+      - version
+  environment:
+    HOME: '{{ herdr_pi_home }}'
+    PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'
+  changed_when: false

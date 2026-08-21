@@ -43,6 +43,7 @@ Keep excluded private backups, artifacts, dumps, and mutable service-state data 
 - [App-host runbook](docs/onramp-host-runbook.md) covers `onramp_host` rollback and future deployment validation.
 - [Service update policy](docs/service-update-policy.md) defines managed version updates and the Technitium portable-release path.
 - [Technitium high availability](docs/technitium-ha.md) covers the optional second Proxmox node, clustering, floating DNS address, staged rollout, and recovery.
+- [Herdr remote LXC](docs/herdr-remote-lxc.md) defines the Herdr operator, Pi, and SSH transport contract.
 
 ## Fresh setup
 
@@ -134,6 +135,7 @@ OpenTofu manages:
 - Optional Forgejo Actions runner LXC when `forgejo_runner` is enabled in the BWS `HOMELAB_SETTINGS` family
 - Optional Infisical secrets service, either as the legacy LXC with service-local Caddy or as `infisical_onramp` on the shared onramp host
 - Optional Hermes management LXC with SSH tooling, a non-root `anvil` dashboard runtime user, and a service-local Caddy reverse proxy for the Hermes Agent web dashboard
+- Optional Herdr Debian 13 unprivileged LXC shape with disabled nesting and enforced SSH policy
 - Optional Debian 13 Podman `onramp_host` VM substrate for app services, using `anvil` as the default cloud-init/deploy user and a shared Caddy instance with per-service snippets. The boot source is a clean Debian 13 genericcloud image imported by OpenTofu from the URL declared in the BWS-rendered tfvars family.
 - LXC resource shape, while deliberately ignoring externally owned `mount_point` state; OpenTofu does not attach host-directory bind mounts
 
@@ -150,6 +152,7 @@ Ansible manages:
 - Infisical Docker Compose stack on the legacy LXC, or rootless Infisical Podman stack on `onramp_host` when `infisical_onramp` is enabled
 - Rootless FreeLLMAPI Podman service on `onramp_host`, with a loopback-only application port, shared Caddy HTTPS route, BWS-owned encryption key, and persistent SQLite state
 - Hermes management tooling, SSH-oriented bootstrap directories, the Hermes Agent web dashboard running as `anvil`, and Caddy
+- Herdr LXC bootstrap, pinned Herdr and Pi installation, operator-local SSH context, and onramp stdio relay access
 - App-host SSH hardening, rootless Podman readiness, `anvil` deploy-user setup, shared Caddy setup, default-deny host firewall policy, and deployment directory preparation
 - Onclave app deployment on `onramp_host`, including its internal SearXNG container and runtime contract
 - Optional Tailscale installation and private backup restore on the Tailscale client LXC

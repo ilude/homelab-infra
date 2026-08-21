@@ -1,0 +1,6 @@
+---
+herdr_lxc_bootstrap_shell: /bin/bash
+herdr_lxc_bootstrap_command: pct
+herdr_lxc_bootstrap_packages:
+  - openssh-server
+  - sudo

@@ -70,6 +70,10 @@ argument_specs:
         type: str
         required: false
         description: "Compose command used for rootless workloads (default: podman-compose)."
+      onramp_host_podman_docker_stdio_relay_path:
+        type: str
+        required: false
+        description: "Root-owned SSH stdio relay path for the rootless Podman socket (default: /usr/local/libexec/podman-docker-stdio)."
       onramp_host_enable_docker_compat_socket:
         type: bool
         required: false

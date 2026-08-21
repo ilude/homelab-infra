@@ -1,0 +1,135 @@
+---
+- name: Validate the Herdr onramp handoff facts
+  ansible.builtin.assert:
+    that:
+      - groups['herdr'] is defined
+      - groups['herdr'] | length == 1
+      - groups['onramp_host'] is defined
+      - groups['onramp_host'] | length == 1
+      - direct_vm_access_host_keys is defined
+      - direct_vm_access_host_keys.rc == 0
+      - direct_vm_access_host_keys.stdout_lines | length > 0
+      - >-
+        direct_vm_access_host_keys.stdout_lines |
+        select('match', '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,2}$') |
+        list | length == direct_vm_access_host_keys.stdout_lines | length
+      - hostvars[groups['herdr'][0]].herdr_remote_access_public_key is defined
+      - hostvars[groups['herdr'][0]].herdr_remote_access_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]+={0,2}( .*)?$')
+      - herdr_onramp_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_host_enable_docker_compat_socket | bool
+      - herdr_onramp_allowed_from is match('^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$')
+      - herdr_onramp_relay_path == '/usr/local/libexec/podman-docker-stdio'
+      - herdr_onramp_authorized_keys_file == '/etc/ssh/authorized_keys.d/herdr-docker-context'
+      - herdr_onramp_sshd_dropin == '/etc/ssh/sshd_config.d/91-herdr-docker-context.conf'
+    fail_msg: >-
+      Herdr onramp access requires the verified VM host-key fact, the Herdr
+      public key fact, the existing deploy user, the Herdr source address, and
+      the existing Podman stdio relay.
+  no_log: true
+
+- name: Capture the verified onramp VM host keys for the return handoff
+  ansible.builtin.set_fact:
+    herdr_verified_onramp_host_keys: '{{ direct_vm_access_host_keys.stdout_lines | unique }}'
+  no_log: true
+
+- name: Verify that the captured onramp host keys remain the verified VM fact
+  ansible.builtin.assert:
+    that:
+      - herdr_verified_onramp_host_keys == direct_vm_access_host_keys.stdout_lines | unique
+    fail_msg: The captured onramp host keys must come from the verified VM handoff fact.
+  no_log: true
+
+- name: Verify the existing root-owned Podman Docker stdio relay
+  ansible.builtin.stat:
+    path: '{{ herdr_onramp_relay_path }}'
+  register: herdr_onramp_relay
+  changed_when: false
+
+- name: Fail when the existing Podman Docker stdio relay is unavailable
+  ansible.builtin.assert:
+    that:
+      - herdr_onramp_relay.stat.exists
+      - herdr_onramp_relay.stat.isreg
+      - herdr_onramp_relay.stat.pw_name == 'root'
+      - herdr_onramp_relay.stat.gr_name == 'root'
+      - herdr_onramp_relay.stat.mode == '0755'
+    fail_msg: >-
+      The existing onramp Podman Docker stdio relay must be a root-owned
+      executable at {{ herdr_onramp_relay_path }}.
+
+- name: Read the existing relay command contract
+  ansible.builtin.slurp:
+    src: '{{ herdr_onramp_relay_path }}'
+  register: herdr_onramp_relay_source
+  no_log: true
+
+- name: Verify the existing relay accepts only the fixed Docker stdio command
+  ansible.builtin.assert:
+    that:
+      - "'SSH_ORIGINAL_COMMAND' in (herdr_onramp_relay_source.content | b64decode)"
+      - "'docker system dial-stdio' in (herdr_onramp_relay_source.content | b64decode)"
+    fail_msg: >-
+      The existing onramp relay must enforce docker system dial-stdio before
+      connecting the rootless Podman socket.
+  no_log: true
+
+- name: Resolve the onramp deploy-user UID before SSH mutation
+  ansible.builtin.command:
+    argv:
+      - id
+      - -u
+      - '{{ herdr_onramp_user }}'
+  register: herdr_onramp_user_uid
+  changed_when: false
+
+- name: Inspect the rootless Podman Docker-compatible socket before SSH mutation
+  ansible.builtin.stat:
+    path: '/run/user/{{ herdr_onramp_user_uid.stdout | trim }}/podman/podman.sock'
+  register: herdr_onramp_podman_socket
+
+- name: Require the rootless Podman socket before SSH mutation
+  ansible.builtin.assert:
+    that:
+      - herdr_onramp_podman_socket.stat.exists
+      - herdr_onramp_podman_socket.stat.issock
+      - herdr_onramp_podman_socket.stat.pw_name == herdr_onramp_user
+    fail_msg: >-
+      Herdr requires the enabled rootless Podman Docker-compatible socket before
+      installing its restricted SSH key.
+
+- name: Ensure the separate Herdr authorized-key directory exists
+  ansible.builtin.file:
+    path: '{{ herdr_onramp_authorized_keys_file | dirname }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the Herdr public key in its separate restricted key file
+  ansible.builtin.copy:
+    dest: '{{ herdr_onramp_authorized_keys_file }}'
+    owner: root
+    group: root
+    mode: '0644'
+    content: >-
+      restrict,from="{{ herdr_onramp_allowed_from }}",command="{{ herdr_onramp_relay_path }}"
+      {{ hostvars[groups['herdr'][0]].herdr_remote_access_public_key }}
+  no_log: true
+
+- name: Scope the separate Herdr AuthorizedKeysFile to the onramp deploy user
+  ansible.builtin.copy:
+    dest: '{{ herdr_onramp_sshd_dropin }}'
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Match User {{ herdr_onramp_user }}
+          AuthorizedKeysFile .ssh/authorized_keys {{ herdr_onramp_authorized_keys_file }}
+  notify: Restart Herdr onramp ssh
+
+- name: Validate the onramp SSH configuration before reload
+  ansible.builtin.command:
+    argv:
+      - sshd
+      - -t
+  changed_when: false

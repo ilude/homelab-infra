@@ -5,6 +5,7 @@ locals {
     tostring(var.forgejo_runner_vmid),
     tostring(var.infisical_container_vmid),
     tostring(var.hermes_container_vmid),
+    tostring(var.herdr_container_vmid),
     tostring(var.tailscale_client_vmid),
     tostring(var.onramp_host_vmid),
   ])
@@ -15,6 +16,7 @@ locals {
     var.forgejo_runner_ipv4_address == "dhcp" ? null : split("/", var.forgejo_runner_ipv4_address)[0],
     var.infisical_container_ipv4_address == "dhcp" ? null : split("/", var.infisical_container_ipv4_address)[0],
     var.hermes_container_ipv4_address == "dhcp" ? null : split("/", var.hermes_container_ipv4_address)[0],
+    var.herdr_container_ipv4_address == "dhcp" ? var.herdr_lan_ip : split("/", var.herdr_container_ipv4_address)[0],
     var.tailscale_client_ipv4_address == "dhcp" ? null : split("/", var.tailscale_client_ipv4_address)[0],
     split("/", var.onramp_host_ipv4_address)[0],
   ])
@@ -23,14 +25,14 @@ locals {
 check "unique_service_vmids" {
   assert {
     condition     = length(local.service_vmids) == length(toset(local.service_vmids))
-    error_message = "Service VMIDs, including onramp_host_vmid, must be unique."
+    error_message = "Service VMIDs, including herdr_container_vmid and onramp_host_vmid, must be unique."
   }
 }
 
 check "unique_service_static_ipv4_addresses" {
   assert {
     condition     = length(local.service_static_ipv4_addresses) == length(toset(local.service_static_ipv4_addresses))
-    error_message = "Static service IPv4 addresses, including onramp_host_ipv4_address, must be unique."
+    error_message = "Static service IPv4 addresses, including herdr_container_ipv4_address and onramp_host_ipv4_address, must be unique."
   }
 }
 

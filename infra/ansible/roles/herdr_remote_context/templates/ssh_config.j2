@@ -1,0 +1,11 @@
+Host {{ herdr_remote_ssh_alias }}
+    HostName {{ herdr_remote_host }}
+    HostKeyAlias {{ herdr_remote_ssh_alias }}
+    User {{ herdr_remote_user }}
+    IdentityFile {{ herdr_remote_identity_file }}
+    IdentitiesOnly yes
+    UserKnownHostsFile {{ herdr_remote_known_hosts_file }}
+    GlobalKnownHostsFile /dev/null
+    StrictHostKeyChecking yes
+    ForwardAgent no
+    IdentityAgent none

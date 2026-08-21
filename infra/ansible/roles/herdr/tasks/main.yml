@@ -1,0 +1,497 @@
+---
+- name: Validate Herdr direct configuration inputs
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Debian'
+      - ansible_distribution_major_version | int == 13
+      - ansible_architecture == 'x86_64'
+      - herdr_operator_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - herdr_operator_user != 'root'
+      - not (herdr_password_authentication | bool)
+      - not (herdr_permit_root_login | bool)
+      - herdr_allowed_ssh_cidrs | length > 0
+      - >-
+        herdr_allowed_ssh_cidrs |
+        select('match', '^([0-9]{1,3}\.){3}[0-9]{1,3}/([1-9]|[12][0-9]|3[0-2])$') |
+        list | length == herdr_allowed_ssh_cidrs | length
+      - "'0.0.0.0/0' not in herdr_allowed_ssh_cidrs"
+      - herdr_docker_cli_package == 'docker-cli'
+      - herdr_binary_version == '0.8.2'
+      - herdr_binary_url == 'https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-linux-x86_64'
+      - herdr_binary_sha256 == '976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4'
+      - herdr_binary_sha256 is match('^[0-9a-f]{64}$')
+      - herdr_pi_version == '0.84.1'
+      - herdr_pi_package == '@earendil-works/pi-coding-agent'
+    fail_msg: >-
+      Herdr requires Debian 13 x86_64, a non-root operator, disabled password
+      and root SSH, valid SSH source CIDRs, and the pinned Herdr and Pi releases.
+
+- name: Ensure the persistent Herdr operator home exists
+  ansible.builtin.user:
+    name: '{{ herdr_operator_user }}'
+    home: '{{ herdr_pi_home }}'
+    shell: /bin/bash
+    create_home: true
+    password_lock: true
+    groups: users
+    append: true
+
+- name: Ensure Herdr operator directories have private ownership
+  ansible.builtin.file:
+    path: '{{ item.path }}'
+    state: directory
+    owner: '{{ herdr_operator_user }}'
+    group: '{{ herdr_operator_user }}'
+    mode: '{{ item.mode }}'
+  loop:
+    - path: '{{ herdr_pi_home }}/.ssh'
+      mode: '0700'
+    - path: '{{ herdr_pi_agent_dir }}'
+      mode: '0700'
+    - path: '{{ herdr_pnpm_home }}'
+      mode: '0750'
+
+- name: Install Herdr Debian and Docker CLI packages without a daemon
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - '{{ herdr_docker_cli_package }}'
+      - git
+      - nodejs
+      - openssh-client
+      - python3-apt
+      - pnpm
+      - sudo
+      - ufw
+    state: present
+    update_cache: true
+
+- name: Gather installed Debian package facts for Docker daemon checks
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Gather service facts for Docker daemon checks
+  ansible.builtin.service_facts:
+
+- name: Assert that Docker daemon packages are absent
+  ansible.builtin.assert:
+    that:
+      - item not in ansible_facts.packages
+    fail_msg: 'Docker daemon package {{ item }} must not be installed.'
+  loop:
+    - docker.io
+    - docker-ce
+    - docker-engine
+    - moby-engine
+
+- name: Assert that the Docker daemon service is not active or enabled
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.services.get('docker.service', {}).get('state', 'absent') != 'running'
+      - ansible_facts.services.get('docker.service', {}).get('status', 'disabled') != 'enabled'
+      - ansible_facts.services.get('docker.socket', {}).get('state', 'absent') != 'running'
+      - ansible_facts.services.get('docker.socket', {}).get('status', 'disabled') != 'enabled'
+    fail_msg: Docker daemon service must not be active or enabled.
+
+- name: Check that the Docker daemon executable is absent
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - command -v dockerd
+  register: herdr_dockerd_check
+  changed_when: false
+  failed_when: false
+
+- name: Assert that the Docker daemon executable is absent
+  ansible.builtin.assert:
+    that:
+      - herdr_dockerd_check.rc != 0
+    fail_msg: dockerd must not be installed with the Docker CLI package.
+
+- name: Verify the Docker CLI is installed without contacting a daemon
+  ansible.builtin.command:
+    argv:
+      - docker
+      - --version
+  changed_when: false
+
+- name: Harden Herdr SSH authentication policy
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/90-herdr.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      PubkeyAuthentication yes
+  notify: Restart Herdr ssh
+
+- name: Validate the Herdr SSH daemon configuration
+  ansible.builtin.command:
+    argv:
+      - sshd
+      - -t
+  changed_when: false
+
+- name: Read the effective Herdr SSH authentication policy
+  ansible.builtin.command:
+    argv:
+      - sshd
+      - -T
+  register: herdr_sshd_effective_config
+  changed_when: false
+
+- name: Assert the effective Herdr SSH authentication policy
+  ansible.builtin.assert:
+    that:
+      - "'passwordauthentication no' in herdr_sshd_effective_config.stdout"
+      - "'kbdinteractiveauthentication no' in herdr_sshd_effective_config.stdout"
+      - "'permitrootlogin no' in herdr_sshd_effective_config.stdout"
+    fail_msg: Password and root SSH access must remain disabled on Herdr.
+
+- name: Ensure the Herdr firewall configuration directory is root-owned
+  ansible.builtin.file:
+    path: '{{ herdr_ufw_managed_cidrs_file | dirname }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Inspect the prior Herdr-managed SSH CIDR set
+  ansible.builtin.stat:
+    path: '{{ herdr_ufw_managed_cidrs_file }}'
+    follow: false
+  register: herdr_ufw_managed_cidrs_stat
+
+- name: Reject an invalid Herdr-managed SSH CIDR state path
+  ansible.builtin.assert:
+    that:
+      - not herdr_ufw_managed_cidrs_stat.stat.exists or herdr_ufw_managed_cidrs_stat.stat.isreg | default(false)
+    fail_msg: '{{ herdr_ufw_managed_cidrs_file }} must be a regular file when present.
+      Refusing to reconcile Herdr UFW rules.'
+
+- name: Ensure the prior Herdr-managed SSH CIDR set is root-owned
+  ansible.builtin.file:
+    path: '{{ herdr_ufw_managed_cidrs_file }}'
+    state: file
+    owner: root
+    group: root
+    mode: '0600'
+  when: herdr_ufw_managed_cidrs_stat.stat.exists
+
+- name: Read the prior Herdr-managed SSH CIDR set
+  ansible.builtin.slurp:
+    src: '{{ herdr_ufw_managed_cidrs_file }}'
+  register: herdr_ufw_managed_cidrs_content
+  when: herdr_ufw_managed_cidrs_stat.stat.exists
+
+- name: Parse the prior Herdr-managed SSH CIDR set
+  ansible.builtin.set_fact:
+    herdr_previous_managed_ssh_cidrs: >-
+      {{
+        (herdr_ufw_managed_cidrs_content.content | default('') | b64decode).splitlines()
+        | map('trim') | reject('equalto', '') | list
+      }}
+
+- name: Validate the prior Herdr-managed SSH CIDR set
+  ansible.builtin.assert:
+    that:
+      - >-
+        herdr_previous_managed_ssh_cidrs |
+        select('match', '^[0-9A-Fa-f:.]+/[0-9]{1,3}$') |
+        list | length == herdr_previous_managed_ssh_cidrs | length
+    fail_msg: '{{ herdr_ufw_managed_cidrs_file }} contains an invalid CIDR.
+      Refusing to reconcile Herdr UFW rules.'
+
+- name: Configure default-deny Herdr firewall
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - default
+      - deny
+      - incoming
+  changed_when: false
+
+- name: Allow Herdr outbound traffic
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - default
+      - allow
+      - outgoing
+  changed_when: false
+
+- name: Remove obsolete Herdr-managed SSH UFW rules
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - delete
+      - allow
+      - from
+      - '{{ item }}'
+      - to
+      - any
+      - port
+      - '22'
+      - proto
+      - tcp
+  loop: '{{ herdr_previous_managed_ssh_cidrs | difference(herdr_allowed_ssh_cidrs) | sort }}'
+  changed_when: true
+
+- name: Allow Herdr SSH from approved source CIDRs
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - allow
+      - from
+      - '{{ item }}'
+      - to
+      - any
+      - port
+      - '22'
+      - proto
+      - tcp
+  loop: '{{ herdr_allowed_ssh_cidrs | unique | list }}'
+  changed_when: false
+
+- name: Atomically update the root-owned Herdr-managed SSH CIDR set
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        target={{ herdr_ufw_managed_cidrs_file | quote }}
+        tmp="$(mktemp "${target}.XXXXXX")"
+        cleanup() {
+            rm -f "${tmp}"
+        }
+        trap cleanup EXIT
+        printf '%s\n' {% for cidr in herdr_allowed_ssh_cidrs | unique | sort %}{{ cidr | quote }} {% endfor %} > "${tmp}"
+        chown root:root "${tmp}"
+        chmod 0600 "${tmp}"
+        if [[ -f "${target}" ]] && cmp -s "${tmp}" "${target}"; then
+            exit 0
+        fi
+        mv -f "${tmp}" "${target}"
+        trap - EXIT
+        echo changed
+  register: herdr_ufw_managed_cidrs_update
+  changed_when: "'changed' in herdr_ufw_managed_cidrs_update.stdout_lines"
+
+- name: Enable the Herdr firewall
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - --force
+      - enable
+  changed_when: false
+
+- name: Install the pinned Herdr binary with versioned atomic activation
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        version={{ herdr_binary_version | quote }}
+        url={{ herdr_binary_url | quote }}
+        sha256={{ herdr_binary_sha256 | quote }}
+        root={{ herdr_install_root | quote }}
+        release="${root}/releases/${version}-${sha256:0:12}"
+        changed=0
+
+        install -d -m 0755 "${root}/releases"
+        if [[ ! -f "${release}/.artifact-sha256" || ! -x "${release}/herdr" ]]; then
+            if [[ -e "${release}" ]]; then
+                echo "incomplete Herdr release: ${release}" >&2
+                exit 1
+            fi
+            artifact="$(mktemp)"
+            staging="$(mktemp -d "${root}/releases/.${version}.XXXXXX")"
+            cleanup() {
+                rm -f "${artifact}"
+                if [[ -n "${staging:-}" ]]; then
+                    rm -rf "${staging}"
+                fi
+            }
+            trap cleanup EXIT
+            curl -fsSL -o "${artifact}" "${url}"
+            printf '%s  %s\n' "${sha256}" "${artifact}" | sha256sum -c -
+            install -m 0755 "${artifact}" "${staging}/herdr"
+            printf '%s\n' "${sha256}" > "${staging}/.artifact-sha256"
+            chmod 0644 "${staging}/.artifact-sha256"
+            chmod 0755 "${staging}"
+            mv "${staging}" "${release}"
+            staging=
+            changed=1
+        fi
+
+        test "$(cat "${release}/.artifact-sha256")" = "${sha256}"
+        printf '%s  %s\n' "${sha256}" "${release}/herdr" | sha256sum -c -
+        current=''
+        if [[ -e "${root}/current" ]]; then
+            current="$(readlink -f "${root}/current")"
+        fi
+        if [[ "${current}" != "${release}" ]]; then
+            rm -f "${root}/.current-new"
+            ln -s "${release}" "${root}/.current-new"
+            mv -Tf "${root}/.current-new" "${root}/current"
+            changed=1
+        fi
+        active=''
+        if [[ -e {{ herdr_binary_path | quote }} ]]; then
+            active="$(readlink -f {{ herdr_binary_path | quote }})"
+        fi
+        if [[ "${active}" != "${release}/herdr" ]]; then
+            rm -f {{ (herdr_binary_path ~ '.new') | quote }}
+            ln -s "${root}/current/herdr" {{ (herdr_binary_path ~ '.new') | quote }}
+            mv -Tf {{ (herdr_binary_path ~ '.new') | quote }} {{ herdr_binary_path | quote }}
+            changed=1
+        fi
+        test -x {{ herdr_binary_path | quote }}
+        if [[ "${changed}" -ne 0 ]]; then
+            echo changed
+        fi
+  register: herdr_binary_install
+  changed_when: "'changed' in herdr_binary_install.stdout_lines"
+
+- name: Configure the operator pnpm global bin directory
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - pnpm
+      - config
+      - set
+      - global-bin-dir
+      - '{{ herdr_pnpm_home }}'
+  environment:
+    HOME: '{{ herdr_pi_home }}'
+    PNPM_HOME: '{{ herdr_pnpm_home }}'
+    PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'
+  changed_when: false
+
+- name: Install Pi 0.84.1 through pnpm as the Herdr operator
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - pnpm
+      - --config.minimumReleaseAge=720
+      - add
+      - --global
+      - --allow-build=koffi
+      - --allow-build=protobufjs
+      - '{{ herdr_pi_package }}@{{ herdr_pi_version }}'
+  environment:
+    HOME: '{{ herdr_pi_home }}'
+    PNPM_HOME: '{{ herdr_pnpm_home }}'
+    PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'
+  changed_when: false
+
+- name: Verify the pinned Pi executable as the Herdr operator
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - pi
+      - --version
+  environment:
+    HOME: '{{ herdr_pi_home }}'
+    PNPM_HOME: '{{ herdr_pnpm_home }}'
+    PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'
+  register: herdr_pi_version_check
+  changed_when: false
+  failed_when: herdr_pi_version not in herdr_pi_version_check.stdout
+
+- name: Generate the dedicated Herdr to onramp ed25519 key
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - ssh-keygen
+      - -t
+      - ed25519
+      - -N
+      - ''
+      - -C
+      - 'herdr-onramp-docker-context'
+      - -f
+      - '{{ herdr_remote_identity_file }}'
+    creates: '{{ herdr_remote_identity_file }}'
+  changed_when: false
+
+- name: Enforce the dedicated Herdr identity file permissions
+  ansible.builtin.file:
+    path: '{{ item.path }}'
+    owner: '{{ herdr_operator_user }}'
+    group: '{{ herdr_operator_user }}'
+    mode: '{{ item.mode }}'
+    state: file
+  loop:
+    - path: '{{ herdr_remote_identity_file }}'
+      mode: '0600'
+    - path: '{{ herdr_remote_public_key_file }}'
+      mode: '0644'
+
+- name: Read only the dedicated Herdr public key
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - cat
+      - '{{ herdr_remote_public_key_file }}'
+  register: herdr_remote_access_public_key_read
+  changed_when: false
+  no_log: true
+
+- name: Publish the dedicated Herdr public key as a host fact
+  ansible.builtin.set_fact:
+    herdr_remote_access_public_key: '{{ herdr_remote_access_public_key_read.stdout | trim }}'
+  no_log: true
+
+- name: Validate the dedicated Herdr public key fact
+  ansible.builtin.assert:
+    that:
+      - herdr_remote_access_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]+={0,2}( .*)?$')
+  no_log: true
+
+- name: Install the official Herdr Pi integration as the operator
+  become_user: '{{ herdr_operator_user }}'
+  ansible.builtin.command:
+    argv:
+      - herdr
+      - integration
+      - install
+      - pi
+  environment:
+    HOME: '{{ herdr_pi_home }}'
+    PI_CODING_AGENT_DIR: '{{ herdr_pi_agent_dir }}'
+    PNPM_HOME: '{{ herdr_pnpm_home }}'
+    PATH: '{{ herdr_pnpm_home }}:/usr/local/bin:/usr/bin:/bin'
+  changed_when: false
+
+- name: Inspect the installed Herdr Pi integration state file
+  ansible.builtin.stat:
+    path: '{{ herdr_pi_agent_dir }}/extensions/herdr-agent-state.ts'
+    follow: false
+  register: herdr_pi_integration_state
+
+- name: Enforce the Herdr Pi integration state file postcondition
+  ansible.builtin.assert:
+    that:
+      - herdr_pi_integration_state.stat.exists | default(false)
+      - herdr_pi_integration_state.stat.isreg | default(false)
+      - herdr_pi_integration_state.stat.pw_name | default('') == herdr_operator_user
+    fail_msg: >-
+      Herdr Pi integration must install a regular operator-owned state file at
+      {{ herdr_pi_agent_dir }}/extensions/herdr-agent-state.ts.
+      Refusing to continue without that exact postcondition.
+
+- name: Verify the direct Herdr become path
+  ansible.builtin.command:
+    argv:
+      - whoami
+  register: herdr_become_user
+  changed_when: false
+  failed_when: herdr_become_user.stdout | trim != 'root'

@@ -1,0 +1,31 @@
+---
+argument_specs:
+  main:
+    short_description: "Bootstrap the Herdr LXC before direct SSH access."
+    options:
+      herdr_vmid:
+        type: int
+        required: true
+        description: "Inventory-derived Herdr LXC VMID used only through pct exec."
+      herdr_operator_user:
+        type: str
+        required: true
+        description: "Dedicated non-root Herdr operator account."
+      herdr_ssh_public_keys:
+        type: list
+        elements: str
+        required: true
+        description: "Public keys authorized for the dedicated Herdr operator."
+      herdr_lxc_bootstrap_shell:
+        type: str
+        required: false
+        description: "Login shell for the dedicated operator."
+      herdr_lxc_bootstrap_command:
+        type: str
+        required: false
+        description: "PVE lifecycle command used to execute the bootstrap."
+      herdr_lxc_bootstrap_packages:
+        type: list
+        elements: str
+        required: false
+        description: "Bootstrap packages installed through pct exec."

@@ -1,0 +1,25 @@
+---
+argument_specs:
+  main:
+    short_description: "Authorize the Herdr Docker context on the shared onramp VM."
+    options:
+      herdr_onramp_authorized_keys_file:
+        type: str
+        required: false
+        description: "Separate root-owned authorized key file for Herdr."
+      herdr_onramp_sshd_dropin:
+        type: str
+        required: false
+        description: "User-scoped sshd configuration for the separate key file."
+      herdr_onramp_relay_path:
+        type: str
+        required: false
+        description: "Existing root-owned Podman Docker stdio relay path."
+      herdr_onramp_allowed_from:
+        type: str
+        required: false
+        description: "Herdr source address allowed by the authorized key option."
+      herdr_onramp_user:
+        type: str
+        required: false
+        description: "Existing onramp deploy user receiving the restricted key."

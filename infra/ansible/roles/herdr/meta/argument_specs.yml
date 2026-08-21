@@ -1,0 +1,46 @@
+---
+argument_specs:
+  main:
+    short_description: "Configure the Herdr Debian 13 operator LXC directly."
+    options:
+      herdr_operator_user:
+        type: str
+        required: true
+        description: "Dedicated non-root Herdr operator account."
+      herdr_password_authentication:
+        type: bool
+        required: true
+        description: "SSH password authentication policy; must be false."
+      herdr_permit_root_login:
+        type: bool
+        required: true
+        description: "SSH root login policy; must be false."
+      herdr_allowed_ssh_cidrs:
+        type: list
+        elements: str
+        required: true
+        description: "Source CIDRs allowed through the Herdr SSH firewall."
+      herdr_docker_cli_package:
+        type: str
+        required: false
+        description: "Docker CLI package; this must not install a daemon."
+      herdr_binary_version:
+        type: str
+        required: false
+        description: "Pinned Herdr release version."
+      herdr_binary_url:
+        type: str
+        required: false
+        description: "Immutable Herdr release URL."
+      herdr_binary_sha256:
+        type: str
+        required: false
+        description: "Pinned Herdr release SHA256."
+      herdr_pi_package:
+        type: str
+        required: false
+        description: "Official Pi coding-agent package installed by pnpm."
+      herdr_pi_version:
+        type: str
+        required: false
+        description: "Pinned Pi version."

@@ -21,6 +21,7 @@ onramp_host_podman_packages:
   - curl
   - golang
   - rsync
+onramp_host_podman_docker_stdio_relay_path: /usr/local/libexec/podman-docker-stdio
 onramp_host_compose_provider_command: podman-compose
 onramp_host_enable_docker_compat_socket: true
 onramp_host_allowed_reverse_proxy_ports:

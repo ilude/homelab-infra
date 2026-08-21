@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+if [ "${SSH_ORIGINAL_COMMAND-}" != "docker system dial-stdio" ]; then
+    exit 1
+fi
+
+exec /usr/bin/socat STDIO "UNIX-CONNECT:/run/user/{{ onramp_host_deploy_user_uid.stdout | trim }}/podman/podman.sock"

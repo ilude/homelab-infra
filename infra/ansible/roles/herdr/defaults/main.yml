@@ -1,0 +1,18 @@
+---
+herdr_password_authentication: false
+herdr_permit_root_login: false
+herdr_allowed_ssh_cidrs: []
+herdr_docker_cli_package: docker-cli
+herdr_binary_version: '0.8.2'
+herdr_binary_url: https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-linux-x86_64
+herdr_binary_sha256: 976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4
+herdr_install_root: /opt/herdr
+herdr_binary_path: /usr/local/bin/herdr
+herdr_pi_package: '@earendil-works/pi-coding-agent'
+herdr_pi_version: '0.84.1'
+herdr_pi_home: '/home/{{ herdr_operator_user }}'
+herdr_pi_agent_dir: '{{ herdr_pi_home }}/.pi/agent'
+herdr_pnpm_home: '{{ herdr_pi_home }}/.local/share/pnpm'
+herdr_ufw_managed_cidrs_file: /etc/herdr/ufw-managed-ssh-cidrs
+herdr_remote_identity_file: '{{ herdr_pi_home }}/.ssh/id_ed25519_herdr_onramp'
+herdr_remote_public_key_file: '{{ herdr_remote_identity_file }}.pub'

@@ -20,6 +20,5 @@ python scripts/apply-ansible-services.py \
   --mode sequential \
   --service "$1" \
   --inventory "${VALUES_DIR}/ansible/inventory/local.yml" \
-  --inventory infra/ansible/inventory/tfvars.py \
-  --env-file "${VALUES_DIR}/.env"
+  --inventory infra/ansible/inventory/tfvars.py
 ' bash "${service}"

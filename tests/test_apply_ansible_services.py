@@ -93,7 +93,6 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
                 "forgejo_runner",
                 ("inventory.yml", "tfvars.py"),
                 Path(temp),
-                Path(temp) / ".env",
                 dict(os.environ),
                 runner,
             )
@@ -113,7 +112,7 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
             ],
         )
 
-    def test_technitium_dns_uses_authoritative_bws_token(self) -> None:
+    def test_technitium_runs_all_playbooks(self) -> None:
         commands: list[list[str]] = []
 
         def runner(command: list[str], log_path: Path, env: dict[str, str]) -> int:
@@ -121,18 +120,10 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
             return 0
 
         with tempfile.TemporaryDirectory() as temp:
-            env_path = Path(temp) / ".env"
-            env_path.write_text(
-                'export TECHNITIUM_API_URL="http://192.0.2.53:5380/api"\n'
-                'export TECHNITIUM_API_TOKEN="REPLACE_AFTER_TOKEN_CREATION"\n'
-                'export DNS_RECORDS_FILE="values/dns-records.local.json"\n',
-                encoding="utf-8",
-            )
             result = apply_ansible_services.run_service(
                 "technitium",
                 ("inventory.yml",),
                 Path(temp),
-                env_path,
                 dict(os.environ),
                 runner,
             )
@@ -180,7 +171,6 @@ class ApplyAnsibleServicesTests(unittest.TestCase):
                 ["forgejo", "hermes"],
                 ("inventory.yml",),
                 Path(temp),
-                Path(temp) / ".env",
                 dict(os.environ),
                 runner,
             )

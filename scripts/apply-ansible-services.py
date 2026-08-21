@@ -10,9 +10,10 @@ import importlib.util
 import os
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable
 
 REPO = Path(__file__).resolve().parents[1]
 SETTINGS_SPEC = importlib.util.spec_from_file_location(
@@ -98,7 +99,7 @@ def default_runner(command: list[str], log_path: Path, env: dict[str, str]) -> i
         process = subprocess.run(
             command, stdout=log, stderr=subprocess.STDOUT, env=env, check=False
         )
-        log.write((f"\nexit_code={process.returncode}\n").encode("utf-8"))
+        log.write((f"\nexit_code={process.returncode}\n").encode())
         return process.returncode
 
 
@@ -106,7 +107,6 @@ def run_service(
     service: str,
     inventories: tuple[str, ...],
     log_dir: Path,
-    env_file: Path,
     base_env: dict[str, str],
     runner: RunCommand = default_runner,
 ) -> ServiceResult:
@@ -125,14 +125,13 @@ def run_sequential(
     services: list[str],
     inventories: tuple[str, ...],
     log_dir: Path,
-    env_file: Path,
     base_env: dict[str, str],
     runner: RunCommand = default_runner,
 ) -> list[ServiceResult]:
     results: list[ServiceResult] = []
     for service in services:
         print(f"==> ansible service {service}", flush=True)
-        result = run_service(service, inventories, log_dir, env_file, base_env, runner)
+        result = run_service(service, inventories, log_dir, base_env, runner)
         results.append(result)
         if result.returncode != 0:
             break
@@ -144,7 +143,6 @@ def run_parallel(
     services: list[str],
     inventories: tuple[str, ...],
     log_dir: Path,
-    env_file: Path,
     base_env: dict[str, str],
     max_workers: int,
     runner: RunCommand = default_runner,
@@ -161,7 +159,6 @@ def run_parallel(
                     service,
                     inventories,
                     log_dir,
-                    env_file,
                     base_env,
                     runner,
                 ): service
@@ -212,9 +209,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--settings", type=Path, default=None)
     parser.add_argument("--inventory", action="append", default=None)
-    parser.add_argument(
-        "--env-file", type=Path, default=Path(DEFAULT_VALUES_DIR) / ".env"
-    )
     parser.add_argument("--service", action="append", default=None)
     parser.add_argument(
         "--mode",
@@ -247,15 +241,12 @@ def main(argv: list[str] | None = None) -> int:
     base_env = dict(os.environ)
 
     if args.mode == "sequential":
-        results = run_sequential(
-            services, inventories, log_dir, args.env_file, base_env
-        )
+        results = run_sequential(services, inventories, log_dir, base_env)
     else:
         results = run_parallel(
             services,
             inventories,
             log_dir,
-            args.env_file,
             base_env,
             max(1, args.max_workers),
         )

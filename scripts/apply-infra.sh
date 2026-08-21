@@ -68,6 +68,5 @@ fi
 python scripts/apply-ansible-services.py \
   --inventory "${VALUES_DIR}/ansible/inventory/local.yml" \
   --inventory infra/ansible/inventory/tfvars.py \
-  --env-file "${VALUES_DIR}/.env" \
   "${ansible_service_args[@]}"
 ' bash "${target_service}" "${destroy_verify_flag}" "${stateful_batch_verify_flag}"

@@ -4,12 +4,13 @@ Guidance for coding agents working in this repository.
 
 ## Overview
 
-This repo is a generic, reusable homelab infrastructure runbook for Proxmox LXCs running Technitium DNS, Caddy, Forgejo, Infisical, and Hermes.
+This repo is a generic, reusable homelab infrastructure runbook for Proxmox LXCs and the shared onramp-host VM running Technitium DNS, Caddy, Forgejo, Infisical, Hermes, FreeLLMAPI, and other managed services.
 
 The canonical checkout is the `modules/homelab-infra/` submodule of the dotfiles repository. This repository retains its own history, branches, validation, commits, and remote; the dotfiles parent pins an exact commit.
 
 Repository collaboration boundaries:
 
+- Base current implementation decisions on deployed tooling and repositories available in the active workspace. Architecture documents describing a future repository, control plane, or migration target do not make that tooling operational and must not redirect current work to a nonexistent path. When no separate app-platform deployment tooling exists, this repository owns deployment of requested Docker services to its managed hosts using its existing Ansible, BWS, Caddy, and service-state patterns. Preserve a documented future migration boundary without treating it as a current blocker.
 - The sibling `../onclave/` module owns Onclave product code, protocols, services, and provider-neutral application contracts. Its checkout must remain attached to and tracking `origin/feature/v2-broker-core` unless the user explicitly requests a branch change. This repository consumes those contracts and owns host placement, infrastructure resources, deployment orchestration, and live configuration.
 - The dotfiles parent at `../..` owns workstation setup and Pi runtime wiring. Do not put infrastructure implementation, BWS configuration, or excluded private data in the parent repository.
 - BWS owns configuration families and runtime secrets; SeaweedFS owns encrypted OpenTofu state. The nested private `values/` repository stores only excluded backups, artifacts, dumps, and mutable service-state data. Remote runtime backups may remain on managed hosts. Neither the Onclave sibling nor the dotfiles parent may become a second store for these contracts.
@@ -107,7 +108,7 @@ This repo generally uses service-local Caddy instances rather than one central r
 
 - Technitium LXC runs its own Caddy for the DNS/Technitium UI.
 - Forgejo LXC runs its own Caddy for Forgejo.
-- New browser-facing first-class LXC services should usually follow the same pattern: app plus Caddy in the same LXC, with Caddy proxying to the app on loopback. Hermes follows this pattern. Containerized app services that belong on `onramp_host`, such as Infisical onramp, should use the shared onramp Caddy instance with per-service snippets under `/etc/caddy/sites.d/`.
+- New browser-facing first-class LXC services should usually follow the same pattern: app plus Caddy in the same LXC, with Caddy proxying to the app on loopback. Hermes follows this pattern. Containerized app services that belong on `onramp_host`, such as Infisical onramp and FreeLLMAPI, should use the shared onramp Caddy instance with per-service snippets under `/etc/caddy/sites.d/`.
 - Caddy uses Cloudflare DNS-01 ACME via `CF_DNS_API_TOKEN`, so multiple service-local Caddy instances can obtain certificates without competing for HTTP-01 port 80 routing.
 - Avoid turning the Technitium/DNS LXC into a general ingress proxy unless there is an explicit design reason. `caddy_extra_vhosts` exists, but should not be the default for new first-class services.
 

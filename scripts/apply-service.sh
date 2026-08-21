@@ -11,6 +11,7 @@ runtime_profile="config"
 case "${service}" in
   seaweedfs_onramp) runtime_profile="seaweedfs" ;;
   onclave_onramp) runtime_profile="onclave" ;;
+  freellmapi_onramp) runtime_profile="freellmapi" ;;
 esac
 
 # shellcheck disable=SC2016

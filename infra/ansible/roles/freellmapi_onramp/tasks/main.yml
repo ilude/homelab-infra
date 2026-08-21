@@ -1,0 +1,128 @@
+---
+- name: Validate FreeLLMAPI onramp required variables
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version | int >= 13
+      - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_host_deploy_user != 'root'
+      - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
+      - freellmapi_server_name is match('^[A-Za-z0-9.-]+$')
+      - freellmapi_encryption_key is match('^[0-9a-fA-F]{64}$')
+      - freellmapi_onramp_bind_address == '127.0.0.1'
+      - freellmapi_onramp_host_port | int > 0
+      - freellmapi_onramp_host_port | int < 65536
+      - freellmapi_onramp_image is match('^ghcr.io/tashfeenahmed/freellmapi:v[0-9.]+@sha256:[0-9a-f]{64}$')
+    fail_msg: FreeLLMAPI requires Debian 13, a private hostname, a 64-character encryption key, a loopback bind, and a digest-pinned image.
+  no_log: true
+
+- name: Install FreeLLMAPI OS dependencies
+  ansible.builtin.apt:
+    name: "{{ freellmapi_onramp_required_packages }}"
+    state: present
+    update_cache: true
+  when: freellmapi_onramp_required_packages | length > 0
+
+- name: Ensure FreeLLMAPI deployment directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ freellmapi_onramp_base_dir }}", mode: "0750" }
+    - { path: "{{ freellmapi_onramp_base_dir }}/data", mode: "0750" }
+    - { path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user", mode: "0750" }
+
+- name: Install FreeLLMAPI private environment
+  ansible.builtin.template:
+    src: freellmapi.env.j2
+    dest: "{{ freellmapi_onramp_base_dir }}/freellmapi.env"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart freellmapi onramp
+
+- name: Install FreeLLMAPI compose definition
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ freellmapi_onramp_base_dir }}/docker-compose.yml"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  notify: Restart freellmapi onramp
+
+- name: Resolve FreeLLMAPI deploy user UID
+  ansible.builtin.command:
+    argv: [id, -u, "{{ onramp_host_deploy_user }}"]
+  register: freellmapi_onramp_deploy_user_uid
+  changed_when: false
+
+- name: Install FreeLLMAPI rootless systemd unit
+  ansible.builtin.template:
+    src: freellmapi-onramp.service.j2
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/freellmapi-onramp.service"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  notify: Restart freellmapi onramp
+
+- name: Enable FreeLLMAPI rootless systemd unit
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: freellmapi-onramp.service
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+
+- name: Install FreeLLMAPI Caddy site snippet
+  ansible.builtin.template:
+    src: freellmapi.caddy.j2
+    dest: /etc/caddy/sites.d/freellmapi.caddy
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Restart caddy
+
+- name: Validate FreeLLMAPI Caddy config
+  ansible.builtin.command:
+    argv: [bash, -lc, "set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile"]
+  changed_when: false
+
+- name: Flush FreeLLMAPI restarts before endpoint checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify FreeLLMAPI loopback health endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ freellmapi_onramp_host_port }}/api/ping"
+    status_code: 200
+    return_content: false
+  register: freellmapi_onramp_health
+  retries: 24
+  delay: 5
+  until: freellmapi_onramp_health.status == 200
+
+- name: Verify FreeLLMAPI HTTPS route locally
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --insecure
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ freellmapi_server_name }}:443:127.0.0.1"
+      - "https://{{ freellmapi_server_name }}/api/ping"
+  changed_when: false
+  register: freellmapi_onramp_https
+  retries: 24
+  delay: 5
+  until: freellmapi_onramp_https.rc == 0

@@ -4,13 +4,19 @@
 
 This contract defines the boundary between `homelab-infra`, `onramp-vNext`, and Hermes for general Docker application services. It keeps this repository focused on durable infrastructure while allowing Hermes to operate across infrastructure and app-platform workflows. Cross-repository architecture decisions are governed by the 2026-07-26 Homelab Platform Architecture PRD, held in the Onclave repository at `docs/PRDS/2026-07-26-homelab-platform-architecture-PRD.md`.
 
-The selected default direction is option 3: `homelab-infra remains the durable infrastructure substrate`, `onramp-vNext owns Docker app services`, and `Hermes operates across both` through approved repo-native commands. SearXNG is internal to the Onclave app workload; this repository does not own a standalone SearXNG deployment.
+The selected future direction is option 3: `homelab-infra remains the durable infrastructure substrate`, `onramp-vNext owns Docker app services`, and `Hermes operates across both` through approved repo-native commands. SearXNG is internal to the Onclave app workload; this repository does not own a standalone SearXNG deployment.
+
+## Current operating reality
+
+Architecture direction does not substitute for deployed tooling. Until an `onramp-vNext` repository and working deployment control plane are present, validated, and adopted, `homelab-infra` is the available owner for Docker services deployed to its managed `onramp_host`. Implement those services with the existing Ansible, BWS, shared Caddy, and service-state contracts. Do not block or redirect a current service request to `onramp-vNext` merely because this document names it as the future owner.
+
+When `onramp-vNext` becomes operational, migrate eligible application workloads through an explicit cutover. Future ownership begins after that cutover, not when the architecture is proposed or documented.
 
 ## Ownership
 
-`homelab-infra` owns durable infrastructure resources and first-class services: Proxmox resources, service LAN addressing, static infrastructure DNS, service-local Caddy for first-class services, Ansible roles, and OpenTofu state. BWS owns the configuration families and enabled-service list consumed by those workflows; SeaweedFS owns the encrypted OpenTofu state.
+`homelab-infra` currently owns durable infrastructure resources, first-class services, and Docker service deployment to its managed hosts: Proxmox resources, service LAN addressing, static infrastructure DNS, Caddy configuration, Ansible roles, application lifecycle, and OpenTofu state. BWS owns the configuration families, enabled-service list, and runtime secrets consumed by those workflows; SeaweedFS owns the encrypted OpenTofu state.
 
-`onramp-vNext` owns Docker app services by default. That includes application catalog entries, Compose or Podman workload definitions, app lifecycle, app-level health checks, and app-specific configuration that does not require infrastructure resource ownership. Onclave is an app workload under this ownership model, not a first-class infrastructure service.
+`onramp-vNext` is the intended future owner of Docker app services after its deployment tooling exists and the applicable workloads are cut over. That future scope includes application catalog entries, Compose or Podman workload definitions, app lifecycle, app-level health checks, and app-specific configuration that does not require infrastructure resource ownership. Onclave remains an app workload rather than a first-class infrastructure service.
 
 Hermes is the operator cockpit. It may summarize status, run approved validation and planning commands, and guide the operator through approval gates. Hermes must not become a third source of truth for infrastructure or app deployment state.
 
@@ -22,7 +28,7 @@ Provisioning cannot be split between control planes because OpenTofu holds the s
 
 ## Catalog Ownership
 
-`onramp-vNext` is the service catalog. `onclave` is the alpha incubator for AI tooling and services. Services proven there are promoted into the `onramp-vNext` catalog as official entries. Incubating services carry no stability expectation.
+`homelab-infra` is the current deployable service registry for its managed hosts. `onclave` is the alpha incubator for AI tooling and services. After `onramp-vNext` becomes operational, proven application services may be promoted into its catalog through an explicit migration. Incubating services carry no stability expectation.
 
 ## DNS Contract
 
@@ -48,7 +54,7 @@ Bitwarden Secrets Manager is the single backend for Onramp app secrets. Infisica
 
 OpenTofu state in this repository tracks infrastructure resources owned by `homelab-infra` and is stored encrypted in SeaweedFS. Onramp app services are not managed by OpenTofu by default and must not be added to the BWS `HOMELAB_TERRAFORM_TFVARS` family, the BWS `HOMELAB_ANSIBLE_INVENTORY` family, or OpenTofu state unless a separate approved infrastructure plan promotes that service or resource into this repository.
 
-Onramp app deployment state belongs to `onramp-vNext` and its runtime. Hermes may aggregate state for operator visibility, but aggregated status is read-only evidence, not source-of-truth state.
+Docker app deployment state currently belongs to the repository and runtime that actually deploy them, which is `homelab-infra` for services on its managed `onramp_host`. After an explicit cutover, migrated app deployment state belongs to `onramp-vNext` and its runtime. Hermes may aggregate state for operator visibility, but aggregated status is read-only evidence, not source-of-truth state.
 
 ## Approval Contract
 

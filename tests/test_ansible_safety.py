@@ -37,6 +37,7 @@ ROOTLESS_ONRAMP_UNITS = tuple(
     REPO / "infra" / "ansible" / "roles" / role / "templates" / unit
     for role, unit in (
         ("infisical_onramp", "infisical-onramp.service.j2"),
+        ("freellmapi_onramp", "freellmapi-onramp.service.j2"),
         ("onclave_onramp", "onclave-onramp.service.j2"),
     )
 )
@@ -52,6 +53,13 @@ SERVICE_SMOKE_TASK_FILES = (
     REPO / "infra" / "ansible" / "roles" / "caddy_proxy" / "tasks" / "main.yml",
     REPO / "infra" / "ansible" / "roles" / "forgejo" / "tasks" / "main.yml",
     REPO / "infra" / "ansible" / "roles" / "infisical" / "tasks" / "main.yml",
+    REPO
+    / "infra"
+    / "ansible"
+    / "roles"
+    / "freellmapi_onramp"
+    / "tasks"
+    / "main.yml",
     REPO / "infra" / "ansible" / "roles" / "hermes" / "tasks" / "main.yml",
 )
 ALLOWLIST_PCT = {
@@ -685,6 +693,56 @@ class AnsibleSafetyTests(unittest.TestCase):
             mode = (REPO / rel_path).stat().st_mode
             self.assertTrue(mode & 0o111, rel_path)
 
+    def test_freellmapi_onramp_is_private_persistent_and_bws_backed(self) -> None:
+        role = REPO / "infra" / "ansible" / "roles" / "freellmapi_onramp"
+        tasks = role / "tasks" / "main.yml"
+        compose = (role / "templates" / "docker-compose.yml.j2").read_text(
+            encoding="utf-8"
+        )
+        environment = (role / "templates" / "freellmapi.env.j2").read_text(
+            encoding="utf-8"
+        )
+        caddy = (role / "templates" / "freellmapi.caddy.j2").read_text(
+            encoding="utf-8"
+        )
+        inventory_fixture = (
+            REPO / "tests" / "fixtures" / "site-config" / "ansible" / "inventory" / "local.yml"
+        ).read_text(encoding="utf-8")
+        playbook = load_tasks(
+            REPO / "infra" / "ansible" / "playbooks" / "freellmapi-onramp.yml"
+        )
+        registry = json.loads(
+            (REPO / "infra" / "services.json").read_text(encoding="utf-8")
+        )["services"]["freellmapi_onramp"]
+
+        self.assertEqual(registry["dependencies"], ["onramp_host"])
+        self.assertEqual(registry["execution_resource"], "onramp_host")
+        self.assertFalse(registry["state_capable"])
+        validate = task_by_name(tasks, "Validate FreeLLMAPI onramp required variables")
+        self.assertIn(
+            "freellmapi_onramp_bind_address == '127.0.0.1'",
+            validate["ansible.builtin.assert"]["that"],
+        )
+        self.assertIn(
+            "freellmapi_image: ghcr.io/tashfeenahmed/freellmapi:v0.8.4@sha256:",
+            inventory_fixture,
+        )
+        self.assertIn("{{ freellmapi_onramp_bind_address }}:", compose)
+        self.assertIn("./data:/app/server/data:Z,U", compose)
+        self.assertIn("/api/ping", compose)
+        self.assertIn("ENCRYPTION_KEY={{ freellmapi_encryption_key }}", environment)
+        self.assertIn("reverse_proxy 127.0.0.1:", caddy)
+        self.assertTrue(
+            task_by_name(tasks, "Install FreeLLMAPI private environment")["no_log"]
+        )
+        secret_task = next(
+            task
+            for task in playbook
+            if task.get("name") == "Configure FreeLLMAPI on shared onramp host"
+        )["pre_tasks"][0]
+        self.assertTrue(secret_task["no_log"])
+        self.assertIn("FREELLMAPI_ENCRYPTION_KEY", str(secret_task))
+
     def test_onclave_onramp_consumes_host_rendered_bws_secrets(self) -> None:
         plays = yaml.safe_load(ONCLAVE_ONRAMP_PLAYBOOK.read_text(encoding="utf-8"))
         deployment = plays[-1]
@@ -702,7 +760,8 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertTrue(resolve_task["no_log"])
 
         snapshot = (REPO / "scripts" / "bws-snapshot.py").read_text(encoding="utf-8")
-        self.assertIn('"onclave": RUNTIME_KEYS[3:]', snapshot)
+        self.assertIn('"onclave": RUNTIME_KEYS[3:-1]', snapshot)
+        self.assertIn('"freellmapi": RUNTIME_KEYS[-1:]', snapshot)
         self.assertIn('"RABBITMQ_DEFAULT_USER"', snapshot)
         self.assertIn('"RABBITMQ_DEFAULT_PASS"', snapshot)
 

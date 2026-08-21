@@ -1,0 +1,35 @@
+---
+argument_specs:
+  main:
+    short_description: "Deploy rootless FreeLLMAPI on the shared onramp host."
+    options:
+      onramp_host_deploy_user:
+        type: str
+        required: true
+      onramp_host_deploy_dir:
+        type: str
+        required: true
+      freellmapi_server_name:
+        type: str
+        required: true
+      freellmapi_encryption_key:
+        type: str
+        required: true
+      freellmapi_image:
+        type: str
+        required: true
+      freellmapi_onramp_base_dir:
+        type: str
+        required: false
+      freellmapi_onramp_host_port:
+        type: int
+        required: false
+      freellmapi_onramp_bind_address:
+        type: str
+        required: false
+      freellmapi_onramp_compose_provider_command:
+        type: str
+        required: false
+      freellmapi_onramp_required_packages:
+        type: list
+        required: false

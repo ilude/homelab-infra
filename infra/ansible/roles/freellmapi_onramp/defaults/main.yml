@@ -1,0 +1,7 @@
+---
+freellmapi_onramp_base_dir: "{{ onramp_host_deploy_dir }}/freellmapi"
+freellmapi_onramp_host_port: "{{ freellmapi_host_port | default(3001) }}"
+freellmapi_onramp_bind_address: "{{ freellmapi_bind_address | default('127.0.0.1') }}"
+freellmapi_onramp_compose_provider_command: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
+freellmapi_onramp_image: "{{ freellmapi_image }}"
+freellmapi_onramp_required_packages: []

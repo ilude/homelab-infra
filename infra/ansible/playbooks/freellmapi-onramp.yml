@@ -1,0 +1,16 @@
+---
+- name: Run verified direct access handoff for the onramp VM
+  ansible.builtin.import_playbook: vm-direct-access-ready.yml
+  vars:
+    direct_vm_access_target_group: onramp_host
+- name: Configure FreeLLMAPI on shared onramp host
+  hosts: onramp_host
+  gather_facts: true
+  become: true
+  pre_tasks:
+    - name: Load FreeLLMAPI encryption key from BWS runtime snapshot
+      ansible.builtin.set_fact:
+        freellmapi_encryption_key: "{{ lookup('env', 'FREELLMAPI_ENCRYPTION_KEY') }}"
+      no_log: true
+  roles:
+    - freellmapi_onramp

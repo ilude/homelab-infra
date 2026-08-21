@@ -87,6 +87,7 @@ class BwsSnapshotTests(unittest.TestCase):
                 "ONCLAVE_VAULT_YOUTUBE_API_KEY": "youtube-key",
                 "ONCLAVE_VAULT_OPENROUTER_API_KEY": "openrouter-key",
                 "ONCLAVE_VAULT_ANTHROPIC_API_KEY": "anthropic-key",
+                "FREELLMAPI_ENCRYPTION_KEY": "a" * 64,
             }
         )
         return values
@@ -345,6 +346,12 @@ class BwsSnapshotTests(unittest.TestCase):
                 bws_snapshot.encode_family(inventory_family, inventory),
             ),
         }
+
+    def test_freellmapi_runtime_profile_is_scoped_to_its_encryption_key(self) -> None:
+        self.assertEqual(
+            bws_snapshot.RUNTIME_PROFILES["freellmapi"],
+            ("FREELLMAPI_ENCRYPTION_KEY",),
+        )
 
     def test_onclave_runtime_profile_requires_vault_and_rabbitmq(self) -> None:
         values = {key: "test-value" for key in bws_snapshot.RUNTIME_KEYS}

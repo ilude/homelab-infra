@@ -1,0 +1,18 @@
+---
+services:
+  freellmapi:
+    image: {{ freellmapi_onramp_image }}
+    container_name: freellmapi-onramp
+    restart: unless-stopped
+    env_file:
+      - ./freellmapi.env
+    ports:
+      - "{{ freellmapi_onramp_bind_address }}:{{ freellmapi_onramp_host_port }}:3001"
+    volumes:
+      - ./data:/app/server/data:Z,U
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/ping').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3

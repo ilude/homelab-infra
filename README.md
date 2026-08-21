@@ -1,12 +1,12 @@
 # Homelab Infrastructure Runbooks
 
-Reusable OpenTofu and Ansible runbooks for Proxmox LXCs running Technitium DNS, Caddy, Forgejo, Infisical, Hermes, and optional runner/VPN services.
+Reusable OpenTofu and Ansible runbooks for Proxmox LXCs and the shared onramp-host VM running Technitium DNS, Caddy, Forgejo, Infisical, Hermes, FreeLLMAPI, and optional runner/VPN services.
 
 This public repo is intentionally generic. BWS configuration families own real domains, LAN IPs, DNS records, Proxmox settings, operator settings, and enabled services; standalone runtime keys own service secrets. Commands render validated compatibility files in an ephemeral tooling container. Encrypted OpenTofu state is stored in a versioned SeaweedFS S3 backend. The ignored nested `values/` Git repo remains only for excluded private backups, artifacts, dumps, mutable service-state data, and its applicable Forgejo workflow.
 
 ## Artifact integrity
 
-Forgejo, Forgejo runner, Docker Compose, just, Go, custom Caddy builds, Tailscale, Technitium portable releases, and Hermes Agent use managed version pins and integrity checks before activation. Hermes 0.18.0 uses a complete hashed wheel lock for Debian 13 amd64/Python 3.13 and verifies its official PyPI provenance. Infisical, PostgreSQL, Redis, and the tooling Debian base use full OCI tag-and-digest references; the Onclave app definition separately owns its internal SearXNG image contract. After its release-age hold, `just update` advances only private pin sets that still exactly match this runbook's managed defaults; any differing pin is operator-owned and remains unchanged. OCI resolution verifies Registry V2 header/body digests and linux/amd64 multi-arch index semantics. Managed Debian hosts also install automatic security-only updates with automatic reboots disabled.
+Forgejo, Forgejo runner, Docker Compose, just, Go, custom Caddy builds, Tailscale, Technitium portable releases, and Hermes Agent use managed version pins and integrity checks before activation. Hermes 0.18.0 uses a complete hashed wheel lock for Debian 13 amd64/Python 3.13 and verifies its official PyPI provenance. FreeLLMAPI, Infisical, PostgreSQL, Redis, and the tooling Debian base use full OCI tag-and-digest references; the Onclave app definition separately owns its internal SearXNG image contract. After its release-age hold, `just update` advances only private pin sets that still exactly match this runbook's managed defaults; any differing pin is operator-owned and remains unchanged. OCI resolution verifies Registry V2 header/body digests and linux/amd64 multi-arch index semantics. Managed Debian hosts also install automatic security-only updates with automatic reboots disabled.
 
 ## Layout
 
@@ -148,6 +148,7 @@ Ansible manages:
 - Caddy and OpenSSH integration on the Forgejo LXC
 - Forgejo Actions runner installation/registration on a separate LXC
 - Infisical Docker Compose stack on the legacy LXC, or rootless Infisical Podman stack on `onramp_host` when `infisical_onramp` is enabled
+- Rootless FreeLLMAPI Podman service on `onramp_host`, with a loopback-only application port, shared Caddy HTTPS route, BWS-owned encryption key, and persistent SQLite state
 - Hermes management tooling, SSH-oriented bootstrap directories, the Hermes Agent web dashboard running as `anvil`, and Caddy
 - App-host SSH hardening, rootless Podman readiness, `anvil` deploy-user setup, shared Caddy setup, default-deny host firewall policy, and deployment directory preparation
 - Onclave app deployment on `onramp_host`, including its internal SearXNG container and runtime contract

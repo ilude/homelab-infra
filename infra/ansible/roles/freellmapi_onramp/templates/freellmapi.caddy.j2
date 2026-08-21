@@ -1,0 +1,9 @@
+{{ freellmapi_server_name }} {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:{{ freellmapi_onramp_host_port }}
+
+    tls {
+        dns cloudflare {env.CF_DNS_API_TOKEN}
+        resolvers 1.1.1.1
+    }
+}

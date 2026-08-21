@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--settings", type=Path, required=True)
     parser.add_argument(
         "--runtime-profile",
-        choices=("config", "backend", "seaweedfs", "onclave", "all"),
+        choices=("config", "backend", "seaweedfs", "onclave", "freellmapi", "all"),
         default="config",
     )
     parser.add_argument("--writeback", action="store_true")

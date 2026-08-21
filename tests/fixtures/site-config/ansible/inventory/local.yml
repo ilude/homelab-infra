@@ -90,6 +90,8 @@ all:
     hermes_dashboard_basic_auth_password_hash: "{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH') }}"
     hermes_dashboard_basic_auth_secret: "{{ lookup('env', 'HERMES_DASHBOARD_BASIC_AUTH_SECRET') }}"
     onclave_server_name: onclave.example.internal
+    freellmapi_server_name: freellmapi.example.internal
+    freellmapi_image: ghcr.io/tashfeenahmed/freellmapi:v0.8.4@sha256:2c318e8f527c0bcfb027f8cba4a4f7b92e5965443215b6285f4c97d375df6f4d
     onclave_source_git_sha: b3e12e7266edb25c297f88c1a3bfbb9c6f0ff64e
     onclave_app_definition_url: https://raw.githubusercontent.com/traefikturkey/onclave/b3e12e7266edb25c297f88c1a3bfbb9c6f0ff64e/deploy/app/onclave/compose.yaml
     onclave_app_definition_sha256: 59d8505afb6258ebfc410ac9545baa0fdb7e94ec8efdf1173cc2fac08e892c1f

@@ -6,21 +6,22 @@ from __future__ import annotations
 import argparse
 import base64
 import email.parser
-import io
 import inspect
+import io
 import json
 import os
 import re
 import stat
 import sys
 import tempfile
-import zipfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from hashlib import sha256
+import zipfile
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Callable
 
@@ -477,6 +478,77 @@ TARGETS = (
         ),
     ),
 )
+
+
+OCI_UPDATE_UNITS = {
+    group: f"{group} OCI images"
+    for group in dict.fromkeys(target.group for target in OCI_TARGETS)
+}
+ALL_UPDATE_UNITS = (
+    *(target.name for target in TARGETS),
+    CADDY_CLOUDFLARE_TAG.name,
+    CADDY_GO_TOOLCHAIN.name,
+    *OCI_UPDATE_UNITS.values(),
+    TECHNITIUM_DISCOVERY.name,
+    HERMES_DISCOVERY.name,
+)
+
+# Each selector names an operator-facing service and expands to the complete
+# set of pin or discovery units that service owns. Shared image units are
+# listed under each service that consumes them and are deduplicated at runtime.
+SERVICE_UPDATE_UNITS: dict[str, tuple[str, ...]] = {
+    "caddy": (
+        "Caddy",
+        "xcaddy",
+        CADDY_CLOUDFLARE_TAG.name,
+        CADDY_GO_TOOLCHAIN.name,
+    ),
+    "forgejo": ("Forgejo",),
+    "forgejo_runner": ("Forgejo runner", "Docker Compose plugin", "just"),
+    "hermes": (
+        "Hermes Docker Compose plugin",
+        "Hermes just",
+        HERMES_DISCOVERY.name,
+    ),
+    "infisical": (
+        "Infisical Docker Compose plugin",
+        OCI_UPDATE_UNITS["infisical"],
+    ),
+    "infisical_onramp": (
+        "Infisical Docker Compose plugin",
+        OCI_UPDATE_UNITS["infisical"],
+    ),
+    "searxng_onramp": (OCI_UPDATE_UNITS["searxng"],),
+    "seaweedfs_onramp": (OCI_UPDATE_UNITS["seaweedfs"],),
+    "technitium": (TECHNITIUM_DISCOVERY.name,),
+    "technitium_secondary": (TECHNITIUM_DISCOVERY.name,),
+    "tailscale_client": ("Tailscale",),
+    "tools": (
+        "OpenTofu",
+        "TFLint",
+        OCI_UPDATE_UNITS["tools-debian"],
+    ),
+}
+
+
+def select_update_units(selectors: Sequence[str] = ()) -> tuple[str, ...]:
+    """Validate selectors and return selected units in the managed order."""
+    unknown = tuple(
+        dict.fromkeys(
+            selector for selector in selectors if selector not in SERVICE_UPDATE_UNITS
+        )
+    )
+    if unknown:
+        names = ", ".join(unknown)
+        raise UpdateError(f"unknown service selector(s): {names}")
+    if not selectors:
+        return ALL_UPDATE_UNITS
+    selected = {
+        unit
+        for selector in selectors
+        for unit in SERVICE_UPDATE_UNITS[selector]
+    }
+    return tuple(unit for unit in ALL_UPDATE_UNITS if unit in selected)
 
 
 def parse_timestamp(value: str) -> datetime:
@@ -2443,18 +2515,28 @@ def run(
     root: Path,
     min_age_hours: int,
     opener: Callable[[str], bytes] | None = None,
+    selectors: Sequence[str] = (),
 ) -> list[UpdateResult]:
+    selected_units = set(select_update_units(selectors))
     now = datetime.now(timezone.utc)
     min_age = timedelta(hours=min_age_hours)
-    results = [process_target(target, root, now, min_age, opener) for target in TARGETS]
+    results = [
+        process_target(target, root, now, min_age, opener)
+        for target in TARGETS
+        if target.name in selected_units
+    ]
     if opener is None:
-        results.append(process_tag_pin_target(CADDY_CLOUDFLARE_TAG, root, now))
-        results.append(process_go_toolchain_target(CADDY_GO_TOOLCHAIN, root, now))
-        groups = dict.fromkeys(target.group for target in OCI_TARGETS)
-        for group in groups:
-            results.extend(process_oci_group(group, root, now, fetch_oci_registry))
-        results.append(process_discovery_target(TECHNITIUM_DISCOVERY, root, now))
-        results.append(process_hermes_discovery_target(HERMES_DISCOVERY, root, now))
+        if CADDY_CLOUDFLARE_TAG.name in selected_units:
+            results.append(process_tag_pin_target(CADDY_CLOUDFLARE_TAG, root, now))
+        if CADDY_GO_TOOLCHAIN.name in selected_units:
+            results.append(process_go_toolchain_target(CADDY_GO_TOOLCHAIN, root, now))
+        for group, unit in OCI_UPDATE_UNITS.items():
+            if unit in selected_units:
+                results.extend(process_oci_group(group, root, now, fetch_oci_registry))
+        if TECHNITIUM_DISCOVERY.name in selected_units:
+            results.append(process_discovery_target(TECHNITIUM_DISCOVERY, root, now))
+        if HERMES_DISCOVERY.name in selected_units:
+            results.append(process_hermes_discovery_target(HERMES_DISCOVERY, root, now))
     return results
 
 
@@ -2483,10 +2565,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--min-age-hours", type=int, default=DEFAULT_MIN_AGE_HOURS)
+    parser.add_argument("selectors", nargs="*", metavar="SERVICE")
     args = parser.parse_args(argv)
 
     try:
-        results = run(args.root, args.min_age_hours)
+        results = run(args.root, args.min_age_hours, selectors=args.selectors)
     except UpdateError as error:
         print(error, file=sys.stderr)
         return 1

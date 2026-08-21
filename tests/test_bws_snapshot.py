@@ -100,6 +100,53 @@ class BwsSnapshotTests(unittest.TestCase):
 
         return run
 
+    @staticmethod
+    def sync_runner(
+        records: list[dict[str, str]],
+        calls: list[tuple[list[str], dict[str, str]]],
+        *,
+        fail_edit_key: str | None = None,
+        mutate_on_edit: bool = True,
+        fail_readback: bool = False,
+    ):
+        list_calls = 0
+
+        def run(command: object, environment: object):
+            nonlocal list_calls
+            command_list = list(command)
+            calls.append((command_list, dict(environment)))
+            if command_list[2] == "list":
+                list_calls += 1
+                if fail_readback and list_calls > 1:
+                    return __import__("subprocess").CompletedProcess(
+                        command, 1, "", "list failed"
+                    )
+                return __import__("subprocess").CompletedProcess(
+                    command, 0, json.dumps(records), ""
+                )
+            if command_list[2] == "edit":
+                record = next(record for record in records if record["id"] == command_list[3])
+                if record["key"] == fail_edit_key:
+                    return __import__("subprocess").CompletedProcess(
+                        command, 1, "", "edit failed"
+                    )
+                if mutate_on_edit:
+                    record["value"] = command_list[5]
+            return __import__("subprocess").CompletedProcess(command, 0, "", "")
+
+        return run
+
+    @staticmethod
+    def simple_hcl_loads(text: str) -> dict[str, str]:
+        parsed: dict[str, str] = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            key, value = line.split("=", 1)
+            parsed[key.strip()] = value.strip()
+        return parsed
+
     def test_manifest_has_exact_routes_and_runtime_keys(self) -> None:
         manifest = bws_snapshot.load_manifest()
         self.assertEqual(
@@ -264,7 +311,7 @@ class BwsSnapshotTests(unittest.TestCase):
             self.assertIn("HOMELAB_ENV: conflict", output.getvalue())
             self.assertNotIn("different-private-value", output.getvalue())
 
-    def test_sync_updates_only_changed_family_without_printing_value(self) -> None:
+    def test_sync_writes_substantive_dotenv_change_without_printing_value(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             settings_path = self.write_source(root)
@@ -274,7 +321,10 @@ class BwsSnapshotTests(unittest.TestCase):
                 {"id": f"id-{index}", "key": key, "value": value}
                 for index, (key, value) in enumerate(source.items())
             ]
-            records[0]["value"] = "old-private-value"
+            records[0]["value"] = "PVE_HOST=old.example.internal\n"
+            records.append(
+                {"id": "runtime-id", "key": "UNAPPROVED_RUNTIME", "value": "private"}
+            )
             calls: list[tuple[list[str], dict[str, str]]] = []
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
@@ -286,13 +336,300 @@ class BwsSnapshotTests(unittest.TestCase):
                         "--source-root",
                         str(root),
                     ],
-                    self.runner(records, calls),
+                    self.sync_runner(records, calls),
                 )
             self.assertEqual(rc, 0)
             edits = [call for call in calls if call[0][2] == "edit"]
             self.assertEqual(len(edits), 1)
+            self.assertEqual(edits[0][0][3], records[0]["id"])
+            self.assertEqual(len([call for call in calls if call[0][2] == "list"]), 2)
             self.assertIn("HOMELAB_ENV: updated", output.getvalue())
             self.assertNotIn(source["HOMELAB_ENV"], output.getvalue())
+
+    def test_sync_ignores_dotenv_comments_order_and_formatting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings_path = self.write_source(root)
+            (root / "values" / ".env").write_text(
+                "PVE_HOST=\"pve.example.internal\"\n"
+                "SECONDARY_PVE_HOST=secondary.example.internal\n",
+                encoding="utf-8",
+            )
+            manifest = bws_snapshot.load_manifest()
+            source = bws_snapshot.read_source_values(root, manifest)
+            records = [
+                {"id": f"id-{index}", "key": key, "value": value}
+                for index, (key, value) in enumerate(source.items())
+            ]
+            env_record = next(
+                record for record in records if record["key"] == "HOMELAB_ENV"
+            )
+            env_record["value"] = (
+                "# equivalent dotenv formatting\n"
+                "export SECONDARY_PVE_HOST='secondary.example.internal'\n"
+                "PVE_HOST=\"pve.example.internal\"\n"
+            )
+            calls: list[tuple[list[str], dict[str, str]]] = []
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                rc = bws_snapshot.main(
+                    [
+                        "--settings",
+                        str(settings_path),
+                        "sync",
+                        "--source-root",
+                        str(root),
+                    ],
+                    self.sync_runner(records, calls),
+                )
+            self.assertEqual(rc, 0)
+            self.assertFalse([call for call in calls if call[0][2] == "edit"])
+            self.assertIn("HOMELAB_ENV: match", output.getvalue())
+
+    def test_sync_writes_substantive_hcl_change(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings_path = self.write_source(root)
+            bws_snapshot.hcl2 = types.SimpleNamespace(loads=self.simple_hcl_loads)
+            manifest = bws_snapshot.load_manifest()
+            source = bws_snapshot.read_source_values(root, manifest)
+            records = [
+                {"id": f"id-{index}", "key": key, "value": value}
+                for index, (key, value) in enumerate(source.items())
+            ]
+            hcl_record = next(
+                record
+                for record in records
+                if record["key"] == "HOMELAB_TERRAFORM_TFVARS"
+            )
+            hcl_record["value"] = 'proxmox_node_name = "other"\n'
+            calls: list[tuple[list[str], dict[str, str]]] = []
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                rc = bws_snapshot.main(
+                    [
+                        "--settings",
+                        str(settings_path),
+                        "sync",
+                        "--source-root",
+                        str(root),
+                    ],
+                    self.sync_runner(records, calls),
+                )
+            self.assertEqual(rc, 0)
+            edits = [call for call in calls if call[0][2] == "edit"]
+            self.assertEqual(len(edits), 1)
+            self.assertEqual(edits[0][0][3], hcl_record["id"])
+            self.assertIn("HOMELAB_TERRAFORM_TFVARS: updated", output.getvalue())
+
+    def test_sync_ignores_hcl_comments_and_formatting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings_path = self.write_source(root)
+            bws_snapshot.hcl2 = types.SimpleNamespace(loads=self.simple_hcl_loads)
+            manifest = bws_snapshot.load_manifest()
+            source = bws_snapshot.read_source_values(root, manifest)
+            records = [
+                {"id": f"id-{index}", "key": key, "value": value}
+                for index, (key, value) in enumerate(source.items())
+            ]
+            hcl_record = next(
+                record
+                for record in records
+                if record["key"] == "HOMELAB_TERRAFORM_TFVARS"
+            )
+            hcl_record["value"] = '# equivalent HCL formatting\nproxmox_node_name="pve"\n'
+            calls: list[tuple[list[str], dict[str, str]]] = []
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                rc = bws_snapshot.main(
+                    [
+                        "--settings",
+                        str(settings_path),
+                        "sync",
+                        "--source-root",
+                        str(root),
+                    ],
+                    self.sync_runner(records, calls),
+                )
+            self.assertEqual(rc, 0)
+            self.assertFalse([call for call in calls if call[0][2] == "edit"])
+            self.assertIn("HOMELAB_TERRAFORM_TFVARS: match", output.getvalue())
+
+    def test_sync_ignores_yaml_format_and_gzip_encoding_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings_path = self.write_source(root)
+            manifest = bws_snapshot.load_manifest()
+            source = bws_snapshot.read_source_values(root, manifest)
+            inventory_family = next(
+                family
+                for family in manifest.families
+                if family.key == "HOMELAB_ANSIBLE_INVENTORY"
+            )
+            inventory_text = (root / "values" / "ansible" / "inventory" / "local.yml").read_text(
+                encoding="utf-8"
+            )
+            equivalent_inventory = inventory_text.replace(
+                "seaweedfs_s3_endpoint: https://s3.example.internal",
+                'seaweedfs_s3_endpoint: "https://s3.example.internal"',
+            )
+            records = [
+                {"id": f"id-{index}", "key": key, "value": value}
+                for index, (key, value) in enumerate(source.items())
+            ]
+            inventory_record = next(
+                record for record in records if record["key"] == inventory_family.key
+            )
+            inventory_record["value"] = bws_snapshot.encode_family(
+                inventory_family, equivalent_inventory
+            )
+            calls: list[tuple[list[str], dict[str, str]]] = []
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                rc = bws_snapshot.main(
+                    [
+                        "--settings",
+                        str(settings_path),
+                        "sync",
+                        "--source-root",
+                        str(root),
+                    ],
+                    self.sync_runner(records, calls),
+                )
+            self.assertEqual(rc, 0)
+            self.assertFalse([call for call in calls if call[0][2] == "edit"])
+            self.assertIn("HOMELAB_ANSIBLE_INVENTORY: match", output.getvalue())
+
+    def test_sync_rejects_missing_families_before_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings_path = self.write_source(root)
+            manifest = bws_snapshot.load_manifest()
+            source = bws_snapshot.read_source_values(root, manifest)
+            records = [
+                {"id": f"id-{index}", "key": key, "value": value}
+                for index, (key, value) in enumerate(source.items())
+            ]
+            records.pop()
+            calls: list[tuple[list[str], dict[str, str]]] = []
+            with contextlib.redirect_stderr(io.StringIO()):
+                rc = bws_snapshot.main(
+                    [
+                        "--settings",
+                        str(settings_path),
+                        "sync",
+                        "--source-root",
+                        str(root),
+                    ],
+                    self.sync_runner(records, calls),
+                )
+            self.assertEqual(rc, 1)
+            self.assertEqual([call[0][2] for call in calls], ["list"])
+
+    def test_sync_fails_on_readback_mismatch_without_printing_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings_path = self.write_source(root)
+            manifest = bws_snapshot.load_manifest()
+            source = bws_snapshot.read_source_values(root, manifest)
+            records = [
+                {"id": f"id-{index}", "key": key, "value": value}
+                for index, (key, value) in enumerate(source.items())
+            ]
+            records[0]["value"] = "PVE_HOST=old.example.internal\n"
+            calls: list[tuple[list[str], dict[str, str]]] = []
+            error = io.StringIO()
+            with contextlib.redirect_stderr(error):
+                rc = bws_snapshot.main(
+                    [
+                        "--settings",
+                        str(settings_path),
+                        "sync",
+                        "--source-root",
+                        str(root),
+                    ],
+                    self.sync_runner(records, calls, mutate_on_edit=False),
+                )
+            self.assertEqual(rc, 1)
+            self.assertIn("readback mismatch for HOMELAB_ENV", error.getvalue())
+            self.assertNotIn(source["HOMELAB_ENV"], error.getvalue())
+            self.assertEqual([call[0][2] for call in calls], ["list", "edit", "list"])
+
+    def test_sync_fails_on_readback_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings_path = self.write_source(root)
+            manifest = bws_snapshot.load_manifest()
+            source = bws_snapshot.read_source_values(root, manifest)
+            records = [
+                {"id": f"id-{index}", "key": key, "value": value}
+                for index, (key, value) in enumerate(source.items())
+            ]
+            records[0]["value"] = "PVE_HOST=old.example.internal\n"
+            calls: list[tuple[list[str], dict[str, str]]] = []
+            error = io.StringIO()
+            with contextlib.redirect_stderr(error):
+                rc = bws_snapshot.main(
+                    [
+                        "--settings",
+                        str(settings_path),
+                        "sync",
+                        "--source-root",
+                        str(root),
+                    ],
+                    self.sync_runner(records, calls, fail_readback=True),
+                )
+            self.assertEqual(rc, 1)
+            self.assertIn("BWS secret listing failed", error.getvalue())
+            self.assertEqual([call[0][2] for call in calls], ["list", "edit", "list"])
+
+    def test_sync_partial_failure_is_explicit_and_rerunnable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings_path = self.write_source(root)
+            manifest = bws_snapshot.load_manifest()
+            source = bws_snapshot.read_source_values(root, manifest)
+            records = [
+                {"id": f"id-{index}", "key": key, "value": value}
+                for index, (key, value) in enumerate(source.items())
+            ]
+            records[0]["value"] = "PVE_HOST=old.example.internal\n"
+            records[3]["value"] = '{"records": [{"name": "old"}]}\n'
+            failed_key = manifest.families[3].key
+            calls: list[tuple[list[str], dict[str, str]]] = []
+            error = io.StringIO()
+            with contextlib.redirect_stderr(error):
+                rc = bws_snapshot.main(
+                    [
+                        "--settings",
+                        str(settings_path),
+                        "sync",
+                        "--source-root",
+                        str(root),
+                    ],
+                    self.sync_runner(records, calls, fail_edit_key=failed_key),
+                )
+            self.assertEqual(rc, 1)
+            self.assertIn("verified updates: HOMELAB_ENV", error.getvalue())
+            self.assertIn(f"{failed_key} was not verified", error.getvalue())
+
+            calls.clear()
+            with contextlib.redirect_stderr(io.StringIO()):
+                rc = bws_snapshot.main(
+                    [
+                        "--settings",
+                        str(settings_path),
+                        "sync",
+                        "--source-root",
+                        str(root),
+                    ],
+                    self.sync_runner(records, calls),
+                )
+            self.assertEqual(rc, 0)
+            edits = [call for call in calls if call[0][2] == "edit"]
+            self.assertEqual(len(edits), 1)
+            self.assertEqual(edits[0][0][3], records[3]["id"])
 
     @staticmethod
     def onclave_legacy_env() -> str:

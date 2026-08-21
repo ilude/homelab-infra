@@ -18,7 +18,15 @@ WRITEBACK_UPDATE_COMMAND = ("python", "scripts/update.py")
 
 
 def is_allowed_writeback_command(command: list[str]) -> bool:
-    return tuple(command) == WRITEBACK_UPDATE_COMMAND
+    command_length = len(WRITEBACK_UPDATE_COMMAND)
+    return (
+        len(command) >= command_length
+        and tuple(command[:command_length]) == WRITEBACK_UPDATE_COMMAND
+        and all(
+            not selector.startswith("-")
+            for selector in command[command_length:]
+        )
+    )
 
 
 def load_module(name: str, path: Path):
@@ -71,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("a command is required after --")
     if args.writeback_update and not is_allowed_writeback_command(command):
         parser.error(
-            "--writeback-update is only allowed for: python scripts/update.py"
+            "--writeback-update is only allowed for: python scripts/update.py [selectors...]"
         )
 
     snapshot_root = Path(tempfile.mkdtemp(prefix="homelab-bws-"))

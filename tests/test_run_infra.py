@@ -100,16 +100,38 @@ class RunInfraTests(unittest.TestCase):
         self.assertIn("only allowed for: python scripts/update.py", result.stderr)
         self.assertFalse(record.exists())
 
-    def test_passes_writeback_only_for_update(self) -> None:
+    def test_propagates_update_selectors(self) -> None:
         result, _, record = self.run_with_fake_docker(
             0,
-            command=("python", "scripts/update.py"),
+            command=("python", "scripts/update.py", "caddy", "hermes"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = record.read_text(encoding="utf-8").splitlines()
+        self.assertIn("caddy", arguments)
+        self.assertIn("hermes", arguments)
+
+    def test_passes_writeback_only_for_update_with_selectors(self) -> None:
+        result, _, record = self.run_with_fake_docker(
+            0,
+            command=("python", "scripts/update.py", "caddy", "hermes"),
             writeback=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         arguments = record.read_text(encoding="utf-8").splitlines()
         self.assertIn("--writeback-update", arguments)
+        self.assertIn("caddy", arguments)
+        self.assertIn("hermes", arguments)
         self.assertNotIn("--writeback", arguments)
+
+    def test_rejects_writeback_update_options_even_with_update_script(self) -> None:
+        result, _, record = self.run_with_fake_docker(
+            0,
+            command=("python", "scripts/update.py", "--root", "/tmp"),
+            writeback=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("only allowed for: python scripts/update.py", result.stderr)
+        self.assertFalse(record.exists())
 
     def test_fails_closed_without_controller_access_key(self) -> None:
         result, _, record = self.run_with_fake_docker(0, access_key=False)

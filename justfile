@@ -51,8 +51,11 @@ validate-values: check-values
 validate: validate-public validate-values
 
 # Check upstream releases and update eligible pinned versions after the safety hold period
-update:
-    BWS_WRITEBACK=1 scripts/run-infra.sh python scripts/update.py
+[script]
+update *selectors:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BWS_WRITEBACK=1 scripts/run-infra.sh python scripts/update.py "$@"
 
 # Show recent Forgejo Actions runs for the private values repo
 [private]

@@ -24,12 +24,38 @@ class RunInfraContainerTests(unittest.TestCase):
         self.assertTrue(
             module.is_allowed_writeback_command(["python", "scripts/update.py"])
         )
+        self.assertTrue(
+            module.is_allowed_writeback_command(
+                ["python", "scripts/update.py", "caddy", "hermes"]
+            )
+        )
         self.assertFalse(module.is_allowed_writeback_command(["true"]))
         self.assertFalse(
             module.is_allowed_writeback_command(
                 ["python", "scripts/update.py", "--root", "/tmp"]
             )
         )
+
+    def test_rejects_writeback_options_before_rendering(self) -> None:
+        module = load_script()
+
+        with mock.patch.object(module.subprocess, "run") as run:
+            with self.assertRaises(SystemExit) as context:
+                module.main(
+                    [
+                        "--settings",
+                        "settings.local.json",
+                        "--writeback-update",
+                        "--",
+                        "python",
+                        "scripts/update.py",
+                        "--root",
+                        "/tmp",
+                    ]
+                )
+
+        self.assertEqual(context.exception.code, 2)
+        run.assert_not_called()
 
     def test_rejects_writeback_before_rendering_an_arbitrary_command(self) -> None:
         module = load_script()

@@ -25,10 +25,16 @@ runner_args=(
   --runtime-profile "${BWS_RUNTIME_PROFILE:-config}"
 )
 if [[ "${BWS_WRITEBACK:-}" == "1" ]]; then
-  if [[ "$#" -ne 2 || "$1" != "python" || "$2" != "scripts/update.py" ]]; then
-    printf 'BWS_WRITEBACK=1 is only allowed for: python scripts/update.py\n' >&2
+  if [[ "$#" -lt 2 || "$1" != "python" || "$2" != "scripts/update.py" ]]; then
+    printf 'BWS_WRITEBACK=1 is only allowed for: python scripts/update.py [selectors...]\n' >&2
     exit 2
   fi
+  for selector in "${@:3}"; do
+    if [[ "${selector}" == -* ]]; then
+      printf 'BWS_WRITEBACK=1 is only allowed for: python scripts/update.py [selectors...]\n' >&2
+      exit 2
+    fi
+  done
   runner_args+=(--writeback-update)
 fi
 

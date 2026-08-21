@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import base64
-import io
 import importlib.util
+import io
 import json
 import sys
-from hashlib import sha256
 import tempfile
 import unittest
 import zipfile
-from unittest.mock import patch
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
+from unittest.mock import ANY, patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "update.py"
 spec = importlib.util.spec_from_file_location("update_script", SCRIPT)
@@ -44,6 +44,80 @@ class UpdateTests(unittest.TestCase):
             return self.fake_release(version, published_at)
 
         return opener
+
+    def test_bare_selection_expands_to_all_managed_update_units(self) -> None:
+        self.assertEqual(
+            update_script.select_update_units(), update_script.ALL_UPDATE_UNITS
+        )
+        mapped_units = {
+            unit
+            for units in update_script.SERVICE_UPDATE_UNITS.values()
+            for unit in units
+        }
+        self.assertEqual(mapped_units, set(update_script.ALL_UPDATE_UNITS))
+
+    def test_multiple_service_selectors_expand_without_unrelated_units(self) -> None:
+        selected = update_script.select_update_units(("caddy", "hermes"))
+        expected = tuple(
+            unit
+            for unit in update_script.ALL_UPDATE_UNITS
+            if unit in update_script.SERVICE_UPDATE_UNITS["caddy"]
+            or unit in update_script.SERVICE_UPDATE_UNITS["hermes"]
+        )
+        self.assertEqual(selected, expected)
+        self.assertNotIn("Forgejo", selected)
+        self.assertNotIn("Tailscale", selected)
+
+    def test_selected_units_dispatch_without_unrelated_units(self) -> None:
+        with patch.object(update_script, "process_target") as process_target:
+            with patch.object(
+                update_script, "process_tag_pin_target"
+            ) as caddy_tag:
+                with patch.object(
+                    update_script, "process_go_toolchain_target"
+                ) as go_toolchain:
+                    with patch.object(
+                        update_script, "process_hermes_discovery_target"
+                    ) as hermes_discovery:
+                        update_script.run(
+                            Path("/unused"),
+                            48,
+                            selectors=("caddy", "hermes"),
+                        )
+
+        self.assertEqual(
+            [call.args[0].name for call in process_target.call_args_list],
+            ["Caddy", "xcaddy", "Hermes Docker Compose plugin", "Hermes just"],
+        )
+        caddy_tag.assert_called_once_with(
+            update_script.CADDY_CLOUDFLARE_TAG,
+            ANY,
+            ANY,
+        )
+        go_toolchain.assert_called_once_with(
+            update_script.CADDY_GO_TOOLCHAIN,
+            ANY,
+            ANY,
+        )
+        hermes_discovery.assert_called_once_with(
+            update_script.HERMES_DISCOVERY,
+            ANY,
+            ANY,
+        )
+
+    def test_unknown_selector_is_rejected_before_update_side_effects(self) -> None:
+        with patch.object(update_script, "process_target") as process_target:
+            with patch.object(update_script, "fetch_release") as fetch_release:
+                with self.assertRaisesRegex(
+                    update_script.UpdateError, "unknown service selector"
+                ):
+                    update_script.run(
+                        Path("/unused"),
+                        48,
+                        selectors=("not-a-service",),
+                    )
+        process_target.assert_not_called()
+        fetch_release.assert_not_called()
 
     def test_updates_eligible_dockerfile_pin(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

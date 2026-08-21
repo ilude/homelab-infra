@@ -14,9 +14,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 import yaml
@@ -392,26 +393,28 @@ def resolve_runtime(
     return resolved
 
 
-def validate_dotenv(text: str, key: str) -> None:
+def validate_dotenv(text: str, key: str) -> dict[str, str]:
     with tempfile.TemporaryDirectory(prefix="bws-snapshot-env-") as directory:
         path = Path(directory) / ".env"
         path.write_text(text, encoding="utf-8")
         try:
             parse_env_script.parse_env(path)
-        except parse_env_script.EnvError as error:
+            entries = envfile.parse_env_lines(text.splitlines(), path)
+        except (parse_env_script.EnvError, envfile.EnvFileError) as error:
             raise BwsSnapshotError(f"{key} is not valid dotenv") from error
+    return {name: entry.value for name, entry in entries.items()}
 
 
-def validate_hcl(text: str, key: str) -> None:
+def validate_hcl(text: str, key: str) -> Any:
     if hcl2 is None:
         raise BwsSnapshotError("python-hcl2 is required for HCL validation")
     try:
-        hcl2.loads(text)
+        return hcl2.loads(text)
     except Exception as error:
         raise BwsSnapshotError(f"{key} is not valid HCL") from error
 
 
-def validate_settings(text: str, key: str) -> None:
+def validate_settings(text: str, key: str) -> dict[str, Any]:
     data = parse_json(text, key)
     if not isinstance(data, dict):
         raise BwsSnapshotError(f"{key} must be a JSON object")
@@ -424,6 +427,7 @@ def validate_settings(text: str, key: str) -> None:
             settings.load_settings(path)
         except settings.SettingsError as error:
             raise BwsSnapshotError(f"{key} is not valid settings") from error
+    return data
 
 
 def encode_family(family: Family, text: str) -> str:
@@ -447,31 +451,32 @@ def decode_family(family: Family, value: str) -> str:
     raise BwsSnapshotError("routing manifest has an unknown family encoding")
 
 
-def validate_family(family: Family, text: str) -> Any:
+def parse_family(family: Family, text: str) -> Any:
     require_text(text, family.key)
     if family.format == "dotenv":
-        validate_dotenv(text, family.key)
-        return None
+        return validate_dotenv(text, family.key)
     if family.format == "hcl":
-        validate_hcl(text, family.key)
-        return None
+        return validate_hcl(text, family.key)
     if family.format == "yaml":
         return parse_yaml(text, family.key)
     if family.format == "json":
         return parse_json(text, family.key)
     if family.format == "settings":
-        validate_settings(text, family.key)
-        return parse_json(text, family.key)
+        return validate_settings(text, family.key)
     raise BwsSnapshotError("routing manifest has an unknown family format")
+
+
+def validate_family(family: Family, text: str) -> None:
+    parse_family(family, text)
 
 
 def validate_families(
     manifest: RoutingManifest, values: Mapping[str, str]
 ) -> dict[str, Any]:
-    parsed: dict[str, Any] = {}
-    for family in manifest.families:
-        parsed[family.key] = validate_family(family, values[family.key])
-    return parsed
+    return {
+        family.key: parse_family(family, values[family.key])
+        for family in manifest.families
+    }
 
 
 def inventory_backend_values(inventory: Any) -> dict[str, str]:
@@ -646,6 +651,10 @@ def read_source_values(root: Path, manifest: RoutingManifest) -> dict[str, str]:
     }
 
 
+def semantic_family_value(family: Family, encoded_value: str) -> Any:
+    return parse_family(family, decode_family(family, encoded_value))
+
+
 def compare_source_values(
     source: Mapping[str, str], existing: Mapping[str, str], manifest: RoutingManifest
 ) -> dict[str, str]:
@@ -701,7 +710,7 @@ def inventory_all_vars(text: str) -> tuple[dict[str, Any], yaml.MappingNode]:
     if not isinstance(document, yaml.MappingNode):
         raise BwsSnapshotError("HOMELAB_ANSIBLE_INVENTORY must contain an object")
 
-    def mapping_value(node: yaml.MappingNode, key: str) -> Optional[yaml.Node]:
+    def mapping_value(node: yaml.MappingNode, key: str) -> yaml.Node | None:
         for key_node, value_node in node.value:
             if isinstance(key_node, yaml.ScalarNode) and key_node.value == key:
                 return value_node
@@ -896,6 +905,25 @@ def edit_bws_secret(
         raise BwsSnapshotError(f"BWS could not update {key}")
 
 
+def verify_bws_family_readback(
+    locator: Locator,
+    access_key: str,
+    family: Family,
+    expected: Any,
+    runner: Runner,
+) -> None:
+    records = list_bws_records_with_ids(locator, access_key, runner)
+    record = records.get(family.key)
+    if record is None:
+        raise BwsSnapshotError(f"BWS readback is missing {family.key}")
+    try:
+        actual = semantic_family_value(family, record[1])
+    except BwsSnapshotError as error:
+        raise BwsSnapshotError(f"BWS readback for {family.key} is invalid") from error
+    if actual != expected:
+        raise BwsSnapshotError(f"BWS readback mismatch for {family.key}")
+
+
 def command_sync(args: argparse.Namespace) -> int:
     manifest = load_manifest(args.manifest)
     source = read_source_values(args.source_root, manifest)
@@ -907,19 +935,44 @@ def command_sync(args: argparse.Namespace) -> int:
         raise BwsSnapshotError(
             "BWS is missing required family keys: " + ", ".join(missing)
         )
+
+    source_semantics = {
+        family.key: semantic_family_value(family, source[family.key])
+        for family in manifest.families
+    }
+    changes: list[tuple[Family, str]] = []
     for family in manifest.families:
         secret_id, current = records[family.key]
-        if current == source[family.key]:
+        if semantic_family_value(family, current) == source_semantics[family.key]:
             print(f"{family.key}: match")
-            continue
-        edit_bws_secret(
-            locator,
-            access_key,
-            secret_id,
-            family.key,
-            source[family.key],
-            args.runner,
-        )
+        else:
+            changes.append((family, secret_id))
+
+    verified: list[str] = []
+    for family, secret_id in changes:
+        try:
+            edit_bws_secret(
+                locator,
+                access_key,
+                secret_id,
+                family.key,
+                source[family.key],
+                args.runner,
+            )
+            verify_bws_family_readback(
+                locator,
+                access_key,
+                family,
+                source_semantics[family.key],
+                args.runner,
+            )
+        except BwsSnapshotError as error:
+            completed = ", ".join(verified) if verified else "none"
+            raise BwsSnapshotError(
+                f"BWS sync stopped after verified updates: {completed}; "
+                f"{family.key} was not verified: {error}"
+            ) from error
+        verified.append(family.key)
         print(f"{family.key}: updated")
     return 0
 
@@ -975,7 +1028,7 @@ def command_seed(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: Optional[list[str]] = None, runner: Runner = subprocess_runner) -> int:
+def main(argv: list[str] | None = None, runner: Runner = subprocess_runner) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--settings", type=Path, default=DEFAULT_SETTINGS)

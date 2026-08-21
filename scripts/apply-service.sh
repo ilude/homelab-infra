@@ -7,12 +7,7 @@ if [[ $# -ne 1 || -z "$1" ]]; then
 fi
 
 service="$1"
-runtime_profile="config"
-case "${service}" in
-  seaweedfs_onramp) runtime_profile="seaweedfs" ;;
-  onclave_onramp|searxng_onramp) runtime_profile="onclave" ;;
-  freellmapi_onramp) runtime_profile="freellmapi" ;;
-esac
+runtime_profile="$(python scripts/settings.py runtime-profile "${service}")"
 
 # shellcheck disable=SC2016
 BWS_RUNTIME_PROFILE="${runtime_profile}" INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c '

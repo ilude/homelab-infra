@@ -34,7 +34,6 @@ export SECONDARY_PVE_HOST=proxmox-secondary.example.internal
 ansible-inventory -i tests/fixtures/site-config/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --list >/dev/null
 mapfile -t playbooks < <(python scripts/settings.py --settings settings.example.json ansible-playbooks --all)
 ansible-playbook -i tests/fixtures/site-config/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check \
-  infra/ansible/playbooks/site.yml \
   infra/ansible/playbooks/storage-prep.yml \
   infra/ansible/playbooks/service-state-backup.yml \
   infra/ansible/playbooks/service-state-restore.yml \

@@ -68,10 +68,104 @@ class SettingsTests(unittest.TestCase):
             data["services"], ["technitium", "forgejo", "technitium_secondary"]
         )
 
-    def write_registry(self, services: dict[str, object]) -> Path:
+    def write_registry(
+        self, services: dict[str, object], *, add_runtime_profile: bool = True
+    ) -> Path:
+        if add_runtime_profile:
+            services = {
+                name: {
+                    **config,
+                    "runtime_profile": "config",
+                }
+                if isinstance(config, dict)
+                else config
+                for name, config in services.items()
+            }
         return self.write_settings(
             {"default_services": ["first"], "services": services}
         )
+
+    def test_runtime_profiles_match_all_registered_services(self) -> None:
+        expected = {
+            "technitium": "config",
+            "technitium_secondary": "config",
+            "forgejo": "config",
+            "tailscale_client": "config",
+            "forgejo_runner": "config",
+            "infisical": "config",
+            "infisical_onramp": "config",
+            "hermes": "config",
+            "onramp_host": "config",
+            "searxng_onramp": "onclave",
+            "onclave_onramp": "onclave",
+            "seaweedfs_onramp": "seaweedfs",
+            "freellmapi_onramp": "freellmapi",
+        }
+        actual = {
+            service: settings_script.runtime_profile(service)
+            for service in expected
+        }
+        self.assertEqual(actual, expected)
+        self.assertEqual(set(actual), set(settings_script.SERVICE_NAMES))
+
+    def test_registry_rejects_invalid_runtime_profile_metadata(self) -> None:
+        base = {"playbooks": ["first.yml"], "dependencies": []}
+        cases = {
+            "missing": base,
+            "non-string": {**base, "runtime_profile": None},
+            "empty": {**base, "runtime_profile": ""},
+            "unsupported": {**base, "runtime_profile": "backend"},
+        }
+        for name, config in cases.items():
+            with self.subTest(name=name):
+                path = self.write_registry(
+                    {"first": config}, add_runtime_profile=False
+                )
+                try:
+                    with self.assertRaisesRegex(ValueError, "runtime_profile"):
+                        settings_script.load_service_registry(path)
+                finally:
+                    path.unlink()
+
+    def test_runtime_profile_command_does_not_require_enabled_service(self) -> None:
+        path = self.write_settings({"services": []})
+        try:
+            with tempfile.TemporaryFile("w+", encoding="utf-8") as stdout:
+                original_stdout = settings_script.sys.stdout
+                settings_script.sys.stdout = stdout
+                try:
+                    rc = settings_script.main(
+                        [
+                            "--settings",
+                            str(path),
+                            "runtime-profile",
+                            "seaweedfs_onramp",
+                        ]
+                    )
+                finally:
+                    settings_script.sys.stdout = original_stdout
+                stdout.seek(0)
+                output = stdout.read().strip()
+        finally:
+            path.unlink()
+        self.assertEqual(rc, 0)
+        self.assertEqual(output, "seaweedfs")
+
+    def test_runtime_profile_unknown_service_fails_clearly(self) -> None:
+        with self.assertRaisesRegex(settings_script.SettingsError, "unknown service"):
+            settings_script.runtime_profile("missing")
+
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as stderr:
+            original_stderr = settings_script.sys.stderr
+            settings_script.sys.stderr = stderr
+            try:
+                rc = settings_script.main(["runtime-profile", "missing"])
+            finally:
+                settings_script.sys.stderr = original_stderr
+            stderr.seek(0)
+            message = stderr.read().strip()
+        self.assertEqual(rc, 1)
+        self.assertIn("unknown service: missing", message)
 
     def test_registry_rejects_unknown_self_and_cyclic_dependencies(self) -> None:
         cases = {

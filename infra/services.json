@@ -5,6 +5,7 @@
   ],
   "services": {
     "technitium": {
+      "runtime_profile": "config",
       "execution_resource": "direct_lxc_known_hosts",
       "state_capable": true,
       "state_order": 3,
@@ -31,6 +32,7 @@
       "terraform_module": "technitium_dns"
     },
     "technitium_secondary": {
+      "runtime_profile": "config",
       "execution_resource": "direct_lxc_known_hosts",
       "state_capable": false,
       "playbooks": [
@@ -58,6 +60,7 @@
       "terraform_module": "technitium_secondary_dns"
     },
     "forgejo": {
+      "runtime_profile": "config",
       "execution_resource": "direct_lxc_known_hosts",
       "state_capable": true,
       "state_order": 2,
@@ -81,6 +84,7 @@
       "terraform_module": "forgejo"
     },
     "tailscale_client": {
+      "runtime_profile": "config",
       "execution_resource": "direct_lxc_known_hosts",
       "state_capable": false,
       "playbooks": [
@@ -100,6 +104,7 @@
       "terraform_module": "tailscale_client"
     },
     "forgejo_runner": {
+      "runtime_profile": "config",
       "state_capable": false,
       "execution_resource": "direct_lxc_known_hosts",
       "playbooks": [
@@ -121,6 +126,7 @@
       "terraform_module": "forgejo_runner"
     },
     "infisical": {
+      "runtime_profile": "config",
       "state_capable": false,
       "execution_resource": "direct_lxc_known_hosts",
       "conflicts": [
@@ -142,6 +148,7 @@
       "terraform_module": "infisical"
     },
     "infisical_onramp": {
+      "runtime_profile": "config",
       "state_capable": true,
       "state_order": 5,
       "execution_resource": "onramp_host",
@@ -173,6 +180,7 @@
       "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     },
     "hermes": {
+      "runtime_profile": "config",
       "execution_resource": "direct_lxc_known_hosts",
       "state_capable": true,
       "state_order": 1,
@@ -197,6 +205,7 @@
       "terraform_module": "hermes"
     },
     "onramp_host": {
+      "runtime_profile": "config",
       "state_capable": true,
       "state_order": 4,
       "execution_resource": "onramp_host",
@@ -232,6 +241,7 @@
       "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     },
     "searxng_onramp": {
+      "runtime_profile": "onclave",
       "state_capable": true,
       "state_order": 6,
       "execution_resource": "onramp_host",
@@ -265,6 +275,7 @@
       "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     },
     "onclave_onramp": {
+      "runtime_profile": "onclave",
       "state_capable": true,
       "state_order": 7,
       "execution_resource": "onramp_host",
@@ -288,6 +299,7 @@
       "terraform_target": "proxmox_virtual_environment_vm.onramp_host"
     },
     "seaweedfs_onramp": {
+      "runtime_profile": "seaweedfs",
       "execution_resource": "onramp_host",
       "playbooks": [
         "infra/ansible/playbooks/seaweedfs-onramp.yml"
@@ -314,6 +326,7 @@
       "state_capable": false
     },
     "freellmapi_onramp": {
+      "runtime_profile": "freellmapi",
       "state_capable": false,
       "execution_resource": "onramp_host",
       "playbooks": [

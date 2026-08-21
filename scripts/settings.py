@@ -8,12 +8,15 @@ import json
 import os
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import Any
+from urllib.parse import urlparse
 
 DEFAULT_SETTINGS = Path("settings.local.json")
 REPO = Path(__file__).resolve().parents[1]
 SERVICE_REGISTRY = REPO / "infra" / "services.json"
+SUPPORTED_RUNTIME_PROFILES = frozenset(
+    {"config", "seaweedfs", "onclave", "freellmapi"}
+)
 
 
 def load_service_registry(path: Path = SERVICE_REGISTRY) -> dict[str, Any]:
@@ -46,6 +49,19 @@ def load_service_registry(path: Path = SERVICE_REGISTRY) -> dict[str, Any]:
     for name, config in services.items():
         if not isinstance(config, dict):
             raise ValueError(f"{path}: service {name} must be an object")
+        if "runtime_profile" not in config:
+            raise ValueError(f"{path}: service {name} must declare runtime_profile")
+        runtime_profile = config["runtime_profile"]
+        if not isinstance(runtime_profile, str) or not runtime_profile.strip():
+            raise ValueError(
+                f"{path}: service {name} runtime_profile must be a non-empty string"
+            )
+        if runtime_profile not in SUPPORTED_RUNTIME_PROFILES:
+            supported = ", ".join(sorted(SUPPORTED_RUNTIME_PROFILES))
+            raise ValueError(
+                f"{path}: service {name} has unsupported runtime_profile "
+                f"{runtime_profile!r}; supported profiles: {supported}"
+            )
         playbooks = config.get("playbooks")
         if not isinstance(playbooks, list) or not all(
             isinstance(playbook, str) and playbook for playbook in playbooks
@@ -70,8 +86,9 @@ def load_service_registry(path: Path = SERVICE_REGISTRY) -> dict[str, Any]:
             )
         unknown_dependencies = sorted(set(service_dependencies) - service_names)
         if unknown_dependencies:
+            dependencies_text = ", ".join(unknown_dependencies)
             raise ValueError(
-                f"{path}: service {name} has unknown dependencies: {', '.join(unknown_dependencies)}"
+                f"{path}: service {name} has unknown dependencies: {dependencies_text}"
             )
         if name in service_dependencies:
             raise ValueError(f"{path}: service {name} cannot depend on itself")
@@ -164,6 +181,13 @@ SERVICE_NAMES = set(SERVICES)
 
 class SettingsError(ValueError):
     pass
+
+
+def runtime_profile(service: str) -> str:
+    try:
+        return str(SERVICE_REGISTRY_DATA["services"][service]["runtime_profile"])
+    except KeyError as error:
+        raise SettingsError(f"unknown service: {service}") from error
 
 
 def settings_path() -> Path:
@@ -348,7 +372,17 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("tofu-var")
     tofu_target_parser = subparsers.add_parser("tofu-target")
     tofu_target_parser.add_argument("service")
+    runtime_profile_parser = subparsers.add_parser("runtime-profile")
+    runtime_profile_parser.add_argument("service")
     args = parser.parse_args(argv)
+
+    if args.command == "runtime-profile":
+        try:
+            print(runtime_profile(args.service))
+        except SettingsError as error:
+            print(error, file=sys.stderr)
+            return 1
+        return 0
 
     try:
         settings = load_settings(args.settings)

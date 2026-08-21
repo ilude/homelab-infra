@@ -17,7 +17,7 @@ The user explicitly corrected the access assumption: Hermes should be accessed d
 - Platform: Windows host with Git Bash/MSYS (`MINGW64_NT-10.0-26200`), repo commands executed through Bash and Docker Compose tooling.
 - Shell: `/usr/bin/bash`.
 - Public tracked files must remain generic and public-safe; no real domains, IPs, hostnames, or secrets in tracked files.
-- Private values remain in ignored `values/`; do not commit `values/`, `settings.local.json`, state, plans, or credentials.
+- BWS owns configuration families and runtime secrets, SeaweedFS owns encrypted OpenTofu state, and ignored `values/` retains only excluded backups, artifacts, dumps, and mutable service-state data. Do not commit those private surfaces, `settings.local.json`, plans, or credentials.
 - Use public `just` workflow commands for normal validation. Do not invoke private Just recipes as ordinary validation.
 - Do not run `just apply`, OpenTofu apply/destroy/import/state surgery, or destructive operations without explicit user approval.
 - Hermes steady-state service configuration should be performed by direct Ansible SSH to the Hermes service host, not `pct exec` from Proxmox.
@@ -39,7 +39,7 @@ Manual gates are exceptional. Decide based on blast radius and rollback, not gen
 
 | Approach | Pros | Cons | Verdict |
 |----------|------|------|---------|
-| Convert only Hermes steady-state configuration to direct Ansible SSH while keeping `lxc_ready` on Proxmox | Aligns with the corrected operator model; limited scope; preserves Proxmox lifecycle readiness; validates the pattern before broad migration | Requires refactoring the Hermes role away from `pct exec`/`pct push`; may reveal missing SSH/user assumptions in private values | **Selected** |
+| Convert only Hermes steady-state configuration to direct Ansible SSH while keeping `lxc_ready` on Proxmox | Aligns with the corrected operator model; limited scope; preserves Proxmox lifecycle readiness; validates the pattern before broad migration | Requires refactoring the Hermes role away from `pct exec`/`pct push`; may reveal missing SSH/user assumptions in BWS configuration | **Selected** |
 | Convert all LXC service roles in one pass | Fully aligns every service immediately | Large cross-cutting migration across Technitium, Forgejo, Infisical, Forgejo Runner, and Hermes; higher risk; harder to validate in one focused session | Rejected for MVP; defer after Hermes pattern proves out |
 | Keep current Proxmox-mediated Ansible and only document direct operator SSH | Minimal code change | Leaves implementation contradicting policy; encourages agents to keep using Proxmox as the default control path | Rejected: user explicitly called this half-measure out |
 | Manage Hermes direct config with ad hoc SSH scripts instead of Ansible | Simple for one-off fixes | Creates another configuration surface; weak idempotence; bypasses repo workflow | Rejected: repo doctrine says service orchestration belongs in Ansible |
@@ -78,12 +78,12 @@ List every operational step required to complete this plan and how it is automat
 | Operation | Command/wrapper | Credentials | Evidence |
 |-----------|-----------------|-------------|----------|
 | Preflight | `git status --short --untracked-files=all && rg -n "pct (exec|push|enter)|hosts: pve" infra/ansible/playbooks/hermes.yml infra/ansible/roles/hermes` | None | Terminal output showing baseline and target patterns |
-| Inventory/direct connectivity check | `INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible-inventory -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --graph; ansible -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py hermes -m ping'` | SSH keys/private values from existing approved local mechanisms | Terminal output; no secrets printed |
+| Inventory/direct connectivity check | `INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c 'ansible-inventory -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py --graph; ansible -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py hermes -m ping'` | SSH keys and BWS-rendered configuration from existing approved mechanisms | Terminal output; no secrets printed |
 | Implement | Targeted edits to `infra/ansible/playbooks/hermes.yml`, `infra/ansible/roles/hermes/tasks/main.yml`, templates/tests as needed | None | Git diff and focused tests |
-| Task-specific validate | `scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'` | Private inventory only; no mutation | Syntax-check exits 0 |
+| Task-specific validate | `scripts/run-infra.sh bash -euo pipefail -c 'ansible-playbook -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'` | BWS-rendered inventory only; no mutation | Syntax-check exits 0 |
 | Pattern validate | `rg -n "pct (exec|push|enter)" infra/ansible/roles/hermes infra/ansible/playbooks/hermes.yml; test $? -eq 1` | None | No matches for steady-state `pct` in Hermes role/playbook except allowed `lxc_ready` role outside Hermes role |
-| Repo-wide validate | `just validate` | Existing local private values and Docker tooling | Exits 0 |
-| Deployment | Not part of MVP. If user explicitly approves live reconfiguration, use `just plan` then `just apply` per repo policy. | Private values/SSH/API credentials through existing approved mechanisms | Apply output and post-apply `ansible hermes -m ping`; not required for archive |
+| Repo-wide validate | `just validate` | BWS-rendered configuration and Docker tooling | Exits 0 |
+| Deployment | Not part of MVP. If user explicitly approves live reconfiguration, use `just plan` then `just apply` per repo policy. | BWS secrets plus SSH/API credentials through existing approved mechanisms | Apply output and post-apply `ansible hermes -m ping`; not required for archive |
 | Rollback | `git restore --source=HEAD -- <changed tracked files>` before commit, or `git revert <commit>` after commit | None | Git status clean or revert commit present |
 
 ## Execution Checklist
@@ -154,11 +154,11 @@ This checklist is the durable resume ledger for `/do-it`. Every executable task,
 - Files: Read-only expected; if a tracked test fixture needs adjustment, use `tests/test_tfvars_inventory.py`.
 - Acceptance Criteria:
   1. [ ] Inventory includes a `hermes` group and host with direct `ansible_host`.
-     - Verify: `scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible-inventory -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --graph | grep -A3 hermes'`
+     - Verify: `scripts/run-infra.sh bash -euo pipefail -c 'ansible-inventory -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py --graph | grep -A3 hermes'`
      - Pass: Output shows a `hermes` group and `hermes_lxc` or equivalent Hermes host.
      - Fail: Dynamic inventory is not producing Hermes; inspect `infra/ansible/inventory/tfvars.py`, `settings.local.json`, and private tfvars without printing secrets.
-  2. [ ] Direct Ansible ping to Hermes works, or the failure is documented as a private values/access gap before refactor proceeds.
-     - Verify: `INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py hermes -m ping'`
+  2. [ ] Direct Ansible ping to Hermes works, or the failure is documented as a BWS configuration/access gap before refactor proceeds.
+     - Verify: `INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c 'ansible -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py hermes -m ping'`
      - Pass: Hermes returns `SUCCESS` and `ping: pong`.
      - Fail: SSH/auth/name resolution fails; do not switch live deployment expectations until the private direct access issue is resolved or explicitly documented.
 
@@ -179,7 +179,7 @@ PY`
      - Pass: Prints `hermes-playbook-split-ok`.
      - Fail: Playbook still only targets `pve` or lacks direct Hermes configuration play.
   2. [ ] Hermes playbook syntax is valid with the repo inventory.
-     - Verify: `scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'`
+     - Verify: `scripts/run-infra.sh bash -euo pipefail -c 'ansible-playbook -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'`
      - Pass: Syntax check exits 0 and reports the Hermes playbook.
      - Fail: Fix syntax/inventory/variable errors before continuing.
 
@@ -190,7 +190,7 @@ PY`
 - Checks:
   1. Run acceptance criteria for T1 and T2.
   2. `scripts/python.sh -m unittest tests.test_tfvars_inventory tests.test_settings` -- all tests pass.
-  3. `scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'` -- exits 0.
+  3. `scripts/run-infra.sh bash -euo pipefail -c 'ansible-playbook -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'` -- exits 0.
   4. Cross-task integration: direct inventory group used by the new Hermes play exists and is reachable or the plan is explicitly blocked on direct SSH access.
 - On failure: create a fix task, re-validate after fix.
 
@@ -210,7 +210,7 @@ PY`
      - Pass: Tests pass, including no-log and Caddy validation safety checks.
      - Fail: Restore `no_log: true` for secret tasks or adjust tests only if behavior is safer and still public-safe.
   3. [ ] Direct Hermes role syntax validates.
-     - Verify: `scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'`
+     - Verify: `scripts/run-infra.sh bash -euo pipefail -c 'ansible-playbook -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'`
      - Pass: Exits 0.
      - Fail: Fix module arguments, variable assumptions, or inventory targeting.
 
@@ -235,7 +235,7 @@ PY`
 - Checks:
   1. Run acceptance criteria for T3 and T4.
   2. `scripts/python.sh -m unittest tests.test_ansible_safety tests.test_tfvars_inventory tests.test_settings` -- all tests pass.
-  3. `scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible-playbook -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'` -- exits 0.
+  3. `scripts/run-infra.sh bash -euo pipefail -c 'ansible-playbook -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py --syntax-check infra/ansible/playbooks/hermes.yml'` -- exits 0.
   4. `rg -n "pct (exec|push|enter)" infra/ansible/roles/hermes infra/ansible/playbooks/hermes.yml; test $? -eq 1` -- confirms no steady-state Hermes `pct` usage.
   5. Cross-task integration: tests and documentation match the new playbook/role structure.
 - On failure: create a fix task, re-validate after fix.
@@ -263,7 +263,7 @@ print('direct-hermes-ansible-ok')
 PY`
    - Pass: Prints `direct-hermes-ansible-ok`.
 2. [ ] Direct Hermes inventory path is usable.
-   - Verify: `INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py hermes -m ping'`
+   - Verify: `INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c 'ansible -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py hermes -m ping'`
    - Pass: Hermes returns `SUCCESS` and `ping: pong`, or the plan is explicitly marked blocked on private direct SSH configuration before archive.
 3. [ ] Repo validation passes.
    - Verify: `just validate`
@@ -277,7 +277,7 @@ PY`
 
 - Required: yes
 - `/do-it` must be able to run all agent-runnable validation steps through documented commands, scripts, playbooks, or wrappers.
-- Credentials are expected through existing approved local mechanisms: private `values/`, SSH keys copied into the infra container via `INFRA_COPY_SSH_KEYS=true`, and Docker Compose tooling.
+- Credentials are expected through existing approved mechanisms: BWS configuration and runtime secrets, SSH keys copied into the infra container via `INFRA_COPY_SSH_KEYS=true`, and Docker Compose tooling. Excluded `values/` data is not an inventory or credential source.
 - Manual-only steps are not required for the MVP. If direct Hermes SSH credentials are missing, mark the plan blocked with the failing command rather than inventing manual validation.
 
 ### Required automated validation
@@ -293,7 +293,7 @@ PY`
    - Fail: create/fix a task, rerun affected checks, then rerun repo-wide validation.
 
 3. [ ] Run direct Hermes connectivity verification.
-   - Command: `INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c 'source /opt/ansible/bin/activate; export ANSIBLE_TFVARS_FILE=values/terraform.tfvars INFRA_SETTINGS_FILE=settings.local.json; ansible -i values/ansible/inventory/local.yml -i infra/ansible/inventory/tfvars.py hermes -m ping'`
+   - Command: `INFRA_COPY_SSH_KEYS=true scripts/run-infra.sh bash -euo pipefail -c 'ansible -i "${VALUES_DIR}/ansible/inventory/local.yml" -i infra/ansible/inventory/tfvars.py hermes -m ping'`
    - Pass: Hermes returns `SUCCESS` and `ping: pong`.
    - Fail: block archive unless the user explicitly decides direct SSH setup is a separate prerequisite; do not fall back to Proxmox `pct` as a success path.
 
@@ -350,7 +350,7 @@ Required fields for each record:
 - `selection_reasons`: Ansible target/role refactor; direct SSH/security boundary; live service operations discipline
 - `complexity_score`: 7/10
 - `risk_score`: 5/10
-- `expected_high_risk_areas`: preserving secret `no_log`, avoiding real private values in tracked docs/tests, maintaining idempotence, avoiding accidental live mutation, ensuring direct SSH inventory works without Proxmox fallback
+- `expected_high_risk_areas`: preserving secret `no_log`, avoiding real BWS configuration or excluded private data in tracked docs/tests, maintaining idempotence, avoiding accidental live mutation, ensuring direct SSH inventory works without Proxmox fallback
 
 ## Handoff Notes
 

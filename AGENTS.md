@@ -11,23 +11,15 @@ The canonical checkout is the `modules/homelab-infra/` submodule of the dotfiles
 Repository collaboration boundaries:
 
 - The sibling `../onclave/` module owns Onclave product code, protocols, services, and provider-neutral application contracts. Its checkout must remain attached to and tracking `origin/feature/v2-broker-core` unless the user explicitly requests a branch change. This repository consumes those contracts and owns host placement, infrastructure resources, deployment orchestration, and live configuration.
-- The dotfiles parent at `../..` owns workstation setup and Pi runtime wiring. Do not put infrastructure implementation or private values in the parent repository.
-- Keep local site inventory, credentials, state, and backups in the nested private `values/` repository. Remote runtime backups may remain on managed hosts. Neither the Onclave sibling nor the dotfiles parent may become a second store for them.
+- The dotfiles parent at `../..` owns workstation setup and Pi runtime wiring. Do not put infrastructure implementation, BWS configuration, or excluded private data in the parent repository.
+- BWS owns configuration families and runtime secrets; SeaweedFS owns encrypted OpenTofu state. The nested private `values/` repository stores only excluded backups, artifacts, dumps, and mutable service-state data. Remote runtime backups may remain on managed hosts. Neither the Onclave sibling nor the dotfiles parent may become a second store for these contracts.
 - For coordinated changes, edit and validate each owning repository independently. Commit and push homelab-infra changes before the dotfiles parent updates its submodule pointer. Commit `values/` separately to its private remote when requested; never stage it through this public repository.
 
 Tracked source must stay public-safe and free of the operator's real network/domain specifics. Use placeholders such as `example.internal`, `git.example.internal`, `apps.example.net`, and RFC 5737 addresses like `192.0.2.0/24` in tracked files.
 
-Real Proxmox endpoints, LAN IPs, DNS zones/records, hostnames, credentials, and state belong in `values/`, an ignored nested private Git repo. In this deployment, expect `values/` to have its own private Forgejo remote; do not treat it as part of the public runbook repo.
+BWS configuration families hold real Proxmox endpoints, LAN IPs, DNS zones/records, hostnames, service settings, and runtime secrets. SeaweedFS stores encrypted OpenTofu state. In this deployment, expect `values/` to have its own private Forgejo remote; do not treat it as part of the public runbook repo.
 
-Private values files include:
-
-- `values/.env`
-- `values/terraform.tfvars`
-- `values/dns-records.local.json`
-- `values/ansible/inventory/local.yml`
-- `values/terraform.tfstate*`
-
-`scaffold/` is the public-safe starter template copied into `values/`; keep it generic and sanitized. `settings.example.json` documents the ignored local `settings.local.json` operator settings file used for the private values repo remote and enabled service list.
+The ignored local `settings.local.json` contains only the BWS project/API locator. `HOMELAB_SETTINGS` in BWS owns the excluded-data repository remote and enabled service list. `scaffold/` remains the public-safe fixture and migration source; it is not the source of private configuration.
 
 ## Layout
 
@@ -36,13 +28,14 @@ Private values files include:
 - `scaffold/` — public-safe values repo starter files.
 - `scripts/` — workflow helpers and explicit live-mutation helpers.
 - `tools/` — Docker tooling image files.
-- `values/` — ignored nested private Git repo for site values/state.
+- `values/` — ignored nested private Git repo for excluded backups, artifacts, dumps, and mutable service-state data.
 
 ## Safety Rules
 
 - Do not run `tofu apply`, `terraform apply`, `destroy`, import, or state surgery without explicit user approval.
+- BWS owns configuration families and runtime secrets. SeaweedFS owns encrypted OpenTofu state. Do not recreate those sources under `values/`.
 - Do not commit secrets, live domains/IPs/hostnames, `values/`, `settings.local.json`, state files, plans, or generated local credentials.
-- Keep non-public material in `values/` or outside the checkout; do not add another sensitive-data directory to this repo.
+- Keep configuration and runtime secrets in BWS. Keep only excluded backups, artifacts, dumps, and mutable service-state data in `values/` or another approved private store; do not add another sensitive-data directory to this repo.
 - Treat DNS, Forgejo, and HTTPS/SSH endpoints as critical infrastructure. Prefer reviewed plans over ad hoc mutation.
 - Treat Menos as an experimental single-user transcript service, not production-critical infrastructure. For Menos changes, default to one current verified backup, one explicit rollback boundary, and direct checks of the affected user workflow. Do not require multi-day soak periods, formal approval or evidence packets, continuous monitoring, or production-style operational controls unless the operator explicitly requests them or a concrete destructive or data-loss risk requires them.
 - Treat review findings as a backlog, not one apply batch. Keep OS migrations, stateful replacements, hardening, backup redesign, and orchestration refactors in separate validated waves.
@@ -51,42 +44,42 @@ Private values files include:
 - Service version changes must use managed pins and `just update` when a service has update support, followed by the approved targeted public deployment path appropriate to the changed resources. Use `just plan`/`just apply` only when infrastructure resources change, and run one final `just validate` after the complete request or active plan is otherwise finished. Do not rerun upstream installers or ad hoc upgrade commands as the normal update mechanism.
 - Prefer direct service access for service diagnostics and operator guidance. Do not default to SSHing into the Proxmox host and then using `pct exec`/`pct enter` when a service has its own LAN IP, DNS name, SSH daemon, or HTTPS endpoint. Proxmox host access is for Proxmox/LXC lifecycle diagnostics, console recovery, or cases where direct service access is unavailable or explicitly requested.
 - Do not mutate production routers/firewalls unless explicitly requested.
-- If changing service IPs, hostnames, SSH ports, proxy topology, or service-selection behavior, update only the affected contract surfaces among scaffold examples, requested private values, README, and migration notes. Do not touch unaffected surfaces solely for completeness.
+- If changing service IPs, hostnames, SSH ports, proxy topology, or service-selection behavior, update only the affected contract surfaces among scaffold examples, BWS families, README, and migration notes. Do not touch unaffected surfaces solely for completeness.
 
 ## Commands
 
 Preferred workflow:
 
 ```bash
-just setup      # first checkout only; or: just setup <private-values-repo-url>
+just setup      # first checkout only; verifies BWS and prepares excluded-data storage
 just update     # when checking or changing managed version pins
 just plan       # before infrastructure resource changes
 just apply      # after approval when the full infrastructure workflow is required
 just validate   # once, as the final gate for the complete request or active plan
 ```
 
-Validation performed by `just validate` includes public-safety checks, OpenTofu format/validate, TFLint, ShellCheck, Python compile/unit checks, Technitium DNS JSON validation, Ansible syntax, ansible-lint, and private `values/` wiring checks. Run it exactly once after all implementation and live work for the complete request or active plan is otherwise finished. Do not run it between tasks, fixes, retries, or intermediate milestones; use only the targeted checks needed to continue safely during execution.
+Validation performed by `just validate` includes public-safety checks, OpenTofu format/validate, TFLint, ShellCheck, Python compile/unit checks, BWS snapshot validation, the excluded-data boundary, Technitium DNS JSON validation, Ansible syntax, and ansible-lint. Run it exactly once after all implementation and live work for the complete request or active plan is otherwise finished. Do not run it between tasks, fixes, retries, or intermediate milestones; use only the targeted checks needed to continue safely during execution.
 
 Treat `[private]` just recipes as implementation details for other recipes only. Do not invoke private recipes directly during normal agent work, even for validation. Use public recipes for complete workflows. During execution, use the targeted public script, playbook, or test needed to continue safely; do not substitute a private recipe or an intermediate `just validate`.
 
-Containerized tooling is used for Windows/local consistency. Project commands parse `values/.env` as dotenv-style data through `scripts/parse-env.py` / `scripts/run-infra.sh` and run inside the Docker Compose `infra` service. Do not source `values/.env` directly in new workflow code.
+Containerized tooling is used for Windows/local consistency. `scripts/run-infra.sh` renders validated BWS families into an ephemeral tooling-container snapshot and removes it after the command. New workflow code must consume that snapshot contract rather than recreating or sourcing configuration under `values/`.
 
 Forgejo Actions deployment monitoring helpers exist as private workflow plumbing for the private values repo. Agents must not invoke those private recipes directly. If monitoring is needed, ask the operator for the approved public workflow or explicit instructions. The underlying monitor redacts logs by default; do not print unredacted logs unless explicitly requested.
 
 ## Design Doctrine
 
-- Do not ask the operator for values or credentials the repo can derive or recover from authorized local state. `values/` is authoritative, including its private Git history. `just setup` and migrations should infer deterministic defaults such as service hostnames, VMIDs, LAN IPs, DNS records, inventory vars, and generated local secrets from `values/terraform.tfvars`, `values/.env`, DNS records, and existing inventory.
-- Before asking the operator for credentials, exhaust authorized local recovery sources without exposing secret values: current `values/` files, the private `values/` Git history/reflog, ignored generated state, and prior task artifacts/logs. Compare or test candidates programmatically with redacted output. If this automation previously generated, rotated, restored, or stored the credential, treat recovery as the agent's responsibility. Ask the operator only after documenting that these sources were checked and no valid candidate remains. Never ask the operator to paste credentials into chat.
-- `values/terraform.tfvars` is the source of truth for infrastructure-derived service shape: VMIDs, Proxmox networking, service LAN IPs, hostnames, and OpenTofu inputs. Ansible inventory should consume those values through `infra/ansible/inventory/tfvars.py` instead of duplicating them by hand.
+- Do not ask the operator for values or credentials the repo can derive or recover from authorized local state. BWS is authoritative for configuration families and runtime secrets, and SeaweedFS is authoritative for encrypted OpenTofu state. `values/` is authoritative only for excluded backups, artifacts, dumps, and mutable service-state data.
+- Before asking the operator for credentials, exhaust authorized recovery sources without exposing secret values: current BWS records, approved secret migrations, excluded backup artifacts when relevant, and prior task artifacts/logs. Compare or test candidates programmatically with redacted output. If this automation previously generated, rotated, restored, or stored the credential, treat recovery as the agent's responsibility. Ask the operator only after documenting that these sources were checked and no valid candidate remains. Never ask the operator to paste credentials into chat.
+- The BWS `HOMELAB_TERRAFORM_TFVARS` family is the source of truth for infrastructure-derived service shape: VMIDs, Proxmox networking, service LAN IPs, hostnames, and OpenTofu inputs. Ansible inventory should consume the rendered family through `infra/ansible/inventory/tfvars.py` instead of duplicating it by hand.
 - Keep service orchestration in Ansible and resource declaration in OpenTofu. Do not use OpenTofu `local-exec` for host or service configuration; add an Ansible playbook/role and wire it into `just apply` in the correct order.
-- No breadcrumbs, comment-only placeholder files, dead wrappers, or permanent duplicate knobs. When behavior moves, update only the affected migration, scaffold, documentation, and test surfaces for existing `values/` repos, and remove the old surface. Do not add or modify unaffected surfaces solely for completeness.
+- No breadcrumbs, comment-only placeholder files, dead wrappers, or permanent duplicate knobs. When behavior moves, update only the affected BWS migration, scaffold, documentation, and test surfaces, and remove the old surface. Do not add or modify unaffected surfaces solely for completeness.
 - Prefer small Python helpers for local data transformation and Ansible/OpenTofu integration over shell glue. Keep shell wrappers only when they are a narrow tooling boundary.
-- Onclave application secrets belong in Bitwarden Secrets Manager. `BITWARDEN_ACCESS_KEY` is the controller bootstrap credential and must not be copied to managed hosts. Keep only non-secret BWS project and server configuration in `values/`; do not retain Onclave credentials in `values/.env`. Other generated secrets belong in `values/.env`, must be idempotent, and must never be printed in logs or responses.
+- Onclave application secrets belong in Bitwarden Secrets Manager. `BITWARDEN_ACCESS_KEY` is the controller bootstrap credential and must not be copied to managed hosts. Keep only the non-secret BWS project/API locator in ignored `settings.local.json`; do not retain Onclave credentials in `values/`. Other generated runtime secrets belong in BWS runtime families, must be idempotent, and must never be printed in logs or responses.
 
 ## Workflow
 
 1. Keep tracked edits generic/public-safe.
-2. Put site-specific changes in `values/` only; commit/push them with `git -C values ...` to the private values remote when requested.
+2. Put configuration-family and runtime-secret changes in BWS; put only excluded backups, artifacts, dumps, and mutable service-state changes in `values/`, committing them with `git -C values ...` to the private values remote when requested.
 3. During execution, use only targeted checks needed to continue safely; do not run `just validate` between tasks, fixes, retries, or intermediate milestones.
 4. Before applying infrastructure resource changes, run `just plan` and summarize creates/changes/destroys. Do not require a global infrastructure plan for approved targeted service configuration or incident recovery that does not change infrastructure resources.
 5. Apply only after explicit approval using `just apply` when the full infrastructure workflow is required; it verifies `tfplan.meta.json` before applying. A direct request to fix deployed or live behavior counts as explicit approval for the bounded plan, including its listed targeted scripts, playbooks, plan, and apply actions, so do not ask again while target, scope, intended outcome, and destructive impact remain materially unchanged. Ask again only when the reviewed plan introduces destructive action, stateful replacement, router/firewall mutation, or another material boundary change.
@@ -130,9 +123,9 @@ The intended pattern is hybrid DNS:
 - Unknown names in those zones forward to existing internal resolvers.
 - The gateway should remain focused on DHCP/routing/firewall and eventually point DHCP DNS to Technitium.
 
-Technitium DNS sync runtime settings belong in `values/.env`: `TECHNITIUM_API_URL`, `TECHNITIUM_API_TOKEN`, and `DNS_RECORDS_FILE`. Keep application runtime workflow variables out of OpenTofu variables unless OpenTofu directly uses them.
+Technitium DNS sync runtime settings belong in the BWS `HOMELAB_ENV` family, while `DNS_RECORDS_FILE` is derived from the ephemeral BWS snapshot. Keep application runtime workflow variables out of OpenTofu variables unless OpenTofu directly uses them.
 
-Technitium service updates must become a managed version/checksum workflow rather than relying on `curl https://download.technitium.com/dns/install.sh | bash` after first install. The upstream portable tarball URL is mutable, so the intended managed design is: read version metadata from the Technitium GitHub release, pin the desired version and SHA256 in private values, optionally cache the tarball under ignored `values/artifacts/technitium/`, and let Ansible update only when the installed marker differs from the pin. Do not add new ad hoc Technitium installer reruns as an update path.
+Technitium service updates must use the managed version/checksum workflow rather than relying on `curl https://download.technitium.com/dns/install.sh | bash` after first install. The upstream portable tarball URL is mutable, so the workflow reads version metadata from the Technitium GitHub release, stores the desired version and SHA256 in the BWS inventory family, optionally caches the tarball under ignored `values/artifacts/technitium/`, and lets Ansible update only when the installed marker differs from the pin. Do not add new ad hoc Technitium installer reruns as an update path.
 
 ## Response hygiene
 

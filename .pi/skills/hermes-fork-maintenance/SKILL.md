@@ -11,7 +11,7 @@ description: "Maintains the homelab Hermes fork, releases, pins, deployment, rol
 
 - Fork: the repository configured by `hermes_custom_repository`, checked out at `../hermes-agent`.
 - Public infrastructure: this repository.
-- Private site pins, generated custom locks, backups, and state: `values/`.
+- Private site pins: BWS `HOMELAB_ANSIBLE_INVENTORY`; generated custom locks and backups: excluded `values/` artifacts; encrypted OpenTofu state: SeaweedFS.
 - Runtime state: `/home/<runtime-user>/.hermes` in the Hermes LXC.
 - Do not open upstream issues, discussions, or pull requests without a separate contribution-policy review and explicit operator approval.
 - Do not push, tag, publish, plan, or apply unless the operator has explicitly requested that Git action or deployment outcome.
@@ -96,9 +96,9 @@ Release procedure:
 
 GitHub release assets are trusted as output of the configured fork. `just update` independently downloads the wheel, validates its canonical release URL, checks the manifest and actual SHA-256, confirms package metadata compatibility with the official wheel, resolves the exact tag commit, and writes checksum-specific private locks.
 
-## Select the Fork in Private Values
+## Select the Fork in Bitwarden Secrets Manager (BWS)
 
-Set these only in `values/ansible/inventory/local.yml`:
+Set these only in the BWS `HOMELAB_ANSIBLE_INVENTORY` family:
 
 ```yaml
 hermes_artifact_source: custom_github_release
@@ -106,9 +106,9 @@ hermes_custom_repository: <fork-owner>/hermes-agent
 hermes_custom_tag_prefix: homelab-v
 ```
 
-Leave `hermes_custom_wheel_url` and both custom lock paths to `just update`. It writes them as one pin group after validating an eligible release. Generated locks live under checksum-specific directories in `values/artifacts/hermes/`.
+Leave `hermes_custom_wheel_url` and both custom lock paths to `just update`. It writes the pin group back to BWS after validating an eligible release. Generated locks remain excluded artifacts under checksum-specific directories in `values/artifacts/hermes/`.
 
-Never place the real repository selection or generated private pin state in `scaffold/`.
+Never place the real repository selection or generated private pin state in `scaffold/` or legacy compatibility files under `values/`.
 
 ## Update and Deploy
 

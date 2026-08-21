@@ -4,22 +4,22 @@
 
 This pilot defines Hermes as an operator cockpit for `homelab-infra` without making Hermes a second source of truth. The selected architecture is option 3: `homelab-infra remains the durable infrastructure substrate`, `onramp-vNext owns Docker app services`, and `Hermes operates across both` through their approved native workflows.
 
-For the first plugin-backend pilot, SearXNG should be treated as an Onramp app-platform service by default. The recommended onramp-host direction is a Debian 13 VM running Podman. Podman-in-LXC is experimental and should not be the default substrate for durable onramp hosting.
+SearXNG is an internal dependency of the Onclave app workload. The Onclave application contract owns its image, secret, network, and runtime behavior; `homelab-infra` consumes that contract through `onclave_onramp`.
 
-No live mutation is in scope for this PRD. Provisioning a Debian 13 VM, Deploying SearXNG, and Wiring the Hermes web-searxng plugin are deferred until separate reviewed implementation plans exist.
+No live mutation is in scope for this PRD. Provisioning a Debian 13 VM and changes to the Onclave workload are deferred until separate reviewed implementation plans exist.
 
 ## Problem
 
-The homelab infrastructure workflow is repo-driven and intentionally cautious: source changes are reviewed in the public runbook repo, private site values live in the ignored `values/` repo, infrastructure changes are reviewed with `just plan`, and live mutation happens only through `just apply` after approval.
+The homelab infrastructure workflow is repo-driven and intentionally cautious: source changes are reviewed in the public runbook repo, site configuration and runtime secrets live in BWS families and standalone BWS keys, encrypted OpenTofu state lives in SeaweedFS, infrastructure changes are reviewed with `just plan`, and live mutation happens only through `just apply` after approval. The ignored `values/` repo is limited to excluded backups, artifacts, dumps, mutable service-state data, and its applicable Forgejo workflow.
 
 Hermes is now available as a managed LXC with a browser-facing dashboard. The next product question is how to use Hermes as an operator cockpit for this repository without bypassing the audited runbook workflow, leaking private values, or turning the infra repo into a general application catalog.
 
 ## Goals
 
 - Provide a safe operator surface for the standard homelab workflow: inspect status, validate, plan, apply after approval, and summarize outcomes.
-- Keep `homelab-infra` as the source of truth for durable infrastructure and first-class services.
+- Keep `homelab-infra` as the source of truth for durable infrastructure and first-class services, with its site configuration and enabled-service list owned by BWS and its encrypted OpenTofu state owned by SeaweedFS.
 - Keep `onramp-vNext` as the owner for general Docker app services and app catalog behavior.
-- Keep private site data in `values/` and prevent secrets, real domains, real IPs, and state from entering tracked public files or operator summaries.
+- Keep excluded private backups, artifacts, dumps, mutable service-state data, and the applicable Forgejo workflow in `values/`; keep BWS secrets and configuration out of tracked public files and operator summaries.
 - Let Hermes use repo-native commands instead of ad hoc live mutation.
 - Establish a clear boundary between durable infrastructure services and general Docker application services.
 - Support future plugin backends, such as search services, without forcing every backend into a first-class LXC unless justified.
@@ -34,8 +34,7 @@ Hermes is now available as a managed LXC with a browser-facing dashboard. The ne
 - Do not require Onramp to be complete before Hermes can provide useful repo operations.
 - No live mutation is in scope for this MVP.
 - Provisioning a Debian 13 VM is deferred.
-- Deploying SearXNG is deferred.
-- Wiring the Hermes web-searxng plugin is deferred.
+- Changes to the Onclave-internal SearXNG workload are deferred.
 
 ## Users and scenarios
 
@@ -50,7 +49,7 @@ Repo automation may run validation, planning, deployment, and status checks, but
 ### Scenario: review a proposed infrastructure change
 
 1. Operator asks Hermes for current status.
-2. Hermes checks repository status, enabled services, private values wiring, and recent validation state.
+2. Hermes checks repository status, the BWS-rendered enabled services, the excluded `values/` boundary, and recent validation state.
 3. Hermes runs or recommends `just validate`.
 4. Hermes runs `just plan` only when requested.
 5. Hermes summarizes creates, updates, replacements, deletes, and destructive changes without exposing private values.
@@ -60,7 +59,7 @@ Repo automation may run validation, planning, deployment, and status checks, but
 1. Operator explicitly approves applying the current plan.
 2. Hermes runs the repo-native apply workflow.
 3. Apply verifies saved plan metadata before mutation.
-4. Hermes summarizes result and points the operator to private `values/` repo state that may need commit and push.
+4. Hermes summarizes the result and points the operator to excluded `values/` repo artifacts or workflow changes that may need commit and push.
 
 ### Scenario: add a Hermes plugin backend
 
@@ -77,12 +76,12 @@ Repo automation may run validation, planning, deployment, and status checks, but
 - Hermes must show plan summaries before any live mutation.
 - Hermes must require explicit approval before `just apply`, destroy, state surgery, or router/firewall mutation.
 - Hermes must detect stale or missing plan artifacts and require a fresh `just plan` rather than reusing or editing saved plans.
-- Hermes must summarize private `values/` repo follow-up without printing secrets or real site inventory.
+- Hermes must summarize excluded `values/` repo follow-up without printing secrets or real site inventory.
 
 ### Safety requirements
 
 - Tracked files must remain public-safe and use placeholders such as `example.internal` and RFC 5737 addresses.
-- Real endpoints, LAN IPs, domains, DNS records, hostnames, credentials, generated secrets, OpenTofu state, and plans must remain in `values/` or local ignored files.
+- Real endpoints, LAN IPs, domains, DNS records, hostnames, and service configuration belong in BWS configuration families; runtime credentials and generated secrets belong in standalone BWS runtime keys; encrypted OpenTofu state belongs in SeaweedFS; plans and compatibility snapshots are ephemeral; excluded backups, artifacts, dumps, and mutable service-state data remain in `values/`; the ignored local settings file contains only the BWS locator.
 - Generated secrets must be written idempotently and never printed in command output or summaries.
 - Hermes dashboard access must remain authenticated and proxied through service-local Caddy.
 - Browser-facing infrastructure services should bind application processes to loopback behind service-local Caddy unless a service has a specific reason to expose a port.
@@ -92,8 +91,8 @@ Repo automation may run validation, planning, deployment, and status checks, but
 - OpenTofu owns Proxmox LXC shape, VMIDs, networking, storage attachments, and service enablement resources.
 - Ansible owns in-LXC service installation and configuration.
 - Technitium DNS record sync remains in Ansible, after Technitium is installed and reachable.
-- `values/terraform.tfvars` remains the source of truth for infrastructure-derived service shape.
-- Inventory should derive service hosts, VMIDs, and addresses from tfvars instead of duplicating them manually.
+- The BWS `HOMELAB_TERRAFORM_TFVARS` family remains the source of truth for infrastructure-derived service shape.
+- Inventory should derive service hosts, VMIDs, and addresses from the rendered BWS tfvars family instead of duplicating them manually.
 
 ### App-platform boundary requirements
 
@@ -105,13 +104,9 @@ Repo automation may run validation, planning, deployment, and status checks, but
   - App-platform service: deployed by `onramp-vNext` or an app-services host, with Hermes consuming its URL.
 - The service `port` convention remains container/service port reachable on the Compose network, not a host-published port unless explicitly documented.
 
-## SearXNG pilot decision
+## SearXNG boundary
 
-SearXNG is the first expected search backend pilot for Hermes. The default classification is app-platform service, because search is a general application capability rather than a durable infrastructure primitive. `onramp-vNext owns Docker app services` remains the target boundary.
-
-Current exception: `homelab-infra` temporarily owns `searxng_onramp` on `onramp_host`. The service is rootless Podman behind host-local Caddy, has Technitium DNS input, and passes `HERMES_WEB_SEARXNG_URL` to Hermes. This keeps the pilot moving without making SearXNG a first-class LXC or a permanent Hermes-local dependency.
-
-`homelab-infra remains the durable infrastructure substrate` for the onramp host itself, DNS contract, and this temporary SearXNG exception. `Hermes operates across both` by reading or invoking the approved workflow in each repository rather than inventing a third deployment path.
+SearXNG is internal to the Onclave app workload and is not a Hermes-managed or standalone `homelab-infra` service. `onclave_onramp` must preserve the application-defined image, secret, network, and runtime contract. `homelab-infra` remains responsible only for consuming that contract on the selected onramp host.
 
 The default runtime target is a Debian 13 VM running Podman. Podman-in-LXC is experimental because nested containers in Proxmox LXCs require additional kernel, namespace, mount, and fuse trade-offs. Arch or CachyOS VMs are not the default because a rolling-release host is a poor fit for durable homelab app infrastructure unless a specific runtime feature requires it.
 
@@ -130,15 +125,17 @@ The default runtime target is a Debian 13 VM running Podman. Podman-in-LXC is ex
 - Hermes refuses or pauses for approval before any live mutation command.
 - Hermes does not print secrets, tokens, real domains, real IPs, private DNS records, or private inventory in summaries.
 - Adding a plugin backend includes an explicit classification decision: Hermes-local, durable platform service, or app-platform service.
-- For the search backend pilot, the PRD records that SearXNG belongs in Onramp or an app-services host by default, with the current `searxng_onramp` implementation treated as a temporary `homelab-infra` exception rather than a first-class LXC.
+- SearXNG remains internal to the Onclave workload and is not promoted to a standalone infrastructure service.
 
 ## Dependencies
 
 - Hermes management LXC and dashboard deployment.
-- Private `values/` repo with current tfvars, inventory, DNS records, environment values, and OpenTofu state.
+- BWS access for configuration families and standalone runtime keys.
+- SeaweedFS access for encrypted OpenTofu state.
+- Private `values/` repo for excluded backups, artifacts, dumps, mutable service-state data, and its applicable Forgejo workflow.
 - Working local tooling container for `just validate`, `just plan`, and `just apply`.
-- Forgejo and private values repo workflow if remote deployment or monitoring is in scope.
-- `onramp-vNext` direction if plugin backends are treated as app-platform services, plus a handoff path for retiring the temporary `searxng_onramp` exception.
+- Forgejo workflow access if remote deployment or monitoring is in scope.
+- `onramp-vNext` direction for future app-platform work that is separate from the Onclave-internal SearXNG contract.
 
 ## Risks
 
@@ -150,9 +147,9 @@ The default runtime target is a Debian 13 VM running Podman. Podman-in-LXC is ex
 
 ## Open questions
 
-- Which Hermes actions are in scope for the first pilot: status only, validate, plan, apply, private values commits, or Forgejo workflow monitoring?
+- Which Hermes actions are in scope for the first pilot: status only, validate, plan, apply, excluded-data commits, or Forgejo workflow monitoring?
 - Should Hermes trigger `just apply` locally, trigger Forgejo Actions, or support both with different approval paths?
 - What is the minimum audit trail required for an operator-approved apply?
 - Which onramp-host provisioning shape should a future infrastructure plan expose to `onramp-vNext`?
-- How should Hermes safely support edits to `values/` without exposing private values in transcripts or summaries?
+- How should Hermes safely support BWS family edits and excluded `values/` workflow changes without exposing secrets or private site data in transcripts or summaries?
 - What recovery path should be documented when Hermes is unavailable but infrastructure needs maintenance?

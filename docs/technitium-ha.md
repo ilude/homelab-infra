@@ -14,9 +14,9 @@ This deployment can run a second Technitium DNS LXC on a standalone Proxmox host
 
 Technitium clustering synchronizes common configuration and catalog member zones. Cache and logs remain node-local. See the [Technitium clustering guide](https://blog.technitium.com/2025/11/understanding-clustering-and-how-to.html).
 
-## Private values
+## BWS configuration
 
-Enable `technitium_secondary` in `settings.local.json`. Keep the second Proxmox credential in `values/.env`:
+Enable `technitium_secondary` in the BWS `HOMELAB_SETTINGS` service list. The second Proxmox credential is a standalone BWS runtime secret rendered into the temporary environment compatibility file:
 
 ```dotenv
 export SECONDARY_PVE_HOST="proxmox-secondary.example.internal"
@@ -24,7 +24,7 @@ export TF_VAR_secondary_proxmox_endpoint="https://proxmox-secondary.example.inte
 export TF_VAR_secondary_proxmox_api_token="terraform@pve!provider=REPLACE_WITH_SECONDARY_PROXMOX_TOKEN"
 ```
 
-The secondary LXC, cluster domain, and floating address are declared in `values/terraform.tfvars`. The cluster domain is immutable after initialization.
+The BWS `HOMELAB_TERRAFORM_TFVARS` family owns the secondary LXC, cluster domain, and floating address. The cluster domain is immutable after initialization.
 
 ## Deployment sequence
 

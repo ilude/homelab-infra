@@ -32,12 +32,11 @@ For downloadable tools or archives, prefer a version plus checksum. If upstream 
 
 ## OCI image pins
 
-Infisical, PostgreSQL, Redis, SearXNG, and the tooling Debian base use full `registry/repository:tag@sha256:...` references. The managed defaults are:
+Infisical, PostgreSQL, Redis, and the tooling Debian base use full `registry/repository:tag@sha256:...` references. The Onclave app definition separately owns its internal SearXNG image contract. The managed defaults are:
 
 - `docker.io/infisical/infisical:v0.161.11@sha256:efe2d4fe5f37fb250ce5956ecc4734cc9ab1b50629d97cf7793d54200a18642b`
 - `docker.io/library/postgres:16.14-alpine3.22@sha256:786dab398303b8ce7cb76b407bb21ef2e4dfbbbd4c6abcf3d29b3130467ffdbc`
 - `docker.io/library/redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99`
-- `docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb`
 - `docker.io/library/debian:bookworm-20260623-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df`
 
 The updater considers only the bounded version series documented in its resolver and preserves custom pin groups. A tag without a digest, including `latest`, is not a managed default.

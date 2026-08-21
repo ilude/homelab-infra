@@ -2,11 +2,11 @@
 
 Reusable OpenTofu and Ansible runbooks for Proxmox LXCs running Technitium DNS, Caddy, Forgejo, Infisical, Hermes, and optional runner/VPN services.
 
-This public repo is intentionally generic. Bitwarden Secrets Manager (BWS) is authoritative for real domains, LAN IPs, DNS records, Proxmox settings, credentials, and operator settings. Commands render validated compatibility files in an ephemeral tooling container. Encrypted OpenTofu state is stored in a versioned SeaweedFS S3 backend. The ignored nested `values/` Git repo remains only for excluded private backups, artifacts, dumps, and mutable service-state data.
+This public repo is intentionally generic. BWS configuration families own real domains, LAN IPs, DNS records, Proxmox settings, operator settings, and enabled services; standalone runtime keys own service secrets. Commands render validated compatibility files in an ephemeral tooling container. Encrypted OpenTofu state is stored in a versioned SeaweedFS S3 backend. The ignored nested `values/` Git repo remains only for excluded private backups, artifacts, dumps, mutable service-state data, and its applicable Forgejo workflow.
 
 ## Artifact integrity
 
-Forgejo, Forgejo runner, Docker Compose, just, Go, custom Caddy builds, Tailscale, Technitium portable releases, and Hermes Agent use managed version pins and integrity checks before activation. Hermes 0.18.0 uses a complete hashed wheel lock for Debian 13 amd64/Python 3.13 and verifies its official PyPI provenance. Infisical, PostgreSQL, Redis, SearXNG, and the tooling Debian base use full OCI tag-and-digest references. After its release-age hold, `just update` advances only private pin sets that still exactly match this runbook's managed defaults; any differing pin is operator-owned and remains unchanged. OCI resolution verifies Registry V2 header/body digests and linux/amd64 multi-arch index semantics. Managed Debian hosts also install automatic security-only updates with automatic reboots disabled.
+Forgejo, Forgejo runner, Docker Compose, just, Go, custom Caddy builds, Tailscale, Technitium portable releases, and Hermes Agent use managed version pins and integrity checks before activation. Hermes 0.18.0 uses a complete hashed wheel lock for Debian 13 amd64/Python 3.13 and verifies its official PyPI provenance. Infisical, PostgreSQL, Redis, and the tooling Debian base use full OCI tag-and-digest references; the Onclave app definition separately owns its internal SearXNG image contract. After its release-age hold, `just update` advances only private pin sets that still exactly match this runbook's managed defaults; any differing pin is operator-owned and remains unchanged. OCI resolution verifies Registry V2 header/body digests and linux/amd64 multi-arch index semantics. Managed Debian hosts also install automatic security-only updates with automatic reboots disabled.
 
 ## Layout
 
@@ -24,12 +24,12 @@ Ignored site/local state:
 
 ```text
 settings.local.json  BWS project/API locator only
-values/              Nested private Git repo for excluded backups/artifacts
+values/              Nested private Git repo for excluded backups/artifacts/dumps/mutable service-state
 .terraform/          OpenTofu/Terraform working data
 tfplan               Local encrypted plan artifact
 ```
 
-Keep non-public material in `values/` or outside this checkout; do not add another sensitive-data directory to this repo.
+Keep excluded private backups, artifacts, dumps, and mutable service-state data in `values/` or outside this checkout; do not add another sensitive-data directory to this repo.
 
 ## Documentation
 
@@ -40,7 +40,6 @@ Keep non-public material in `values/` or outside this checkout; do not add anoth
 - [Managed service-state backup and restore](docs/service-state-backup.md) covers private `values/` backups for Hermes memory/soul state and other managed service state.
 - [Hermes tuning](docs/hermes-tuning.md) documents managed compression and delegation settings.
 - [Onramp app-platform contract](docs/onramp-app-platform-contract.md) defines how `homelab-infra`, `onramp-vNext`, and Hermes split onramp-host ownership.
-- [Onramp SearXNG handoff](docs/onramp-searxng-handoff.md) documents the default future Onramp-owned SearXNG contract and the current temporary `homelab-infra` exception.
 - [App-host runbook](docs/onramp-host-runbook.md) covers `onramp_host` rollback and future deployment validation.
 - [Service update policy](docs/service-update-policy.md) defines managed version updates and the Technitium portable-release path.
 - [Technitium high availability](docs/technitium-ha.md) covers the optional second Proxmox node, clustering, floating DNS address, staged rollout, and recovery.
@@ -132,7 +131,7 @@ OpenTofu manages:
 - Proxmox LXC resources, including optional per-container VLAN tags when
   `*_vlan_id` values are set in the BWS-rendered tfvars family
 - Optional Tailscale client LXC shape, disabled by default until `tailscale_client_enabled` is set in the BWS tfvars family
-- Optional Forgejo Actions runner LXC when `forgejo_runner` is enabled in local settings
+- Optional Forgejo Actions runner LXC when `forgejo_runner` is enabled in the BWS `HOMELAB_SETTINGS` family
 - Optional Infisical secrets service, either as the legacy LXC with service-local Caddy or as `infisical_onramp` on the shared onramp host
 - Optional Hermes management LXC with SSH tooling, a non-root `anvil` dashboard runtime user, and a service-local Caddy reverse proxy for the Hermes Agent web dashboard
 - Optional Debian 13 Podman `onramp_host` VM substrate for app services, using `anvil` as the default cloud-init/deploy user and a shared Caddy instance with per-service snippets. The boot source is a clean Debian 13 genericcloud image imported by OpenTofu from the URL declared in the BWS-rendered tfvars family.
@@ -151,7 +150,7 @@ Ansible manages:
 - Infisical Docker Compose stack on the legacy LXC, or rootless Infisical Podman stack on `onramp_host` when `infisical_onramp` is enabled
 - Hermes management tooling, SSH-oriented bootstrap directories, the Hermes Agent web dashboard running as `anvil`, and Caddy
 - App-host SSH hardening, rootless Podman readiness, `anvil` deploy-user setup, shared Caddy setup, default-deny host firewall policy, and deployment directory preparation
-- Temporary SearXNG onramp workload deployment with rootless Podman, a shared Caddy site snippet, Technitium DNS record input, and Hermes endpoint env wiring when `searxng_onramp` is enabled
+- Onclave app deployment on `onramp_host`, including its internal SearXNG container and runtime contract
 - Optional Tailscale installation and private backup restore on the Tailscale client LXC
 - Technitium DNS records/settings through `infra/ansible/playbooks/technitium-dns.yml`
 - Minimal rootless SeaweedFS S3 state storage on `onramp_host`, with a dedicated versioned bucket, lifecycle policy, and shared Caddy HTTPS route
@@ -175,12 +174,9 @@ Hermes dashboard uses a form-login provider named `basic`. Store
 `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH` in the BWS environment family instead of a
 plaintext password; generate it with `python scripts/hermes-password-hash.py`.
 The service-local Caddy config rewrites the upstream provider redirect to the
-form login route and proxies only to the loopback-bound dashboard. Hermes `web-searxng` plugin/runtime should read the SearXNG endpoint from the
-Hermes-native `SEARXNG_URL` environment key. The BWS environment family keeps the same
-endpoint as `HERMES_WEB_SEARXNG_URL`, and Ansible renders both names into the
-Hermes dashboard environment for compatibility. When `searxng_onramp` is
-enabled, this repo temporarily manages that endpoint on `onramp_host` as
-`https://searxng.apps.<domain>` or the private equivalent.
+form login route and proxies only to the loopback-bound dashboard. SearXNG remains
+an internal dependency of the Onclave app workload and is not a standalone
+homelab-infra service or Hermes endpoint.
 
 The temporary `.env` compatibility snapshot is parsed as dotenv-style data by `scripts/parse-env.py`; it is never sourced as shell. BWS updates must preserve the required variables validated by the public fixture and routing manifest.
 

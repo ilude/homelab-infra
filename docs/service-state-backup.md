@@ -82,7 +82,6 @@ Current service-state targets are:
 - `technitium` -- `/etc/dns`.
 - `onramp_host` -- host-owned Caddy base files: `/etc/caddy/env`, `/etc/caddy/Caddyfile`, and `/etc/caddy/sites.d/00-placeholder.caddy`.
 - `infisical_onramp` -- Infisical onramp deployment directory and Caddy snippet.
-- `searxng_onramp` -- SearXNG onramp deployment directory and Caddy snippet.
 - `onclave_onramp` -- Onclave app definition, private env, persistent broker/core data, adopted PostgreSQL and MinIO directories, and Caddy snippet. Rebuildable Ollama data is excluded.
 
 The managed paths live in `infra/ansible/vars/service-state.yml`. Every path

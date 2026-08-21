@@ -1,6 +1,6 @@
 # BWS configuration and SeaweedFS state
 
-BWS is authoritative for site configuration. OpenTofu state is encrypted and stored in the versioned SeaweedFS S3 backend. The ignored `values/` repository remains only for excluded backup, artifact, dump, and mutable service-state data.
+BWS configuration families own site configuration and the enabled-service list; standalone runtime keys own service secrets. OpenTofu state is encrypted and stored in the versioned SeaweedFS S3 backend. The ignored `values/` repository remains only for excluded backup, artifact, dump, mutable service-state, and applicable Forgejo workflow data.
 
 ## Controller bootstrap
 
@@ -28,17 +28,17 @@ Setup builds the tooling image, checks that `values/` contains no obsolete confi
 
 ## BWS snapshot contract
 
-The routing manifest is `config/bws-routing.json`. It maps these BWS keys to existing validated file formats:
+The routing manifest is `config/bws-routing.json`. It maps these BWS families to existing validated file formats. The listed paths are temporary compatibility outputs in the tooling snapshot, not local sources of truth:
 
 - `HOMELAB_ENV`
 - `HOMELAB_TERRAFORM_TFVARS`
 - `HOMELAB_ANSIBLE_INVENTORY`
 - `HOMELAB_DNS_RECORDS`
-- `HOMELAB_SETTINGS`
+- `HOMELAB_SETTINGS` -- BWS owns the excluded-data repository locator and enabled-service list; local `settings.local.json` supplies only the BWS project/API locator.
 
-The inventory value is deterministic gzip plus base64 because the raw YAML can exceed the BWS value limit. Rendering restores the exact YAML bytes before validation. Runtime-only keys supply SeaweedFS S3 credentials, the OpenTofu encryption passphrase, and standalone service credentials. The Onclave runtime profile includes RabbitMQ and the `ONCLAVE_VAULT_*` application credentials; they must not be added to `HOMELAB_ENV`. `ONCLAVE_VAULT_OPENAI_API_KEY`, `ONCLAVE_VAULT_CALLBACK_URL`, and `ONCLAVE_VAULT_CALLBACK_SECRET` may be absent or empty.
+The inventory value is deterministic gzip plus base64 because the raw YAML can exceed the BWS value limit. Rendering restores the exact YAML bytes before validation. Runtime-only BWS keys supply SeaweedFS S3 credentials, the OpenTofu encryption passphrase, and standalone service credentials. They are resolved as secrets for the selected runtime profile rather than sourced from `values/`. The Onclave runtime profile includes RabbitMQ and the `ONCLAVE_VAULT_*` application credentials; they must not be added to `HOMELAB_ENV`. `ONCLAVE_VAULT_OPENAI_API_KEY`, `ONCLAVE_VAULT_CALLBACK_URL`, and `ONCLAVE_VAULT_CALLBACK_SECRET` may be absent or empty.
 
-`scripts/run-infra.sh` starts an ephemeral tooling container, resolves only the runtime profile needed by the command, validates every required family, and writes mode-restricted compatibility files below container `/tmp`. The container is removed after the command, including on failure. Original `values/` backup and artifact paths remain mounted separately and are never copied into the snapshot.
+`scripts/run-infra.sh` starts an ephemeral tooling container, resolves only the runtime profile needed by the command, validates every required family, and writes mode-restricted compatibility files below container `/tmp`. The container is removed after the command, including on failure. Original `values/` backup, artifact, dump, mutable service-state, and applicable Forgejo workflow paths remain mounted separately and are never copied into the snapshot.
 
 Missing, empty, duplicate, malformed, or placeholder required values fail closed. Diagnostics name keys but do not print values.
 

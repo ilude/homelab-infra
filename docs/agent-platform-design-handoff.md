@@ -21,7 +21,7 @@ Do **not** assume the first plausible architecture is the correct one. Do not im
 
 The next design session should:
 
-1. inspect the current `homelab-infra` repository and its local/private values wiring;
+1. inspect the current `homelab-infra` repository, its BWS configuration/runtime-secret wiring, and its excluded `values/` data boundary;
 2. read the existing architecture and operator documents listed in this handoff;
 3. ingest the additional documents supplied by the user;
 4. distinguish confirmed requirements from tentative ideas and implementation candidates;
@@ -260,8 +260,6 @@ Relevant files:
   https://github.com/ilude/homelab-infra/blob/main/docs/hermes-tuning.md
 - OnRamp host runbook:
   https://github.com/ilude/homelab-infra/blob/main/docs/onramp-host-runbook.md
-- OnRamp/SearXNG handoff:
-  https://github.com/ilude/homelab-infra/blob/main/docs/onramp-searxng-handoff.md
 - Service state backup:
   https://github.com/ilude/homelab-infra/blob/main/docs/service-state-backup.md
 - Managed service registry:
@@ -338,7 +336,7 @@ Hermes is being considered as a persistent coordinator/operator interface with:
 - infrastructure-facing plugins or adapters;
 - multiple model/provider options.
 
-The exact Hermes version and enabled feature set must be confirmed from private values and the managed pin set in the local repository.
+The exact Hermes version and enabled feature set must be confirmed from the BWS configuration families and managed pin set in the local repository.
 
 ### 4.6 Claude Code
 
@@ -406,7 +404,7 @@ Treat this as a candidate memory component. Verify the current repository, image
 
 `homelab-infra` contains reusable OpenTofu and Ansible runbooks for Proxmox workloads and managed services.
 
-The public repository is intentionally generic. Real domains, IPs, DNS records, credentials, endpoints, private inventory, and OpenTofu state belong in an ignored nested `values/` repository, normally stored in private Forgejo.
+The public repository is intentionally generic. BWS configuration families own real domains, IPs, DNS records, credentials, endpoints, and private inventory; SeaweedFS owns encrypted OpenTofu state; and the ignored nested `values/` repository, normally stored in private Forgejo, retains only excluded backups, artifacts, dumps, mutable service-state data, and its applicable workflow.
 
 This split is important and should remain intact.
 
@@ -422,7 +420,7 @@ The repository currently models or references services including:
 - Tailscale client;
 - Hermes;
 - a Debian 13 OnRamp application host;
-- SearXNG as a temporary OnRamp-host workload.
+- SearXNG as an internal Onclave workload dependency.
 
 The current `infra/services.json` includes dependency, state-order, execution-resource, inventory, and Terraform-module metadata.
 
@@ -433,7 +431,7 @@ This registry may become useful for future capability discovery or infrastructur
 The repository already implements substantial safety behavior:
 
 - artifact pinning and hash verification;
-- private values separation;
+- BWS configuration and excluded-data separation;
 - saved plan metadata;
 - rejection of stale plans;
 - backup-age requirements for destructive stateful changes;
@@ -1758,7 +1756,6 @@ docs/hermes-operator-pilot-prd.md
 docs/onramp-app-platform-contract.md
 docs/hermes-tuning.md
 docs/onramp-host-runbook.md
-docs/onramp-searxng-handoff.md
 infra/services.json
 ```
 

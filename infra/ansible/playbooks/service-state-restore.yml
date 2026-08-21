@@ -184,6 +184,23 @@
         - not (service_state_restore_uses_device_archive | bool)
         - not service_state_restore_stat.stat.exists
 
+    - name: Check local service-state restore checksum sidecar exists
+      ansible.builtin.stat:
+        path: "{{ service_state_restore_file }}.sha256"
+      register: service_state_restore_checksum_stat
+      delegate_to: localhost
+      become: false
+      when: not (service_state_restore_uses_device_archive | bool)
+
+    - name: Require local service-state restore checksum sidecar
+      ansible.builtin.assert:
+        that:
+          - service_state_restore_checksum_stat.stat.isreg | default(false)
+        fail_msg: >-
+          Service-state restore requires the archive checksum sidecar
+          {{ service_state_restore_file }}.sha256.
+      when: not (service_state_restore_uses_device_archive | bool)
+
     - name: Check selected device-local service-state archive exists
       ansible.builtin.stat:
         path: "{{ service_state_device_restore_source }}"
@@ -244,7 +261,7 @@
         fail_msg: The selected device-local archive checksum does not match.
       when: service_state_restore_uses_device_archive | bool
 
-    - name: Validate service-state restore archive checksum when present
+    - name: Validate service-state restore archive checksum
       ansible.builtin.command:
         argv:
           - sha256sum
@@ -255,9 +272,7 @@
       changed_when: false
       delegate_to: localhost
       become: false
-      when:
-        - not (service_state_restore_uses_device_archive | bool)
-        - lookup('ansible.builtin.fileglob', service_state_restore_file ~ '.sha256', wantlist=True) | length > 0
+      when: not (service_state_restore_uses_device_archive | bool)
 
     - name: Validate service-state restore archive contents
       ansible.builtin.command:

@@ -17,7 +17,12 @@ REPO = Path(__file__).resolve().parents[1]
 )
 class RunInfraTests(unittest.TestCase):
     def run_with_fake_docker(
-        self, exit_code: int, *, access_key: bool = True
+        self,
+        exit_code: int,
+        *,
+        access_key: bool = True,
+        command: tuple[str, ...] = ("true",),
+        writeback: bool = False,
     ) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
@@ -62,8 +67,12 @@ class RunInfraTests(unittest.TestCase):
             env["BITWARDEN_ACCESS_KEY"] = "test-access-key"
         else:
             env.pop("BITWARDEN_ACCESS_KEY", None)
+        if writeback:
+            env["BWS_WRITEBACK"] = "1"
+        else:
+            env.pop("BWS_WRITEBACK", None)
         result = subprocess.run(
-            ["bash", "scripts/run-infra.sh", "true"],
+            ["bash", "scripts/run-infra.sh", *command],
             cwd=REPO,
             env=env,
             text=True,
@@ -84,6 +93,23 @@ class RunInfraTests(unittest.TestCase):
     def test_propagates_container_failure(self) -> None:
         result, _, _ = self.run_with_fake_docker(7)
         self.assertEqual(result.returncode, 7)
+
+    def test_rejects_writeback_for_an_arbitrary_command(self) -> None:
+        result, _, record = self.run_with_fake_docker(0, writeback=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("only allowed for: python scripts/update.py", result.stderr)
+        self.assertFalse(record.exists())
+
+    def test_passes_writeback_only_for_update(self) -> None:
+        result, _, record = self.run_with_fake_docker(
+            0,
+            command=("python", "scripts/update.py"),
+            writeback=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = record.read_text(encoding="utf-8").splitlines()
+        self.assertIn("--writeback-update", arguments)
+        self.assertNotIn("--writeback", arguments)
 
     def test_fails_closed_without_controller_access_key(self) -> None:
         result, _, record = self.run_with_fake_docker(0, access_key=False)

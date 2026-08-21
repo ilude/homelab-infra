@@ -56,11 +56,13 @@ archives are excluded from implicit selection. If no backup exists, it logs a
 skip message and exits successfully. Onclave rejects `restore-if-present` because
 its device-local archive is an application rollback, not bootstrap state.
 
-Before stopping services, restore requires and verifies device-local checksums,
-checks that the archive belongs to the selected target, rejects unsafe members
-and links, validates the catalog and destination accounts, and requires exactly
-one destination host. It then stops system units followed by user units. Stop
-failures abort before any managed path is changed.
+Before stopping services, controller-backed restore requires and verifies the
+archive's `.sha256` sidecar; device-local restore requires and verifies its
+archive checksum sidecar. Restore then checks that the archive belongs to the
+selected target, rejects unsafe members and links, validates the catalog and
+destination accounts, and requires exactly one destination host. It then stops
+system units followed by user units. Stop failures abort before any managed path
+is changed.
 
 When current state exists, restore creates a private pre-restore archive before
 removing configured paths. Controller-backed targets stream and checksum it under
@@ -93,7 +95,7 @@ both files when this repo starts managing a new stateful service.
 ## Operator notes
 
 - Before writing a controller-backed backup, the CLI restricts `values/service-backups/` on Windows to the current user, SYSTEM, and Administrators with inheritable ACLs. POSIX hosts enforce mode `0700`. Missing host permission tools fail closed instead of writing an exposed archive.
-- Run controller-backed backups before rebuilding or replacing a service host. `just apply` verifies the newest controller archive checksum and manifest for every affected stateful service and requires it to be no older than 24 hours. Device-local Onclave backups are for application rollback, not host replacement.
+- Run controller-backed backups before rebuilding or replacing a service host. Controller-backed restore requires the archive and its `<archive>.sha256` sidecar; both must verify before service stops or archive extraction. `just apply` verifies the newest controller archive checksum and manifest for every affected stateful service and requires it to be no older than 24 hours. Device-local Onclave backups are for application rollback, not host replacement.
 - `scripts/service-state.sh backup onclave_onramp` leaves an active Onclave user service unavailable only while it creates and atomically installs the uncompressed cold archive. It then restarts that same service even if later background compression fails. Caddy remains running, and an inactive Onclave service remains inactive.
 - Onclave backup history is device-local by design. It is fast and simple, but it does not survive loss of the Onramp host. Use a separate off-device copy mechanism if host-loss recovery becomes a requirement.
 - A destructive plan affecting multiple stateful services is blocked by default. Use `INFRA_TARGET_SERVICE=<service> just plan` for the canary rollout, verify its direct endpoint and state, then create the next plan.

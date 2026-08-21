@@ -147,6 +147,65 @@ class TfplanMetadataTests(unittest.TestCase):
         self.assertTrue(summary["destructive"])
         self.assertEqual(len(summary["destructive_changes"]), 2)
 
+    def test_shared_root_target_maps_all_enabled_stateful_services(self) -> None:
+        temp_dir, repo, _, _ = self.make_repo()
+        with temp_dir:
+            (repo / "infra" / "services.json").write_text(
+                json.dumps(
+                    {
+                        "default_services": [
+                            "onramp_host",
+                            "infisical_onramp",
+                            "onclave_onramp",
+                            "freellmapi_onramp",
+                        ],
+                        "services": {
+                            service: {
+                                "state_capable": True,
+                                "terraform_target": (
+                                    "proxmox_virtual_environment_vm.onramp_host"
+                                ),
+                            }
+                            for service in (
+                                "onramp_host",
+                                "infisical_onramp",
+                                "onclave_onramp",
+                            )
+                        }
+                        | {
+                            "freellmapi_onramp": {
+                                "state_capable": False,
+                                "terraform_target": (
+                                    "proxmox_virtual_environment_vm.onramp_host"
+                                ),
+                            }
+                        },
+                    }
+                )
+            )
+            summary = tfplan_metadata.summarize_plan(
+                {
+                    "resource_changes": [
+                        {
+                            "address": "proxmox_virtual_environment_vm.onramp_host",
+                            "change": {"actions": ["delete", "create"]},
+                        }
+                    ]
+                },
+                repo,
+            )
+
+        change = summary["destructive_changes"][0]
+        self.assertEqual(
+            change["stateful_target"],
+            "proxmox_virtual_environment_vm.onramp_host",
+        )
+        self.assertEqual(
+            change["stateful_services"],
+            ["onramp_host", "infisical_onramp", "onclave_onramp"],
+        )
+        self.assertEqual(summary["stateful_services"], sorted(change["stateful_services"]))
+
     def test_destructive_plan_requires_allow_destroy(self) -> None:
         temp_dir, repo, plan, metadata = self.make_repo()
         with temp_dir:
@@ -225,7 +284,10 @@ class TfplanMetadataTests(unittest.TestCase):
                 {
                     "resource_changes": [
                         {
-                            "address": f"module.{service}.proxmox_virtual_environment_container.this",
+                            "address": (
+                                f"module.{service}."
+                                "proxmox_virtual_environment_container.this"
+                            ),
                             "change": {"actions": ["delete", "create"]},
                         }
                         for service in ("forgejo", "hermes")

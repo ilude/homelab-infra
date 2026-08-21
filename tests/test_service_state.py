@@ -725,6 +725,19 @@ class ServiceStateBackupPlaybookTests(unittest.TestCase):
 
 
 class ServiceStateRestorePlaybookTests(unittest.TestCase):
+    def test_controller_restore_requires_checksum_before_stops(self) -> None:
+        names = task_names(RESTORE_PATH)
+        self.assertLess(
+            names.index("Require local service-state restore checksum sidecar"),
+            names.index("Stop managed system services before restore"),
+        )
+        self.assertLess(
+            names.index("Validate service-state restore archive checksum"),
+            names.index("Stop managed system services before restore"),
+        )
+        text = RESTORE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("ansible.builtin.fileglob", text)
+
     def test_onclave_restore_requires_complete_catalog_archive_before_stops(
         self,
     ) -> None:

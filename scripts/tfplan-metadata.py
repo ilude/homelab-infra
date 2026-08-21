@@ -107,7 +107,7 @@ def load_plan_json(plan: Path, repo: Path) -> dict[str, Any]:
     return data
 
 
-def enabled_stateful_services_by_module(repo: Path) -> dict[str, list[str]]:
+def enabled_stateful_services_by_target(repo: Path) -> dict[str, list[str]]:
     registry_path = repo / "infra" / "services.json"
     try:
         registry = json.loads(registry_path.read_text(encoding="utf-8"))
@@ -138,9 +138,15 @@ def enabled_stateful_services_by_module(repo: Path) -> dict[str, list[str]]:
         config = services.get(service)
         if not isinstance(config, dict) or not config.get("state_capable"):
             continue
-        terraform_module = config.get("terraform_module")
-        if isinstance(terraform_module, str) and terraform_module:
-            result.setdefault(terraform_module, []).append(service)
+        terraform_target = config.get("terraform_target")
+        if isinstance(terraform_target, str) and terraform_target:
+            target = terraform_target
+        else:
+            terraform_module = config.get("terraform_module")
+            if not isinstance(terraform_module, str) or not terraform_module:
+                continue
+            target = terraform_module
+        result.setdefault(target, []).append(service)
     return result
 
 
@@ -214,8 +220,8 @@ def summarize_plan(
     }
     destructive_changes: list[dict[str, Any]] = []
     stateful_changes: list[dict[str, Any]] = []
-    stateful_by_module = (
-        enabled_stateful_services_by_module(repo) if repo is not None else {}
+    stateful_by_target = (
+        enabled_stateful_services_by_target(repo) if repo is not None else {}
     )
     for change in plan_json.get("resource_changes", []):
         if not isinstance(change, dict):
@@ -243,9 +249,10 @@ def summarize_plan(
             destructive_item = {"address": address, "actions": "/".join(actions)}
         if destructive_item is not None:
             module = top_level_module(address)
-            services = stateful_by_module.get(module or "", [])
+            target = module or address
+            services = stateful_by_target.get(target, [])
             if services:
-                destructive_item["stateful_target"] = module
+                destructive_item["stateful_target"] = target
                 destructive_item["stateful_services"] = services
                 stateful_changes.append(destructive_item)
             destructive_changes.append(destructive_item)

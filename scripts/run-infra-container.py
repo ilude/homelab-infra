@@ -14,6 +14,11 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+WRITEBACK_UPDATE_COMMAND = ("python", "scripts/update.py")
+
+
+def is_allowed_writeback_command(command: list[str]) -> bool:
+    return tuple(command) == WRITEBACK_UPDATE_COMMAND
 
 
 def load_module(name: str, path: Path):
@@ -56,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=("config", "backend", "seaweedfs", "onclave", "freellmapi", "all"),
         default="config",
     )
-    parser.add_argument("--writeback", action="store_true")
+    parser.add_argument("--writeback-update", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command
@@ -64,6 +69,10 @@ def main(argv: list[str] | None = None) -> int:
         command = command[1:]
     if not command:
         parser.error("a command is required after --")
+    if args.writeback_update and not is_allowed_writeback_command(command):
+        parser.error(
+            "--writeback-update is only allowed for: python scripts/update.py"
+        )
 
     snapshot_root = Path(tempfile.mkdtemp(prefix="homelab-bws-"))
     snapshot = snapshot_root / "snapshot"
@@ -102,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
             snapshot / "settings.local.json",
         ]
     )
-    if not args.writeback:
+    if not args.writeback_update:
         os.execvpe(command[0], command, environment)
         return 127
 

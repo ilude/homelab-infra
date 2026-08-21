@@ -25,7 +25,11 @@ runner_args=(
   --runtime-profile "${BWS_RUNTIME_PROFILE:-config}"
 )
 if [[ "${BWS_WRITEBACK:-}" == "1" ]]; then
-  runner_args+=(--writeback)
+  if [[ "$#" -ne 2 || "$1" != "python" || "$2" != "scripts/update.py" ]]; then
+    printf 'BWS_WRITEBACK=1 is only allowed for: python scripts/update.py\n' >&2
+    exit 2
+  fi
+  runner_args+=(--writeback-update)
 fi
 
 docker "${compose_args[@]}" infra python scripts/run-infra-container.py \

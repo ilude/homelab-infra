@@ -1,6 +1,6 @@
 ---
-herdr_onramp_authorized_keys_file: /etc/ssh/authorized_keys.d/herdr-docker-context
-herdr_onramp_sshd_dropin: /etc/ssh/sshd_config.d/91-herdr-docker-context.conf
-herdr_onramp_relay_path: '{{ onramp_host_podman_docker_stdio_relay_path | default("/usr/local/libexec/podman-docker-stdio", true) }}'
-herdr_onramp_allowed_from: '{{ hostvars[groups["herdr"][0]].ansible_host }}'
-herdr_onramp_user: '{{ onramp_host_deploy_user }}'
+herdr_onramp_access_authorized_keys_file: /etc/ssh/authorized_keys.d/herdr-docker-context
+herdr_onramp_access_sshd_dropin: /etc/ssh/sshd_config.d/91-herdr-docker-context.conf
+herdr_onramp_access_relay_path: '{{ onramp_host_podman_docker_stdio_relay_path | default("/usr/local/libexec/podman-docker-stdio", true) }}'
+herdr_onramp_access_allowed_from: '{{ hostvars[groups["herdr"][0]].ansible_host }}'
+herdr_onramp_access_user: '{{ onramp_host_deploy_user }}'

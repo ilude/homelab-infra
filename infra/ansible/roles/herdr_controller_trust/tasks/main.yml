@@ -4,13 +4,13 @@
     that:
       - groups['herdr'] is defined
       - groups['herdr'] | length == 1
-      - herdr_controller_host_keys is defined
-      - herdr_controller_host_keys | length > 0
+      - herdr_controller_trust_host_keys is defined
+      - herdr_controller_trust_host_keys | length > 0
       - >-
-        herdr_controller_host_keys |
+        herdr_controller_trust_host_keys |
         select('match', '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,2}$') |
-        list | length == herdr_controller_host_keys | length
-      - herdr_controller_known_hosts_file == '/tmp/homelab-infra/ansible/herdr-known_hosts'
+        list | length == herdr_controller_trust_host_keys | length
+      - herdr_controller_trust_known_hosts_file == '/tmp/homelab-infra/ansible/herdr-known_hosts'
     fail_msg: >-
       The return Herdr handoff requires only the direct-access verified host
       keys and the dedicated ephemeral controller trust path.
@@ -18,18 +18,18 @@
 
 - name: Ensure the dedicated Herdr controller trust directory exists
   ansible.builtin.file:
-    path: '{{ herdr_controller_known_hosts_file | dirname }}'
+    path: '{{ herdr_controller_trust_known_hosts_file | dirname }}'
     state: directory
     mode: '0700'
 
 - name: Reset the dedicated Herdr controller trust file
   ansible.builtin.file:
-    path: '{{ herdr_controller_known_hosts_file }}'
+    path: '{{ herdr_controller_trust_known_hosts_file }}'
     state: absent
 
 - name: Create the dedicated Herdr controller trust file
   ansible.builtin.file:
-    path: '{{ herdr_controller_known_hosts_file }}'
+    path: '{{ herdr_controller_trust_known_hosts_file }}'
     state: touch
     access_time: preserve
     modification_time: preserve
@@ -37,12 +37,12 @@
 
 - name: Install only verified Herdr keys for the return controller handoff
   ansible.builtin.known_hosts:
-    path: '{{ herdr_controller_known_hosts_file }}'
+    path: '{{ herdr_controller_trust_known_hosts_file }}'
     name: '{{ item.0 }}'
     key: '{{ item.0 }} {{ item.1 }}'
     state: present
     hash_host: false
   loop: >-
     {{ [groups['herdr'][0], hostvars[groups['herdr'][0]].ansible_host] |
-       product(herdr_controller_host_keys | unique) | list }}
+       product(herdr_controller_trust_host_keys | unique) | list }}
   no_log: true

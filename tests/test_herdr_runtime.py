@@ -74,10 +74,10 @@ class HerdrRuntimeContractTests(unittest.TestCase):
             ["herdr_controller_trust"],
         )
         self.assertIn(
-            "direct_access_host_keys", plays[5]["vars"]["herdr_controller_host_keys"]
+            "direct_access_host_keys", plays[5]["vars"]["herdr_controller_trust_host_keys"]
         )
         self.assertEqual(
-            plays[5]["vars"]["herdr_controller_known_hosts_file"],
+            plays[5]["vars"]["herdr_controller_trust_known_hosts_file"],
             "/tmp/homelab-infra/ansible/herdr-known_hosts",
         )
         self.assertEqual(
@@ -310,10 +310,10 @@ class HerdrRuntimeContractTests(unittest.TestCase):
             onramp,
         )
         self.assertIn("restrict,from=", onramp)
-        self.assertIn('command=\"{{ herdr_onramp_relay_path }}\"', onramp)
+        self.assertIn('command=\"{{ herdr_onramp_access_relay_path }}\"', onramp)
         self.assertIn("/usr/local/libexec/podman-docker-stdio", onramp)
         self.assertIn("AuthorizedKeysFile .ssh/authorized_keys", onramp)
-        self.assertIn("herdr_onramp_authorized_keys_file", onramp)
+        self.assertIn("herdr_onramp_access_authorized_keys_file", onramp)
         self.assertNotIn(
             "/home/{{ onramp_host_deploy_user }}/.ssh/authorized_keys", onramp
         )
@@ -330,11 +330,11 @@ class HerdrRuntimeContractTests(unittest.TestCase):
             ROLES / "herdr_remote_context" / "templates" / "known_hosts.j2"
         ).read_text(encoding="utf-8")
         self.assertIn("direct_vm_access_host_keys", onramp)
-        self.assertIn("herdr_verified_onramp_host_keys", onramp)
+        self.assertIn("herdr_onramp_access_verified_host_keys", onramp)
         self.assertIn("direct_vm_access_host_keys", remote)
-        self.assertIn("herdr_verified_onramp_host_keys", known_hosts)
+        self.assertIn("herdr_onramp_access_verified_host_keys", known_hosts)
         self.assertNotIn("ssh-keyscan", onramp + remote + known_hosts)
-        self.assertIn("herdr_remote_ssh_alias", known_hosts)
+        self.assertIn("herdr_remote_context_ssh_alias", known_hosts)
 
     def test_ssh_config_and_docker_context_are_exact_and_non_ambient(self) -> None:
         config = (
@@ -343,16 +343,16 @@ class HerdrRuntimeContractTests(unittest.TestCase):
         remote = (ROLES / "herdr_remote_context" / "tasks" / "main.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("IdentityFile {{ herdr_remote_identity_file }}", config)
+        self.assertIn("IdentityFile {{ herdr_remote_context_identity_file }}", config)
         self.assertIn("IdentitiesOnly yes", config)
         self.assertIn("StrictHostKeyChecking yes", config)
-        self.assertIn("UserKnownHostsFile {{ herdr_remote_known_hosts_file }}", config)
+        self.assertIn("UserKnownHostsFile {{ herdr_remote_context_known_hosts_file }}", config)
         self.assertIn("GlobalKnownHostsFile /dev/null", config)
         self.assertIn("ForwardAgent no", config)
         self.assertIn("IdentityAgent none", config)
         self.assertIn("grep -F 'forwardagent no'", remote)
         self.assertIn("ssh://", remote)
-        self.assertIn("herdr_remote_ssh_alias", remote)
+        self.assertIn("herdr_remote_context_ssh_alias", remote)
         self.assertIn("docker system dial-stdio", remote)
         self.assertIn("docker", remote)
         self.assertIn("--context", remote)

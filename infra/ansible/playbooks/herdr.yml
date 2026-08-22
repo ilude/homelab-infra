@@ -40,8 +40,8 @@
   connection: local
   gather_facts: false
   vars:
-    herdr_controller_known_hosts_file: /tmp/homelab-infra/ansible/herdr-known_hosts
-    herdr_controller_host_keys: >-
+    herdr_controller_trust_known_hosts_file: /tmp/homelab-infra/ansible/herdr-known_hosts
+    herdr_controller_trust_host_keys: >-
       {{ hostvars[groups['herdr'][0]].direct_access_host_keys.stdout_lines }}
   roles:
     - role: herdr_controller_trust

@@ -7,27 +7,27 @@ argument_specs:
         type: str
         required: false
         description: "Persistent Docker context name."
-      herdr_remote_ssh_alias:
+      herdr_remote_context_ssh_alias:
         type: str
         required: false
         description: "Dedicated SSH alias used by the Docker context endpoint."
-      herdr_remote_command:
+      herdr_remote_context_command:
         type: str
         required: false
         description: "Fixed forced command accepted by the onramp relay."
-      herdr_remote_known_hosts_file:
+      herdr_remote_context_known_hosts_file:
         type: str
         required: false
         description: "Persistent Herdr known_hosts path."
-      herdr_remote_ssh_config_file:
+      herdr_remote_context_ssh_config_file:
         type: str
         required: false
         description: "Dedicated Herdr SSH config path."
-      herdr_remote_host:
+      herdr_remote_context_host:
         type: str
         required: true
         description: "Inventory-derived onramp host address."
-      herdr_remote_user:
+      herdr_remote_context_user:
         type: str
         required: true
         description: "Existing onramp deploy user."

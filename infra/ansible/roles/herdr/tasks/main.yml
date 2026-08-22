@@ -467,6 +467,7 @@
     state: absent
 
 - name: Enable the operator pnpm executable shim through official Corepack
+  become: true
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
     argv:
@@ -482,6 +483,7 @@
   changed_when: false
 
 - name: Activate the pinned pnpm release through official Corepack
+  become: true
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
     argv:
@@ -496,6 +498,7 @@
   changed_when: false
 
 - name: Verify the pinned pnpm release as the operator
+  become: true
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
     argv:
@@ -510,6 +513,7 @@
   failed_when: herdr_pnpm_version_check.stdout | trim != herdr_pnpm_version
 
 - name: Configure the operator pnpm global bin directory
+  become: true
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
     argv:
@@ -526,6 +530,7 @@
   changed_when: false
 
 - name: Install Pi 0.84.1 through pnpm as the Herdr operator
+  become: true
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
     argv:
@@ -544,6 +549,7 @@
   changed_when: false
 
 - name: Verify the pinned Pi executable as the Herdr operator
+  become: true
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
     argv:
@@ -558,6 +564,7 @@
   failed_when: herdr_pi_version not in herdr_pi_version_check.stdout
 
 - name: Generate the dedicated Herdr to onramp ed25519 key
+  become: true
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
     argv:
@@ -587,6 +594,7 @@
       mode: '0644'
 
 - name: Read only the dedicated Herdr public key
+  become: true
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
     argv:
@@ -608,6 +616,7 @@
   no_log: true
 
 - name: Install the official Herdr Pi integration as the operator
+  become: true
   become_user: '{{ herdr_operator_user }}'
   ansible.builtin.command:
     argv:

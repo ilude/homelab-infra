@@ -202,7 +202,7 @@ onramp_host_start_on_boot           = true
 # Optional SearXNG workload on the onramp host. Enable by adding searxng_onramp and onramp_host to settings.local.json services.
 searxng_server_name       = "searxng.apps.example.net"
 searxng_public_url        = "https://searxng.apps.example.net"
-searxng_container_image   = "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb"
+searxng_container_image   = "docker.io/searxng/searxng:2026.9.6-eaf1fcb34@sha256:36941a0b934fcfb61308018641b35ce7dd2967c59f3c43862f01f2ac6e9921d4"
 searxng_container_port    = 8080
 searxng_bind_address      = "127.0.0.1"
 searxng_instance_name     = "Homelab SearXNG"

@@ -22,3 +22,33 @@ search:
   formats:
     - html
     - json
+
+outgoing:
+  request_timeout: 5.0
+  max_request_timeout: 8.0
+
+# Google and Brave are the general-search defaults. Disable, rather than remove,
+# the other upstream general defaults so explicit engine selection still works.
+engines:
+  - name: google
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: startpage
+    disabled: true
+  - name: google cse
+    disabled: true
+  - name: duckduckgo
+    disabled: true
+  - name: wikipedia
+    disabled: true
+  - name: wikidata
+    disabled: true
+  - name: currency
+    disabled: true
+  - name: lingva
+    disabled: true
+  - name: dictzone
+    disabled: true
+  - name: mymemory translated
+    disabled: true

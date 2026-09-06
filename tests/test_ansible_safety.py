@@ -1160,6 +1160,15 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         settings = yaml.safe_load(rendered)
         self.assertEqual(settings["search"]["formats"], ["html", "json"])
+        self.assertTrue(settings["use_default_settings"])
+        self.assertEqual(settings["search"]["safe_search"], 1)
+        self.assertEqual(settings["outgoing"]["request_timeout"], 5.0)
+        self.assertEqual(settings["outgoing"]["max_request_timeout"], 8.0)
+        engines = {engine["name"]: engine for engine in settings["engines"]}
+        self.assertEqual({name for name, engine in engines.items() if not engine["disabled"]}, {"google", "brave"})
+        self.assertTrue(engines["startpage"]["disabled"])
+        self.assertTrue(engines["duckduckgo"]["disabled"])
+        self.assertNotIn("inactive", str(settings["engines"]))
 
         health = task_by_name(
             SEARXNG_ONRAMP_TASKS, "Verify SearXNG loopback health endpoint"

@@ -112,6 +112,7 @@ class OciTarget:
     tag_pattern: str
     managed_default: str
     group: str
+    min_age_hours: int = OCI_MIN_AGE_HOURS
 
 
 @dataclass(frozen=True)
@@ -202,9 +203,10 @@ OCI_TARGETS = (
         r'(?m)^(\s*searxng_container_image\s*=\s*")([^"\s]+)("\s*)$',
         r"\g<1>{reference}\g<3>",
         "searxng/searxng",
-        r"2026\.7\.2-[0-9a-f]+",
-        "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb",
+        r"\d{4}\.\d{1,2}\.\d{1,2}-[0-9a-f]+",
+        "docker.io/searxng/searxng:2026.9.6-eaf1fcb34@sha256:36941a0b934fcfb61308018641b35ce7dd2967c59f3c43862f01f2ac6e9921d4",
         "searxng",
+        min_age_hours=24,
     ),
     OciTarget(
         "SeaweedFS image",
@@ -1169,7 +1171,7 @@ def process_oci_group(
         target
         for target, current in present
         if resolutions[target][0] != current
-        and now - resolutions[target][1] < timedelta(hours=OCI_MIN_AGE_HOURS)
+        and now - resolutions[target][1] < timedelta(hours=target.min_age_hours)
     }
     if held:
         held_names = ", ".join(sorted(target.name for target in held))
@@ -1180,7 +1182,7 @@ def process_oci_group(
                 current,
                 resolutions[target][0],
                 "hold" if target in held else "current",
-                f"pin group held by {held_names}; strict {OCI_MIN_AGE_HOURS}h OCI hold",
+                f"pin group held by {held_names}; strict {target.min_age_hours}h OCI hold",
             )
             for target, current in present
         ]
@@ -1231,7 +1233,7 @@ def process_oci_group(
             current,
             confirmed[target][0],
             "updated" if target in changed_targets else "current",
-            f"verified linux/amd64 OCI index; strict {OCI_MIN_AGE_HOURS}h hold",
+            f"verified linux/amd64 OCI index; strict {target.min_age_hours}h hold",
         )
         for target, current in present
     ]

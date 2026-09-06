@@ -4,6 +4,8 @@ import base64
 import importlib.util
 import io
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -55,6 +57,27 @@ class UpdateTests(unittest.TestCase):
             for unit in units
         }
         self.assertEqual(mapped_units, set(update_script.ALL_UPDATE_UNITS))
+
+    @unittest.skipUnless(shutil.which("just"), "just is required for recipe forwarding test")
+    def test_just_update_forwards_selectors_to_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "justfile").write_text((SCRIPT.parents[1] / "justfile").read_text(), encoding="utf-8")
+            (root / "scripts").mkdir()
+            for name, body in {
+                "host-id.sh": "printf '0\\n'",
+                "run-infra.sh": 'printf "%s\\n" "$@"',
+            }.items():
+                stub = root / "scripts" / name
+                stub.write_text("#!/usr/bin/env bash\n" + body + "\n", encoding="utf-8")
+                stub.chmod(0o755)
+            for selectors in [[], ["searxng_onramp"], ["caddy", "hermes"]]:
+                with self.subTest(selectors=selectors):
+                    result = subprocess.run(
+                        ["just", "update", *selectors], cwd=root, text=True,
+                        capture_output=True, timeout=20, check=True,
+                    )
+                    self.assertEqual(result.stdout.splitlines(), ["python", "scripts/update.py", *selectors])
 
     def test_multiple_service_selectors_expand_without_unrelated_units(self) -> None:
         selected = update_script.select_update_units(("caddy", "hermes"))
@@ -363,6 +386,68 @@ class UpdateTests(unittest.TestCase):
             updated = inventory.read_text(encoding="utf-8")
             for reference, _created in resolved.values():
                 self.assertIn(reference, updated)
+
+    def test_searxng_opentofu_validation_accepts_managed_rolling_pin(self) -> None:
+        target = next(target for target in update_script.OCI_TARGETS if target.group == "searxng")
+        source = (SCRIPT.parents[1] / "infra/opentofu/variables.tf").read_text(encoding="utf-8")
+        condition = next(line for line in source.splitlines() if "can(regex(" in line and "var.searxng_container_image" in line)
+        pattern = json.loads(condition.split("regex(", 1)[1].split(", var.", 1)[0])
+        self.assertRegex(target.managed_default, pattern)
+        self.assertRegex(f"docker.io/searxng/searxng:2027.1.1-deadbeef@sha256:{'a' * 64}", pattern)
+        for reference in [
+            "docker.io/searxng/searxng:latest",
+            f"docker.io/searxng/searxng:latest@sha256:{'a' * 64}",
+            target.managed_default.split("@")[0],
+            target.managed_default.replace("docker.io", "example.com"),
+        ]:
+            self.assertNotRegex(reference, pattern)
+
+    def test_only_searxng_has_a_24_hour_oci_hold(self) -> None:
+        for target in update_script.OCI_TARGETS:
+            self.assertEqual(target.min_age_hours, 24 if target.group == "searxng" else 168)
+
+    def test_oci_release_age_boundaries(self) -> None:
+        now = datetime(2026, 9, 6, tzinfo=timezone.utc)
+        cases = [
+            ("searxng", 24 * 60 - 1, "hold"),
+            ("searxng", 24 * 60, "updated"),
+            ("infisical", 24 * 60, "hold"),
+            ("infisical", 168 * 60 - 1, "hold"),
+            ("infisical", 168 * 60, "updated"),
+        ]
+        for group, age_minutes, expected in cases:
+            with self.subTest(group=group, age_minutes=age_minutes), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                members = [target for target in update_script.OCI_TARGETS if target.group == group]
+                pin = root / members[0].path
+                pin.parent.mkdir(parents=True)
+                if group == "searxng":
+                    original = f'searxng_container_image = "{members[0].managed_default}"\n'
+                else:
+                    original = "".join(
+                        f"{key}: {target.managed_default}\n"
+                        for key, target in zip(
+                            ["infisical_container_image", "infisical_postgres_image", "infisical_redis_image"], members
+                        )
+                    )
+                pin.write_text(original, encoding="utf-8")
+                def resolve(target, _fetch):
+                    return target.managed_default.replace("@sha256:", "-next@sha256:"), now - timedelta(minutes=age_minutes)
+                with patch.object(update_script, "resolve_oci_reference", side_effect=resolve) as resolver:
+                    results = update_script.process_oci_group(group, root, now, lambda *_: self.fail("mocked"))
+                self.assertEqual([result.status for result in results], [expected] * len(members))
+                self.assertEqual(resolver.call_count, len(members) * (2 if expected == "updated" else 1))
+                self.assertTrue(all(f"{members[0].min_age_hours}h" in result.detail for result in results))
+                if expected == "hold":
+                    self.assertEqual(pin.read_text(encoding="utf-8"), original)
+
+    def test_searxng_discovers_rolling_date_tags_beyond_july(self) -> None:
+        target = next(target for target in update_script.OCI_TARGETS if target.group == "searxng")
+        tags = ["latest", "2026.7.2-67973783d", "2026.9.5-c7f3080aa", "2026.10.1-aabbccdd", "2026.10.2-dev"]
+        with patch.object(update_script, "oci_tags", return_value=tags), patch.object(update_script, "resolve_oci_tag") as resolve:
+            fetch = lambda *_: self.fail("mocked")
+            update_script.resolve_oci_reference(target, fetch)
+        resolve.assert_called_once_with(target, "2026.10.1-aabbccdd", fetch)
 
     def test_custom_oci_group_is_preserved_without_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -52,6 +52,7 @@ validate: validate-public validate-values
 
 # Check upstream releases and update eligible pinned versions after the safety hold period
 [script]
+[positional-arguments]
 update *selectors:
     #!/usr/bin/env bash
     set -euo pipefail

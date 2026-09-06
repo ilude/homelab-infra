@@ -1609,11 +1609,11 @@ variable "searxng_public_url" {
 variable "searxng_container_image" {
   description = "Digest-pinned SearXNG OCI image used by the onramp workload."
   type        = string
-  default     = "docker.io/searxng/searxng:2026.7.2-67973783d@sha256:33aa33278be6c0be379b95f7c91cd455c18141295291c2e5a396454761df7bbb"
+  default     = "docker.io/searxng/searxng:2026.9.6-eaf1fcb34@sha256:36941a0b934fcfb61308018641b35ce7dd2967c59f3c43862f01f2ac6e9921d4"
 
   validation {
-    condition     = can(regex("^docker\\.io/searxng/searxng:2026\\.7\\.2-[0-9a-f]+@sha256:[0-9a-f]{64}$", var.searxng_container_image))
-    error_message = "searxng_container_image must be a digest-pinned 2026.7.2 SearXNG image."
+    condition     = can(regex("^docker\\.io/searxng/searxng:[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}-[0-9a-f]+@sha256:[0-9a-f]{64}$", var.searxng_container_image))
+    error_message = "searxng_container_image must be a digest-pinned SearXNG image with a date-and-commit tag."
   }
 }
 

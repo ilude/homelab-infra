@@ -1,0 +1,11 @@
+ARG TRAWL_IMAGE=ghcr.io/germondai/trawl:1.5.0@sha256:9cf6668dc5e7160d739991ca1edfe308c48638696571d9413a18399696586698
+FROM ${TRAWL_IMAGE}
+ARG TRAWL_IMAGE
+LABEL org.opencontainers.image.base.name=${TRAWL_IMAGE}
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends iptables util-linux \
+    && rm -rf /var/lib/apt/lists/*
+COPY deployment/trawl-entrypoint.sh /usr/local/bin/web-fetch-trawl-entrypoint
+RUN chmod 755 /usr/local/bin/web-fetch-trawl-entrypoint
+ENTRYPOINT ["/usr/local/bin/web-fetch-trawl-entrypoint"]
+CMD ["/usr/local/bin/bun", "run", "apps/api/src/index.ts"]

@@ -1,0 +1,217 @@
+---
+- name: Validate the gateway deployment contract
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Debian'
+      - ansible_distribution_major_version | int >= 13
+      - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_host_deploy_user != 'root'
+      - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
+      - web_fetch_gateway_image is match('^sha256:[0-9a-f]{64}$')
+      - web_fetch_browser_image is match('^sha256:[0-9a-f]{64}$')
+      - web_fetch_client.url is match('^https://[A-Za-z0-9.-]+/?$')
+      - web_fetch_client.token is match('^[A-Za-z0-9_-]{32,256}$')
+      - web_fetch_host_port | int > 0
+      - web_fetch_host_port | int < 65536
+    fail_msg: Gateway requires locally built image IDs, HTTPS endpoint, safe bearer token and rootless deploy user.
+  no_log: true
+
+- name: Resolve the rootless service UID
+  ansible.builtin.command:
+    argv: [id, -u, "{{ onramp_host_deploy_user }}"]
+  register: web_fetch_uid
+  changed_when: false
+
+- name: Verify local image identity and upstream age before runtime mutations
+  ansible.builtin.include_tasks: image.yml
+  loop:
+    - image: "{{ web_fetch_gateway_image }}"
+      base: "{{ web_fetch_node_image }}"
+    - image: "{{ web_fetch_browser_image }}"
+      base: "{{ web_fetch_trawl_image }}"
+  loop_control:
+    loop_var: web_fetch_image
+
+- name: Prepare private gateway runtime directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0750"
+  loop:
+    - "{{ web_fetch_base_dir }}"
+    - "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
+
+- name: Check the Podman-owned data directory without changing its mapped ownership
+  ansible.builtin.stat:
+    path: "{{ web_fetch_base_dir }}/data"
+  register: web_fetch_data_directory
+
+- name: Create the initial data directory before Podman applies its UID mapping
+  ansible.builtin.file:
+    path: "{{ web_fetch_base_dir }}/data"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0750"
+  when: not web_fetch_data_directory.stat.exists
+
+- name: Install the private gateway environment
+  ansible.builtin.template:
+    src: gateway.env.j2
+    dest: "{{ web_fetch_base_dir }}/gateway.env"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart web-fetch onramp
+
+- name: Install the browser public DNS configuration
+  ansible.builtin.copy:
+    content: "nameserver 1.1.1.1\noptions timeout:2 attempts:2\n"
+    dest: "{{ web_fetch_base_dir }}/public-resolv.conf"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  notify: Restart web-fetch onramp
+
+- name: Install the isolated service compose definition
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ web_fetch_base_dir }}/docker-compose.yml"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  notify: Restart web-fetch onramp
+
+- name: Install the rootless gateway unit
+  ansible.builtin.template:
+    src: web-fetch-onramp.service.j2
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/web-fetch-onramp.service"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  notify: Restart web-fetch onramp
+
+- name: Enable the rootless gateway unit
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: web-fetch-onramp.service
+    scope: user
+    daemon_reload: true
+    enabled: true
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ web_fetch_uid.stdout | trim }}"
+
+- name: Activate application changes before publishing the HTTPS route
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure the unchanged gateway unit is running
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: web-fetch-onramp.service
+    scope: user
+    state: started
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ web_fetch_uid.stdout | trim }}"
+
+- name: Verify the gateway loopback endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ web_fetch_host_port }}/healthz"
+    status_code: 200
+  register: web_fetch_health
+  until: web_fetch_health.status == 200
+  retries: 12
+  delay: 2
+
+- name: Verify the isolated browser is reachable only through its service network
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - web-fetch-gateway
+      - node
+      - -e
+      - "fetch('http://browser:8191/stats').then(r=>r.json()).then(d=>process.exit(d.available>=1?0:1)).catch(()=>process.exit(1))"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ web_fetch_uid.stdout | trim }}"
+  register: web_fetch_browser_ready
+  changed_when: false
+  until: web_fetch_browser_ready.rc == 0
+  retries: 20
+  delay: 2
+
+- name: Verify separate application and browser network namespaces
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv: [podman, exec, "{{ item }}", readlink, /proc/self/ns/net]
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ web_fetch_uid.stdout | trim }}"
+  loop: [web-fetch-gateway, web-fetch-browser]
+  register: web_fetch_namespaces
+  changed_when: false
+
+- name: Reject shared namespaces that would invalidate the browser-only guard
+  ansible.builtin.assert:
+    that:
+      - web_fetch_namespaces.results[0].stdout != web_fetch_namespaces.results[1].stdout
+
+- name: Verify the browser can no longer change its firewall
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - web-fetch-browser
+      - bun
+      - -e
+      - "const s=await Bun.file('/proc/1/status').text(); const m=s.match(/^CapBnd:\\s*([0-9a-f]+)/m); process.exit(m && !(parseInt(m[1],16) & 4096) ? 0 : 1)"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ web_fetch_uid.stdout | trim }}"
+  changed_when: false
+
+- name: Verify anonymous fetch requests cannot use the service
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ web_fetch_host_port }}/v1/fetch"
+    method: POST
+    body_format: json
+    body: {}
+    status_code: 401
+
+- name: Install the gateway Caddy site only after application health passes
+  ansible.builtin.template:
+    src: web-fetch.caddy.j2
+    dest: /etc/caddy/sites.d/web-fetch.caddy
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload web-fetch Caddy route
+
+- name: Validate the shared Caddy configuration
+  ansible.builtin.command:
+    argv: [bash, -lc, "set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile"]
+  changed_when: false
+
+- name: Activate the validated HTTPS route
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify HTTPS without disabling certificate validation
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --max-time
+      - "10"
+      - --resolve
+      - "{{ web_fetch_client.url | urlsplit('hostname') }}:443:127.0.0.1"
+      - "{{ web_fetch_client.url | regex_replace('/$', '') }}/healthz"
+  register: web_fetch_https
+  changed_when: false
+  until: web_fetch_https.rc == 0
+  retries: 24
+  delay: 5
+  no_log: true

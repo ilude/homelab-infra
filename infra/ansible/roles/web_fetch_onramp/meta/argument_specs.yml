@@ -1,0 +1,27 @@
+---
+argument_specs:
+  main:
+    short_description: Deploy the authenticated gateway and isolated browser on onramp.
+    options:
+      onramp_host_deploy_user:
+        type: str
+        required: true
+      onramp_host_deploy_dir:
+        type: str
+        required: true
+      web_fetch_gateway_image:
+        type: str
+        required: true
+      web_fetch_browser_image:
+        type: str
+        required: true
+      web_fetch_client:
+        type: dict
+        required: true
+      web_fetch_host_port:
+        type: int
+      web_fetch_age_exception_digests:
+        type: list
+        elements: str
+      web_fetch_route_scopes:
+        type: dict

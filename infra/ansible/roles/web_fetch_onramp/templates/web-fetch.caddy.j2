@@ -1,0 +1,7 @@
+{{ web_fetch_client.url | urlsplit('hostname') }} {
+    tls {
+        dns cloudflare {env.CF_DNS_API_TOKEN}
+        resolvers 1.1.1.1
+    }
+    reverse_proxy 127.0.0.1:{{ web_fetch_host_port }}
+}

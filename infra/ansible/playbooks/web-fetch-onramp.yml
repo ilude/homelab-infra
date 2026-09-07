@@ -1,0 +1,19 @@
+---
+- name: Run verified direct access handoff for the onramp VM
+  ansible.builtin.import_playbook: vm-direct-access-ready.yml
+  vars:
+    direct_vm_access_target_group: onramp_host
+
+- name: Configure the bounded web-fetch gateway
+  hosts: onramp_host
+  gather_facts: true
+  become: true
+  pre_tasks:
+    - name: Load the single BWS gateway client record
+      ansible.builtin.set_fact:
+        web_fetch_client: "{{ lookup('env', 'WEB_FETCH_GATEWAY_CLIENT') | from_json }}"
+        web_fetch_gateway_image: "{{ (lookup('env', 'WEB_FETCH_GATEWAY_CLIENT') | from_json).gateway_image }}"
+        web_fetch_browser_image: "{{ (lookup('env', 'WEB_FETCH_GATEWAY_CLIENT') | from_json).browser_image }}"
+      no_log: true
+  roles:
+    - web_fetch_onramp

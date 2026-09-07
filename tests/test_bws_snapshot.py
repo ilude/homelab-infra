@@ -88,6 +88,9 @@ class BwsSnapshotTests(unittest.TestCase):
                 "ONCLAVE_VAULT_OPENROUTER_API_KEY": "openrouter-key",
                 "ONCLAVE_VAULT_ANTHROPIC_API_KEY": "anthropic-key",
                 "FREELLMAPI_ENCRYPTION_KEY": "a" * 64,
+                "WEB_FETCH_GATEWAY_CLIENT": json.dumps(
+                    {"url": "https://fetch.example.com", "token": "a" * 64}
+                ),
             }
         )
         return values
@@ -688,6 +691,14 @@ class BwsSnapshotTests(unittest.TestCase):
         self.assertEqual(
             bws_snapshot.RUNTIME_PROFILES["freellmapi"],
             ("FREELLMAPI_ENCRYPTION_KEY",),
+        )
+
+    def test_web_fetch_runtime_profile_only_exports_its_client_record(self) -> None:
+        self.assertEqual(bws_snapshot.RUNTIME_PROFILES["web_fetch"], ("WEB_FETCH_GATEWAY_CLIENT",))
+        values = {key: "test-value" for key in bws_snapshot.RUNTIME_KEYS}
+        self.assertEqual(
+            bws_snapshot.resolve_runtime(values, bws_snapshot.RUNTIME_PROFILES["web_fetch"]),
+            {"WEB_FETCH_GATEWAY_CLIENT": "test-value"},
         )
 
     def test_onclave_runtime_profile_requires_vault_and_rabbitmq(self) -> None:

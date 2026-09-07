@@ -326,7 +326,6 @@ class UpdateTests(unittest.TestCase):
             self.assertIn(f"forgejo_runner_sha256_arm64: {'b' * 64}", text)
 
     def test_resolves_verified_linux_amd64_oci_index_fixture(self) -> None:
-        target = update_script.OCI_TARGETS[0]
         config_body = b'{"created":"2026-06-01T00:00:00Z"}'
         config_digest = f"sha256:{sha256(config_body).hexdigest()}"
         manifest_body = json.dumps({"config": {"digest": config_digest}}).encode()
@@ -341,9 +340,10 @@ class UpdateTests(unittest.TestCase):
             return update_script.OciResponse(body, {"Docker-Content-Digest": f"sha256:{sha256(body).hexdigest()}"})
 
         def fetch(url: str, _accept: str) -> update_script.OciResponse:
+            self.assertTrue(url.startswith(base + "/"))
             if url.endswith("/tags/list?n=1000"):
-                return response(b'{"tags":["v0.161.9","v0.161.10","v0.161.12"]}')
-            if url.endswith("/manifests/v0.161.12"):
+                return response(json.dumps({"tags": tags}).encode())
+            if url.endswith(f"/manifests/{selected}"):
                 return response(index_body)
             if url.endswith(f"/manifests/{manifest_digest}"):
                 return response(manifest_body)
@@ -351,9 +351,18 @@ class UpdateTests(unittest.TestCase):
                 return response(config_body)
             self.fail(url)
 
-        reference, created = update_script.resolve_oci_reference(target, fetch)
-        self.assertEqual(reference, f"docker.io/infisical/infisical:v0.161.12@{index_digest}")
-        self.assertEqual(created, datetime(2026, 6, 1, tzinfo=timezone.utc))
+        trawl = next(target for target in update_script.OCI_TARGETS if target.registry == "ghcr.io")
+        for target, base, tags, selected in (
+            (update_script.OCI_TARGETS[0], "https://registry-1.docker.io/v2/infisical/infisical",
+             ["v0.161.9", "v0.161.10", "v0.161.12"], "v0.161.12"),
+            (trawl, "https://ghcr.io/v2/germondai/trawl", ["1.9.0", "1.10.0", "nightly"], "1.10.0"),
+        ):
+            with self.subTest(registry=target.registry):
+                reference, created = update_script.resolve_oci_reference(target, fetch)
+                self.assertEqual(
+                    reference, f"{target.registry}/{target.repository}:{selected}@{index_digest}"
+                )
+                self.assertEqual(created, datetime(2026, 6, 1, tzinfo=timezone.utc))
 
     def test_updates_managed_oci_group_together_after_re_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -401,6 +410,14 @@ class UpdateTests(unittest.TestCase):
             target.managed_default.replace("docker.io", "example.com"),
         ]:
             self.assertNotRegex(reference, pattern)
+
+    def test_web_fetch_update_scope_is_only_its_two_base_images(self) -> None:
+        self.assertEqual(
+            update_script.SERVICE_UPDATE_UNITS["web_fetch_onramp"], ("web-fetch OCI images",)
+        )
+        targets = [target for target in update_script.OCI_TARGETS if target.group == "web-fetch"]
+        self.assertEqual({target.registry for target in targets}, {"docker.io", "ghcr.io"})
+        self.assertEqual(len(targets), 2)
 
     def test_only_searxng_has_a_24_hour_oci_hold(self) -> None:
         for target in update_script.OCI_TARGETS:

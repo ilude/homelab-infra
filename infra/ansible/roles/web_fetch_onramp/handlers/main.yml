@@ -1,0 +1,17 @@
+---
+- name: Restart web-fetch onramp
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: web-fetch-onramp.service
+    scope: user
+    daemon_reload: true
+    state: restarted
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ web_fetch_uid.stdout | trim }}"
+
+- name: Reload web-fetch Caddy route
+  become: true
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: reloaded

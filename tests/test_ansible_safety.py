@@ -793,8 +793,8 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertTrue(resolve_task["no_log"])
 
         snapshot = (REPO / "scripts" / "bws-snapshot.py").read_text(encoding="utf-8")
-        self.assertIn('"onclave": RUNTIME_KEYS[3:-1]', snapshot)
-        self.assertIn('"freellmapi": RUNTIME_KEYS[-1:]', snapshot)
+        # Exact runtime-key isolation is exercised in test_bws_snapshot, not by
+        # requiring a fragile tuple slice that leaks newly appended service keys.
         self.assertIn('"RABBITMQ_DEFAULT_USER"', snapshot)
         self.assertIn('"RABBITMQ_DEFAULT_PASS"', snapshot)
 

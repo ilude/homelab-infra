@@ -88,6 +88,25 @@ managed_service_state_catalog:
         owner: root
         group: root
         recurse: false
+  web_fetch_onramp:
+    group: onramp_host
+    description: Web-fetch gateway SQLite routes and private service configuration.
+    services: []
+    user_services:
+      - web-fetch-onramp.service
+    user_service_owner: "{{ onramp_host_deploy_user }}"
+    backup_quiesce_user_services: true
+    backup_staging_root: "{{ onramp_host_deploy_dir }}/.service-state-backup-staging"
+    restore_require_all_paths: true
+    paths:
+      - path: "{{ onramp_host_deploy_dir }}/web-fetch"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: true
+      - path: /etc/caddy/sites.d/web-fetch.caddy
+        owner: root
+        group: root
+        recurse: false
   onclave_onramp:
     group: onramp_host
     description: Onclave app definition, private env, persistent broker/core data, PostgreSQL, and MinIO data on the onramp host.

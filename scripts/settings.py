@@ -15,7 +15,7 @@ DEFAULT_SETTINGS = Path("settings.local.json")
 REPO = Path(__file__).resolve().parents[1]
 SERVICE_REGISTRY = REPO / "infra" / "services.json"
 SUPPORTED_RUNTIME_PROFILES = frozenset(
-    {"config", "seaweedfs", "onclave", "freellmapi"}
+    {"config", "seaweedfs", "onclave", "freellmapi", "web_fetch"}
 )
 
 

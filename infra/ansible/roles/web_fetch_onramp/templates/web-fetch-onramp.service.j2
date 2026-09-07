@@ -1,0 +1,17 @@
+[Unit]
+Description=Adaptive web-fetch gateway and isolated browser
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ web_fetch_base_dir }}
+ExecStart={{ web_fetch_compose_provider_command }} -f {{ web_fetch_base_dir }}/docker-compose.yml up -d
+ExecStop={{ web_fetch_compose_provider_command }} -f {{ web_fetch_base_dir }}/docker-compose.yml down
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

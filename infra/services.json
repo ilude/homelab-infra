@@ -353,6 +353,25 @@
       "terraform_selection": false,
       "state_capable": false
     },
+    "web_fetch_onramp": {
+      "runtime_profile": "web_fetch",
+      "state_capable": true,
+      "state_order": 8,
+      "execution_resource": "onramp_host",
+      "playbooks": ["infra/ansible/playbooks/web-fetch-onramp.yml"],
+      "dependencies": ["onramp_host"],
+      "inventory": {
+        "host": "onramp_host_vm",
+        "group": "onramp_host",
+        "vmid_var": "onramp_host_vmid",
+        "tf_vmid": "onramp_host_vmid",
+        "tf_host": "onramp_host_ipv4_address",
+        "user_var": "onramp_host_deploy_user",
+        "tf_user": "onramp_host_deploy_user"
+      },
+      "terraform_target": "proxmox_virtual_environment_vm.onramp_host",
+      "terraform_selection": false
+    },
     "freellmapi_onramp": {
       "runtime_profile": "freellmapi",
       "state_capable": false,

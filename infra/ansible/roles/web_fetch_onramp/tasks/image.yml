@@ -1,0 +1,29 @@
+---
+- name: Verify already-built images and retain the normal upstream hold
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import datetime, json, re, subprocess, sys
+        image, base, exceptions_json = sys.argv[1:]
+        exceptions = json.loads(exceptions_json)
+        assert re.fullmatch(r'sha256:[0-9a-f]{64}', image), 'Invalid image ID'
+        assert re.search(r'@sha256:[0-9a-f]{64}$', base), 'Base must be pinned'
+        def inspect(reference):
+            result = subprocess.run(['podman', 'image', 'inspect', reference],
+                                    check=True, capture_output=True, text=True, timeout=15)
+            return json.loads(result.stdout)[0]
+        deployed, upstream = inspect(image), inspect(base)
+        assert deployed['Config']['Labels'].get('org.opencontainers.image.base.name') == base, 'Wrong base image'
+        created = datetime.datetime.fromisoformat(upstream['Created'].replace('Z', '+00:00'))
+        age = datetime.datetime.now(datetime.timezone.utc) - created
+        digest = base.rsplit('@', 1)[1]
+        assert age.total_seconds() >= 168 * 3600 or digest in exceptions, 'Upstream image remains under its 168-hour hold'
+      - "{{ web_fetch_image.image }}"
+      - "{{ web_fetch_image.base }}"
+      - "{{ web_fetch_age_exception_digests | to_json }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ web_fetch_uid.stdout | trim }}"
+  changed_when: false

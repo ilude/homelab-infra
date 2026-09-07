@@ -29,7 +29,7 @@ DEFAULT_MIN_AGE_HOURS = 48
 OCI_MIN_AGE_HOURS = 168
 USER_AGENT = "homelab-infra-update/1.0"
 OCI_REFERENCE_RE = re.compile(
-    r"^(docker\.io)/([a-z0-9][a-z0-9._/-]*):([^@\s]+)@sha256:([0-9a-f]{64})$"
+    r"^(docker\.io|ghcr\.io)/([a-z0-9][a-z0-9._/-]*):([^@\s]+)@sha256:([0-9a-f]{64})$"
 )
 OCI_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
@@ -113,6 +113,7 @@ class OciTarget:
     managed_default: str
     group: str
     min_age_hours: int = OCI_MIN_AGE_HOURS
+    registry: str = "docker.io"
 
 
 @dataclass(frozen=True)
@@ -207,6 +208,29 @@ OCI_TARGETS = (
         "docker.io/searxng/searxng:2026.9.6-eaf1fcb34@sha256:36941a0b934fcfb61308018641b35ce7dd2967c59f3c43862f01f2ac6e9921d4",
         "searxng",
         min_age_hours=24,
+    ),
+    OciTarget(
+        "Web-fetch Node image",
+        CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
+        r"(?m)^(\s*web_fetch_node_image:\s*)(\S+)\s*$",
+        r"\g<1>{reference}",
+        "library/node",
+        r"24\.\d+\.\d+",
+        "docker.io/library/node:24.20.0@sha256:"
+        "6642ef280aebc09c4541bee0b15c9f89f0f3f3c247ddee79ae1d37eddfdcbbaa",
+        "web-fetch",
+    ),
+    OciTarget(
+        "Web-fetch Trawl image",
+        CONFIG_VALUES_DIR / "ansible" / "inventory" / "local.yml",
+        r"(?m)^(\s*web_fetch_trawl_image:\s*)(\S+)\s*$",
+        r"\g<1>{reference}",
+        "germondai/trawl",
+        r"1\.\d+\.\d+",
+        "ghcr.io/germondai/trawl:1.5.0@sha256:"
+        "9cf6668dc5e7160d739991ca1edfe308c48638696571d9413a18399696586698",
+        "web-fetch",
+        registry="ghcr.io",
     ),
     OciTarget(
         "SeaweedFS image",
@@ -522,6 +546,7 @@ SERVICE_UPDATE_UNITS: dict[str, tuple[str, ...]] = {
     ),
     "searxng_onramp": (OCI_UPDATE_UNITS["searxng"],),
     "seaweedfs_onramp": (OCI_UPDATE_UNITS["seaweedfs"],),
+    "web_fetch_onramp": (OCI_UPDATE_UNITS["web-fetch"],),
     "technitium": (TECHNITIUM_DISCOVERY.name,),
     "technitium_secondary": (TECHNITIUM_DISCOVERY.name,),
     "tailscale_client": ("Tailscale",),
@@ -951,9 +976,11 @@ def oci_digest(response: OciResponse, context: str, expected: str | None = None)
     return digest
 
 
-def validate_oci_reference(reference: str, repository: str) -> None:
+def validate_oci_reference(
+    reference: str, repository: str, registry: str = "docker.io"
+) -> None:
     match = OCI_REFERENCE_RE.fullmatch(reference)
-    if match is None or match.group(2) != repository:
+    if match is None or match.group(1) != registry or match.group(2) != repository:
         raise UpdateError(f"invalid OCI reference for {repository}: {reference}")
 
 
@@ -999,12 +1026,19 @@ def oci_tags(
     return tags
 
 
+def oci_registry_base(target: OciTarget) -> str:
+    if target.registry not in {"docker.io", "ghcr.io"}:
+        raise UpdateError(f"unsupported OCI registry: {target.registry}")
+    host = "registry-1.docker.io" if target.registry == "docker.io" else target.registry
+    return f"https://{host}/v2/{target.repository}"
+
+
 def resolve_oci_tag(
     target: OciTarget,
     tag: str,
     fetch: Callable[[str, str], OciResponse],
 ) -> tuple[str, datetime]:
-    base = f"https://registry-1.docker.io/v2/{target.repository}"
+    base = oci_registry_base(target)
     index_response = fetch(f"{base}/manifests/{tag}", OCI_MANIFEST_ACCEPT)
     index_digest = oci_digest(index_response, f"{target.name} index")
     index = oci_json(index_response, target.name)
@@ -1048,8 +1082,8 @@ def resolve_oci_tag(
     created = oci_json(config_response, target.name).get("created")
     if not isinstance(created, str):
         raise UpdateError(f"{target.name}: linux/amd64 config has no creation time")
-    reference = f"docker.io/{target.repository}:{tag}@{index_digest}"
-    validate_oci_reference(reference, target.repository)
+    reference = f"{target.registry}/{target.repository}:{tag}@{index_digest}"
+    validate_oci_reference(reference, target.repository, target.registry)
     return reference, parse_timestamp(created)
 
 
@@ -1057,8 +1091,8 @@ def resolve_oci_reference(
     target: OciTarget,
     fetch: Callable[[str, str], OciResponse],
 ) -> tuple[str, datetime]:
-    """Resolve the newest bounded Docker Hub tag to a verified linux/amd64 index."""
-    base = f"https://registry-1.docker.io/v2/{target.repository}"
+    """Resolve the newest bounded registry tag to a verified linux/amd64 index."""
+    base = oci_registry_base(target)
     candidates = {
         tag
         for tag in oci_tags(base, target, fetch)

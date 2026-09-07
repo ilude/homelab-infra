@@ -1,0 +1,28 @@
+{
+  "name": "web-fetch-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.23.0",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@mozilla/readability": "0.5.0",
+    "ipaddr.js": "2.2.0",
+    "jsdom": "25.0.1",
+    "turndown": "7.2.4",
+    "turndown-plugin-gfm": "1.0.2"
+  },
+  "devDependencies": {
+    "@types/jsdom": "21.1.7",
+    "@types/node": "25.0.3",
+    "@types/turndown": "5.0.5",
+    "typescript": "5.9.3",
+    "vitest": "4.1.9"
+  }
+}

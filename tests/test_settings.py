@@ -101,6 +101,7 @@ class SettingsTests(unittest.TestCase):
             "onclave_onramp": "onclave",
             "seaweedfs_onramp": "seaweedfs",
             "freellmapi_onramp": "freellmapi",
+            "web_fetch_onramp": "web_fetch",
         }
         actual = {
             service: settings_script.runtime_profile(service)

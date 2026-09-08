@@ -206,7 +206,7 @@ class ServiceStateCatalogTests(unittest.TestCase):
             ],
         )
 
-    def test_backup_quiescing_is_boolean_and_enabled_only_for_onclave(self) -> None:
+    def test_backup_quiescing_is_boolean_and_enabled_for_stateful_gateways(self) -> None:
         catalog = load_catalog()
         enabled = [
             target
@@ -214,16 +214,15 @@ class ServiceStateCatalogTests(unittest.TestCase):
             if definition.get("backup_quiesce_user_services", False)
         ]
 
-        self.assertEqual(enabled, ["onclave_onramp"])
-        self.assertIs(
-            type(catalog["onclave_onramp"]["backup_quiesce_user_services"]), bool
-        )
+        self.assertEqual(enabled, ["web_fetch_onramp", "onclave_onramp"])
+        for target in enabled:
+            self.assertIs(type(catalog[target]["backup_quiesce_user_services"]), bool)
         strict_restore_targets = [
             target
             for target, definition in catalog.items()
             if definition.get("restore_require_all_paths", False)
         ]
-        self.assertEqual(strict_restore_targets, ["onclave_onramp"])
+        self.assertEqual(strict_restore_targets, ["web_fetch_onramp", "onclave_onramp"])
 
     def test_forgejo_installs_state_backup_transport(self) -> None:
         self.assertIn(

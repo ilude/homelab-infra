@@ -1,6 +1,6 @@
 # Web-fetch gateway
 
-The gateway is deployed at `https://fetch.ilude.com`.
+The gateway is deployed at the HTTPS endpoint in BWS `WEB_FETCH_GATEWAY_CLIENT`.
 
 `web_fetch_onramp` is an Ansible-only workload on the existing onramp host. It uses
 rootless Podman, an authenticated HTTPS gateway, an internal browser and SQLite
@@ -21,8 +21,11 @@ as `web_fetch_gateway_image` and `web_fetch_browser_image`. No archive export,
 manifest-release identifier, publication playbook or new registry is required.
 
 The role verifies installed image/base identities and the ordinary 168-hour upstream
-hold before runtime mutations. SearXNG remains the only 24-hour exception. The tested
-Trawl base is eligible on 2026-09-11T01:27:47Z. Building an image does not waive this hold.
+hold before runtime mutations. The role records the operator-approved one-time
+exception for the tested Trawl digest in `web_fetch_age_exception_digests`; it is
+not a general Trawl hold reduction. Node and future image updates retain the
+normal hold. SearXNG's separate 24-hour exception is unchanged. Building an image
+does not waive an upstream hold.
 
 BWS owns upstream pins (`web_fetch_node_image`, `web_fetch_trawl_image`), site/DNS
 configuration and selector enablement. `WEB_FETCH_GATEWAY_CLIENT` holds the HTTPS
@@ -52,11 +55,17 @@ and SQLite consistently. Restore a matching checksummed archive with the existin
 matching BWS settings. Reload Caddy if its fragment was restored. Shared Caddy must
 not be stopped as part of this service's backup.
 
-Pi can return to standalone fetching by unsetting its gateway environment settings
-and relaunching normally. Private/local access, public Jina fallback and one final
-annotation-only Luna review remain available. Private content also reaches Luna's
-configured provider.
+Unsetting gateway environment overrides returns Pi to lazy BWS discovery, not
+standalone-only fetching. Automatic mode uses local recovery when BWS or the
+gateway is unavailable; explicit backend requests remain strict. Private/local
+access bypasses the gateway, public Jina fallback remains available, and all
+returned content receives one final annotation-only Luna review. Private content
+also reaches Luna's configured provider.
 
 Package checks: `pnpm run typecheck`, `pnpm test`, `pnpm run build` from
-`services/web-fetch-gateway/`. Real HTTPS, direct/Trawl retrieval and Pi/Luna use are verified. Unit and
-disposable-fixture checks alone are not deployment proof.
+`services/web-fetch-gateway/`. On 2026-09-08, authenticated HTTPS and anonymous
+rejection passed. Two existing default Pi gateway live tests passed without gateway
+environment overrides, covering direct retrieval/link-following and Trawl with Luna.
+A gateway-only restart preserved all 15 observed route rows and WAL mode; the browser
+container identity and start time were unchanged. These are dated observations, not
+continuous-health guarantees. Unit/fixture checks alone are not deployment proof.

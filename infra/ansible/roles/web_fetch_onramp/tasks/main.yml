@@ -19,7 +19,7 @@
 - name: Resolve the rootless service UID
   ansible.builtin.command:
     argv: [id, -u, "{{ onramp_host_deploy_user }}"]
-  register: web_fetch_uid
+  register: web_fetch_uid  # noqa var-naming[no-role-prefix] -- shared gateway namespace
   changed_when: false
 
 - name: Verify local image identity and upstream age before runtime mutations
@@ -46,7 +46,7 @@
 - name: Check the Podman-owned data directory without changing its mapped ownership
   ansible.builtin.stat:
     path: "{{ web_fetch_base_dir }}/data"
-  register: web_fetch_data_directory
+  register: web_fetch_data_directory  # noqa var-naming[no-role-prefix] -- gateway namespace
 
 - name: Create the initial data directory before Podman applies its UID mapping
   ansible.builtin.file:
@@ -95,6 +95,7 @@
   notify: Restart web-fetch onramp
 
 - name: Enable the rootless gateway unit
+  become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.systemd_service:
     name: web-fetch-onramp.service
@@ -108,6 +109,7 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Ensure the unchanged gateway unit is running
+  become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.systemd_service:
     name: web-fetch-onramp.service
@@ -120,12 +122,13 @@
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ web_fetch_host_port }}/healthz"
     status_code: 200
-  register: web_fetch_health
+  register: web_fetch_health  # noqa var-naming[no-role-prefix] -- gateway namespace
   until: web_fetch_health.status == 200
   retries: 12
   delay: 2
 
 - name: Verify the isolated browser is reachable only through its service network
+  become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
     argv:
@@ -137,20 +140,21 @@
       - "fetch('http://browser:8191/stats').then(r=>r.json()).then(d=>process.exit(d.available>=1?0:1)).catch(()=>process.exit(1))"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ web_fetch_uid.stdout | trim }}"
-  register: web_fetch_browser_ready
+  register: web_fetch_browser_ready  # noqa var-naming[no-role-prefix] -- gateway namespace
   changed_when: false
   until: web_fetch_browser_ready.rc == 0
   retries: 20
   delay: 2
 
 - name: Verify separate application and browser network namespaces
+  become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
     argv: [podman, exec, "{{ item }}", readlink, /proc/self/ns/net]
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ web_fetch_uid.stdout | trim }}"
   loop: [web-fetch-gateway, web-fetch-browser]
-  register: web_fetch_namespaces
+  register: web_fetch_namespaces  # noqa var-naming[no-role-prefix] -- gateway namespace
   changed_when: false
 
 - name: Reject shared namespaces that would invalidate the browser-only guard
@@ -159,6 +163,7 @@
       - web_fetch_namespaces.results[0].stdout != web_fetch_namespaces.results[1].stdout
 
 - name: Verify the browser can no longer change its firewall
+  become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
     argv:
@@ -209,7 +214,7 @@
       - --resolve
       - "{{ web_fetch_client.url | urlsplit('hostname') }}:443:127.0.0.1"
       - "{{ web_fetch_client.url | regex_replace('/$', '') }}/healthz"
-  register: web_fetch_https
+  register: web_fetch_https  # noqa var-naming[no-role-prefix] -- gateway namespace
   changed_when: false
   until: web_fetch_https.rc == 0
   retries: 24

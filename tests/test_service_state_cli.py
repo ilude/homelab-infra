@@ -175,6 +175,7 @@ class ServiceStateCliTests(unittest.TestCase):
                 "  infisical_onramp",
                 "  searxng_onramp",
                 "  onclave_onramp",
+                "  web_fetch_onramp",
             ],
         )
 

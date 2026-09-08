@@ -1,5 +1,6 @@
 ---
 - name: Verify already-built images and retain the normal upstream hold
+  become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
     argv:

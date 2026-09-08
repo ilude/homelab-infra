@@ -41,12 +41,12 @@ it("maps only allowed Trawl fields and verifies its browser slot is idle", async
     if (req.url === "/stats") { res.end(JSON.stringify({ busy: 0, available: 1, queueDepth: 0 })); return; }
     let body = ""; req.on("data", chunk => { body += chunk; }); req.on("end", () => {
       received = JSON.parse(body);
-      res.end(JSON.stringify({ html: "<article>hello</article>", url: "https://8.8.8.8/", statusCode: 200, tier: 3, cookies: ["secret"], timings: [{ html: "secret" }] }));
+      res.end(JSON.stringify({ html: "<article>hello</article>", url: "https://8.8.8.8/", statusCode: 200, tier: 3, cookies: ["secret"], timings: [{ html: "secret" }] })); // public-safety: allow-ip -- synthetic public target returned by local fixture
     });
   });
   const backend = trawlBackend(url);
-  const result = await backend.fetch("https://8.8.8.8/", AbortSignal.timeout(1000), 500);
-  expect(received).toEqual({ url: "https://8.8.8.8/", skipHttp: true, maxTier: 3, maxTimeout: 500 });
-  expect(result).toEqual({ body: "<article>hello</article>", url: "https://8.8.8.8/", status: 200, contentType: "text/html", tier: 3 });
+  const result = await backend.fetch("https://8.8.8.8/", AbortSignal.timeout(1000), 500); // public-safety: allow-ip -- local backend fixture; no target request
+  expect(received).toEqual({ url: "https://8.8.8.8/", skipHttp: true, maxTier: 3, maxTimeout: 500 }); // public-safety: allow-ip -- fixture assertion
+  expect(result).toEqual({ body: "<article>hello</article>", url: "https://8.8.8.8/", status: 200, contentType: "text/html", tier: 3 }); // public-safety: allow-ip -- fixture assertion
   await backend.settled(); expect(backend.capacity.used).toBe(0); expect(backend.capacity.quarantined).toBe(false);
 });

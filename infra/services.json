@@ -311,7 +311,8 @@
         "infra/ansible/playbooks/onclave-onramp.yml"
       ],
       "dependencies": [
-        "onramp_host"
+        "onramp_host",
+        "seaweedfs_onramp"
       ],
       "inventory": {
         "host": "onramp_host_vm",
@@ -328,6 +329,7 @@
     },
     "seaweedfs_onramp": {
       "runtime_profile": "seaweedfs",
+      "state_order": 5,
       "execution_resource": "onramp_host",
       "playbooks": [
         "infra/ansible/playbooks/seaweedfs-onramp.yml"

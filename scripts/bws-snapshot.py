@@ -60,6 +60,9 @@ RUNTIME_KEYS = (
     "ONCLAVE_VAULT_POSTGRES_PASSWORD",
     "ONCLAVE_VAULT_S3_ACCESS_KEY",
     "ONCLAVE_VAULT_S3_SECRET_KEY",
+    "ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT",
+    "ONCLAVE_VAULT_S3_BUCKET",
+    "ONCLAVE_VAULT_S3_REGION",
     "ONCLAVE_VAULT_SEARXNG_SECRET",
     "ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME",
     "ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD",
@@ -86,7 +89,15 @@ REQUIRED_ONCLAVE_RUNTIME_KEYS = tuple(
 RUNTIME_PROFILES = {
     "config": (),
     "backend": RUNTIME_KEYS[:3],
-    "seaweedfs": RUNTIME_KEYS[:2],
+    "seaweedfs": (
+        "SEAWEEDFS_S3_ACCESS_KEY",
+        "SEAWEEDFS_S3_SECRET_KEY",
+        "ONCLAVE_VAULT_S3_ACCESS_KEY",
+        "ONCLAVE_VAULT_S3_SECRET_KEY",
+        "ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT",
+        "ONCLAVE_VAULT_S3_BUCKET",
+        "ONCLAVE_VAULT_S3_REGION",
+    ),
     "onclave": ("RABBITMQ_DEFAULT_USER", "RABBITMQ_DEFAULT_PASS", *ONCLAVE_RUNTIME_KEYS),
     "freellmapi": ("FREELLMAPI_ENCRYPTION_KEY",),
     "web_fetch": ("WEB_FETCH_GATEWAY_CLIENT",),
@@ -397,6 +408,21 @@ def resolve_runtime(
     return resolved
 
 
+def validate_onclave_s3_contract(runtime: Mapping[str, str]) -> None:
+    endpoint = runtime.get("ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT")
+    bucket = runtime.get("ONCLAVE_VAULT_S3_BUCKET")
+    region = runtime.get("ONCLAVE_VAULT_S3_REGION")
+    if endpoint is None and bucket is None and region is None:
+        return
+    parsed = urlparse(endpoint or "")
+    if parsed.scheme != "https" or not parsed.netloc or parsed.path not in {"", "/"}:
+        raise BwsSnapshotError("ONCLAVE workstation S3 endpoint must be an HTTPS hostname")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket or ""):
+        raise BwsSnapshotError("ONCLAVE S3 bucket is invalid")
+    if not re.fullmatch(r"[a-z0-9-]+", region or ""):
+        raise BwsSnapshotError("ONCLAVE S3 region is invalid")
+
+
 def validate_dotenv(text: str, key: str) -> dict[str, str]:
     with tempfile.TemporaryDirectory(prefix="bws-snapshot-env-") as directory:
         path = Path(directory) / ".env"
@@ -617,6 +643,7 @@ def render_snapshot(
 ) -> None:
     required = resolve_required(values, FAMILY_KEYS)
     runtime = resolve_runtime(values, runtime_keys)
+    validate_onclave_s3_contract(runtime)
     decoded = {
         family.key: decode_family(family, required[family.key])
         for family in manifest.families
@@ -830,6 +857,7 @@ def migrate_onclave_config(
             runtime[key] = extracted_value
 
     resolve_required(runtime, REQUIRED_ONCLAVE_RUNTIME_KEYS)
+    validate_onclave_s3_contract(runtime)
     for key in OPTIONAL_RUNTIME_KEYS:
         value = runtime.get(key, "")
         if value and PLACEHOLDER_RE.search(value):

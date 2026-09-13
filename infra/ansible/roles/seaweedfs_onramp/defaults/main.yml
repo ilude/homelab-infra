@@ -4,3 +4,9 @@ seaweedfs_onramp_base_dir: "{{ onramp_host_deploy_dir }}/seaweedfs"
 seaweedfs_onramp_data_dir: /srv/seaweedfs-state
 seaweedfs_onramp_s3_port: 8333
 seaweedfs_onramp_compose_provider_command: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
+# The S3 API remains loopback-bound; this name is supplied by the BWS inventory
+# and is also the Host value signed by workstation SigV4 clients.
+seaweedfs_server_name: "{{ seaweedfs_s3_endpoint | regex_replace('^https?://', '') }}"
+seaweedfs_onramp_state_identity: opentofu-state
+seaweedfs_onramp_onclave_identity: onclave-menos
+seaweedfs_onramp_onclave_bucket: menos

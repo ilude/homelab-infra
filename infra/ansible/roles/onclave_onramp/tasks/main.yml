@@ -19,7 +19,6 @@
       - onclave_core_image_tag == onclave_source_git_sha
       - onclave_core_image_digest is match('^sha256:[0-9a-f]{64}$')
       - onclave_postgres_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
-      - onclave_minio_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - onclave_ollama_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - onclave_searxng_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
       - onclave_docling_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
@@ -32,6 +31,8 @@
       - onclave_onramp_postgres_password | length >= 24
       - onclave_onramp_s3_access_key | length > 0
       - onclave_onramp_s3_secret_key | length >= 24
+      - onclave_onramp_s3_endpoint is match('^[A-Za-z0-9._-]+:[0-9]{1,5}$')
+      - onclave_onramp_s3_secure is boolean
       - onclave_onramp_searxng_secret | length >= 24
       - onclave_onramp_webshare_proxy_username | length > 0
       - onclave_onramp_webshare_proxy_password | length > 0
@@ -86,7 +87,6 @@
     path: "{{ item }}"
   loop:
     - "{{ onclave_onramp_data_root }}/postgres"
-    - "{{ onclave_onramp_data_root }}/minio"
     - "{{ onclave_onramp_data_root }}/ollama"
   register: onclave_onramp_adopted_state_directories
 
@@ -138,7 +138,6 @@
       - onclave_onramp_definition.name == 'onclave'
       - "'rabbitmq' in onclave_onramp_definition.services"
       - "'postgres' in onclave_onramp_definition.services"
-      - "'minio' in onclave_onramp_definition.services"
       - "'ollama' in onclave_onramp_definition.services"
       - "'searxng' in onclave_onramp_definition.services"
       - "'docling-serve' in onclave_onramp_definition.services"
@@ -146,12 +145,9 @@
       - onclave_onramp_definition.services.rabbitmq.ports | default([]) | length == 0
       - "'- \"8000:8000\"' in onclave_onramp_upstream_text"
       - "'- postgres-data:/var/lib/postgresql/data' in onclave_onramp_upstream_text"
-      - "'- minio-data:/data' in onclave_onramp_upstream_text"
       - "'- ollama-data:/root/.ollama' in onclave_onramp_upstream_text"
-      - "'POSTGRES_PASSWORD: ${ONCLAVE_VAULT_POSTGRES_PASSWORD:?}' in onclave_onramp_upstream_text"
-      - "'MINIO_ROOT_USER: ${ONCLAVE_VAULT_S3_ACCESS_KEY:?}' in onclave_onramp_upstream_text"
-      - "'MINIO_ROOT_PASSWORD: ${ONCLAVE_VAULT_S3_SECRET_KEY:?}' in onclave_onramp_upstream_text"
-      - "'SEARXNG_SECRET: ${ONCLAVE_VAULT_SEARXNG_SECRET:?}' in onclave_onramp_upstream_text"
+      - "'POSTGRES_PASSWORD' in onclave_onramp_upstream_text"
+      - "'SEARXNG_SECRET' in onclave_onramp_upstream_text"
       - "'ONCLAVE_VAULT_SSH_PUBLIC_KEYS_PATH' in onclave_onramp_upstream_text"
     fail_msg: >-
       The pinned unified Onclave app definition changed its required services,
@@ -165,46 +161,86 @@
     onclave_onramp_rootless_healthcheck: >-
       {{ onclave_onramp_definition.services['onclave-core'].healthcheck
          | combine({'test': ['CMD-SHELL', onclave_onramp_rootless_healthcheck_command]}) }}
+    # The pinned upstream definition is the source contract, but MinIO is no
+    # longer part of the managed stack after the SeaweedFS cutover.
+    onclave_onramp_services: >-
+      {{ onclave_onramp_definition.services
+         | dict2items
+         | rejectattr('key', 'equalto', 'minio')
+         | list
+         | items2dict }}
+    onclave_onramp_core_environment: >-
+      {{ onclave_onramp_services['onclave-core'].environment | default({})
+         | combine({
+             'ONCLAVE_VAULT_S3_ENDPOINT_URL': onclave_onramp_s3_endpoint,
+             'ONCLAVE_VAULT_S3_ACCESS_KEY': '${ONCLAVE_VAULT_S3_ACCESS_KEY:?}',
+             ('ONCLAVE_VAULT_S3_' ~ 'SECRET_KEY'): '${' ~ 'ONCLAVE_VAULT_S3_SECRET_KEY' ~ ':?}',
+             'ONCLAVE_VAULT_S3_SECURE': (onclave_onramp_s3_secure | string | lower),
+             'ONCLAVE_VAULT_S3_BUCKET': '${ONCLAVE_VAULT_S3_BUCKET:?}',
+             'ONCLAVE_VAULT_S3_REGION': '${ONCLAVE_VAULT_S3_REGION:?}',
+             'ONCLAVE_VAULT_POSTGRES_USER': '${ONCLAVE_VAULT_POSTGRES_USER:?}',
+             ('ONCLAVE_VAULT_POSTGRES_' ~ 'PASSWORD'): '${' ~ 'ONCLAVE_VAULT_POSTGRES_PASSWORD' ~ ':?}',
+             'ONCLAVE_VAULT_POSTGRES_DATABASE': '${ONCLAVE_VAULT_POSTGRES_DATABASE:?}',
+             'ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME': '${ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME:?}',
+             ('ONCLAVE_VAULT_WEBSHARE_PROXY_' ~ 'PASSWORD'): '${' ~ 'ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD' ~ ':?}',
+             ('ONCLAVE_VAULT_YOUTUBE_' ~ 'API_KEY'): '${' ~ 'ONCLAVE_VAULT_YOUTUBE_API_KEY' ~ ':-}',
+             ('ONCLAVE_VAULT_OPENROUTER_' ~ 'API_KEY'): '${' ~ 'ONCLAVE_VAULT_OPENROUTER_API_KEY' ~ ':-}',
+             ('ONCLAVE_VAULT_ANTHROPIC_' ~ 'API_KEY'): '${' ~ 'ONCLAVE_VAULT_ANTHROPIC_API_KEY' ~ ':-}',
+             ('ONCLAVE_VAULT_OPENAI_' ~ 'API_KEY'): '${' ~ 'ONCLAVE_VAULT_OPENAI_API_KEY' ~ ':-}',
+             'ONCLAVE_VAULT_CALLBACK_URL': '${ONCLAVE_VAULT_CALLBACK_URL:-}',
+             ('ONCLAVE_VAULT_CALLBACK_' ~ 'SECRET'): '${' ~ 'ONCLAVE_VAULT_CALLBACK_SECRET' ~ ':-}',
+             'GIT_SHA': onclave_source_git_sha
+           }) }}
   ansible.builtin.set_fact:
     onclave_onramp_compose_content: >-
       {{ onclave_onramp_definition
          | combine({
              'configs': {},
-             'services': onclave_onramp_definition.services
+             'volumes': (onclave_onramp_definition.volumes | default({})
+               | dict2items
+               | rejectattr('key', 'equalto', 'minio-data')
+               | list
+               | items2dict),
+             'services': onclave_onramp_services
                | combine({
-                   'rabbitmq': onclave_onramp_definition.services.rabbitmq
+                   'rabbitmq': onclave_onramp_services.rabbitmq
                      | combine({
                          'image': onclave_rabbitmq_image,
                          'volumes': ['./data/rabbitmq:/var/lib/rabbitmq:Z,U']
                        }),
-                   'postgres': onclave_onramp_definition.services.postgres
+                   'postgres': onclave_onramp_services.postgres
                      | combine({
                          'ports': [],
                          'configs': [],
+                         'environment': (onclave_onramp_services.postgres.environment | default({}))
+                           | combine({
+                               'POSTGRES_DB': '${ONCLAVE_VAULT_POSTGRES_DATABASE:?}',
+                               'POSTGRES_USER': '${ONCLAVE_VAULT_POSTGRES_USER:?}',
+                               ('POSTGRES_' ~ 'PASSWORD'): '${' ~ 'ONCLAVE_VAULT_POSTGRES_PASSWORD' ~ ':?}'
+                             }),
                          'volumes': [onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U']
                        }),
-                   'minio': onclave_onramp_definition.services.minio
-                     | combine({
-                         'ports': [],
-                         'volumes': [onclave_onramp_data_root ~ '/minio:/data:Z,U']
-                       }),
-                   'ollama': onclave_onramp_definition.services.ollama
+                   'ollama': onclave_onramp_services.ollama
                      | combine({
                          'ports': [],
                          'volumes': [onclave_onramp_data_root ~ '/ollama:/root/.ollama:Z,U'],
-                         'environment': (onclave_onramp_definition.services.ollama.environment | default({}))
+                         'environment': (onclave_onramp_services.ollama.environment | default({}))
                            | combine({'OLLAMA_KEEP_ALIVE': '-1'})
                        }),
-                   'searxng': onclave_onramp_definition.services.searxng
+                   'searxng': onclave_onramp_services.searxng
                      | combine({'ports': []}),
-                   'docling-serve': onclave_onramp_definition.services['docling-serve']
+                   'docling-serve': onclave_onramp_services['docling-serve']
                      | combine({'ports': []}),
-                   'onclave-core': onclave_onramp_definition.services['onclave-core']
+                   'onclave-core': onclave_onramp_services['onclave-core']
                      | combine({
                          'ports': ['127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8000'],
                          'configs': [],
-                         'environment': (onclave_onramp_definition.services['onclave-core'].environment | default({}))
-                           | combine({'GIT_SHA': onclave_source_git_sha}),
+                         'depends_on': (onclave_onramp_services['onclave-core'].depends_on | default({})
+                           | dict2items
+                           | rejectattr('key', 'equalto', 'minio')
+                           | list
+                           | items2dict),
+                         'environment': onclave_onramp_core_environment,
                          'volumes': [
                            './data/onclave:/data:Z,U',
                            './authorized_keys:/keys/authorized_keys:ro,Z'
@@ -225,8 +261,8 @@
       - onclave_onramp_rendered_definition.services.postgres.ports | default([]) | length == 0
       - onclave_onramp_rendered_definition.services.postgres.configs | default([]) | length == 0
       - onclave_onramp_rendered_definition.services.postgres.volumes == [onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U']
-      - onclave_onramp_rendered_definition.services.minio.ports | default([]) | length == 0
-      - onclave_onramp_rendered_definition.services.minio.volumes == [onclave_onramp_data_root ~ '/minio:/data:Z,U']
+      - "'minio' not in onclave_onramp_rendered_definition.services"
+      - "'minio-data' not in (onclave_onramp_rendered_definition.volumes | default({}))"
       - onclave_onramp_rendered_definition.services.ollama.ports | default([]) | length == 0
       - onclave_onramp_rendered_definition.services.ollama.volumes == [onclave_onramp_data_root ~ '/ollama:/root/.ollama:Z,U']
       - onclave_onramp_rendered_definition.services.ollama.environment.OLLAMA_KEEP_ALIVE == '-1'
@@ -234,6 +270,8 @@
       - onclave_onramp_rendered_definition.services['docling-serve'].ports | default([]) | length == 0
       - "onclave_onramp_rendered_definition.services['onclave-core'].ports == ['127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8000']"
       - "onclave_onramp_rendered_definition.services['onclave-core'].configs | default([]) | length == 0"
+      - "'minio' not in (onclave_onramp_rendered_definition.services['onclave-core'].depends_on | default({}))"
+      - "onclave_onramp_rendered_definition.services['onclave-core'].environment.ONCLAVE_VAULT_S3_ENDPOINT_URL == onclave_onramp_s3_endpoint"
       - "onclave_onramp_rendered_definition.services['onclave-core'].volumes == ['./data/onclave:/data:Z,U', './authorized_keys:/keys/authorized_keys:ro,Z']"
       - "onclave_onramp_rendered_definition.services['onclave-core'].healthcheck.test[0] == 'CMD-SHELL'"
       - "onclave_onramp_rendered_definition.services['onclave-core'].healthcheck.test[1] is match('^node -e ')"
@@ -329,6 +367,36 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   when: onclave_onramp_legacy_target.stat.exists
+
+- name: Find retired MinIO containers from the previous Onclave stack
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - ps
+      - --all
+      - --quiet
+      - --filter
+      - label=com.docker.compose.service=minio
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_retired_minio_containers
+  changed_when: false
+
+- name: Remove retired MinIO containers without touching their data directory
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - rm
+      - --force
+      - "{{ item }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  loop: "{{ onclave_onramp_retired_minio_containers.stdout_lines }}"
+  changed_when: true
 
 - name: Install unified Onclave rootless systemd unit
   ansible.builtin.template:
@@ -526,7 +594,7 @@
   changed_when: "'\"downloaded\":true' in onclave_onramp_embedding_model.stdout"
   no_log: true
 
-- name: Ensure unified Onclave managed MinIO bucket exists
+- name: Verify SeaweedFS application bucket through the Onclave S3 contract
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
@@ -546,13 +614,17 @@
         accessKey: process.env.ONCLAVE_VAULT_S3_ACCESS_KEY,
         secretKey: process.env.ONCLAVE_VAULT_S3_SECRET_KEY});
         const bucket = process.env.ONCLAVE_VAULT_S3_BUCKET;
-        const created = !(await client.bucketExists(bucket));
-        if (created) await client.makeBucket(bucket, process.env.ONCLAVE_VAULT_S3_REGION);
-        console.log(JSON.stringify({created}));
+        if (!(await client.bucketExists(bucket))) throw new Error('S3 bucket is missing');
+        const key = 'checks/onclave-cutover-' + Date.now();
+        await client.putObject(bucket, key, Buffer.from('cutover-check'),
+        {'content-type': 'application/octet-stream'});
+        const chunks = [];
+        for await (const chunk of await client.getObject(bucket, key)) chunks.push(chunk);
+        if (Buffer.concat(chunks).toString() !== 'cutover-check') throw new Error('S3 readback failed');
+        await client.removeObject(bucket, key);
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
-  register: onclave_onramp_bucket_init
-  changed_when: "'\"created\":true' in onclave_onramp_bucket_init.stdout"
+  changed_when: false
   no_log: true
 
 - name: Verify unified Onclave health and source revision

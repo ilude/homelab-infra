@@ -55,10 +55,6 @@ argument_specs:
         type: str
         required: true
         description: "Digest-pinned PostgreSQL pgvector image."
-      onclave_minio_image:
-        type: str
-        required: true
-        description: "Digest-pinned MinIO image."
       onclave_ollama_image:
         type: str
         required: true
@@ -141,6 +137,13 @@ argument_specs:
         required: false
       onclave_onramp_s3_region:
         type: str
+        required: false
+      onclave_onramp_s3_endpoint:
+        type: str
+        required: false
+        description: "Compose-internal SeaweedFS S3 host:port used by Onclave core."
+      onclave_onramp_s3_secure:
+        type: bool
         required: false
       onclave_onramp_openai_api_key:
         type: str

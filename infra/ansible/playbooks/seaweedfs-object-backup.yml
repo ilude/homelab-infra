@@ -1,0 +1,68 @@
+---
+# Explicit, operator-invoked application-object backup/restore verification.
+# The archive path is private values/ storage and is never tracked.
+- name: Back up or restore-test the Onclave SeaweedFS object corpus
+  hosts: localhost
+  gather_facts: false
+  vars:
+    seaweedfs_object_backup_command: "{{ object_backup_command | default('backup') }}"
+    seaweedfs_object_backup_endpoint: "{{ lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT') }}"
+    seaweedfs_object_backup_bucket: "{{ lookup('env', 'ONCLAVE_VAULT_S3_BUCKET') | default('menos', true) }}"
+    seaweedfs_object_backup_region: "{{ lookup('env', 'ONCLAVE_VAULT_S3_REGION') | default('us-east-1', true) }}"
+    seaweedfs_object_backup_archive: "{{ lookup('env', 'SEAWEEDFS_OBJECT_BACKUP_ARCHIVE') }}"
+  tasks:
+    - name: Validate object backup inputs
+      ansible.builtin.assert:
+        that:
+          - seaweedfs_object_backup_command in ['backup', 'restore-test']
+          - seaweedfs_object_backup_endpoint is match('^https://[A-Za-z0-9.-]+$')
+          - seaweedfs_object_backup_bucket == 'menos'
+          - seaweedfs_object_backup_archive is match('^/workspace/values/service-backups/onclave_onramp/[^/]+\.tar\.gz$')
+        fail_msg: >-
+          Object backups require the BWS workstation endpoint, the menos bucket,
+          and a private values/service-backups archive path.
+      no_log: true
+
+    - name: Run SeaweedFS application-object backup
+      ansible.builtin.command:
+        argv:
+          - python
+          - scripts/seaweedfs-object-backup.py
+          - backup
+          - --endpoint
+          - "{{ seaweedfs_object_backup_endpoint }}"
+          - --bucket
+          - "{{ seaweedfs_object_backup_bucket }}"
+          - --region
+          - "{{ seaweedfs_object_backup_region }}"
+          - --output
+          - "{{ seaweedfs_object_backup_archive }}"
+      args:
+        chdir: /workspace
+      environment:
+        AWS_ACCESS_KEY_ID: "{{ lookup('env', 'ONCLAVE_VAULT_S3_ACCESS_KEY') }}"
+        AWS_SECRET_ACCESS_KEY: "{{ lookup('env', 'ONCLAVE_VAULT_S3_SECRET_KEY') }}"
+      when: seaweedfs_object_backup_command == 'backup'
+      changed_when: true
+      no_log: true
+
+    - name: Restore-test SeaweedFS application-object backup
+      ansible.builtin.command:
+        argv:
+          - python
+          - scripts/seaweedfs-object-backup.py
+          - restore-test
+          - --endpoint
+          - "{{ seaweedfs_object_backup_endpoint }}"
+          - --region
+          - "{{ seaweedfs_object_backup_region }}"
+          - --archive
+          - "{{ seaweedfs_object_backup_archive }}"
+      args:
+        chdir: /workspace
+      environment:
+        AWS_ACCESS_KEY_ID: "{{ lookup('env', 'ONCLAVE_VAULT_S3_ACCESS_KEY') }}"
+        AWS_SECRET_ACCESS_KEY: "{{ lookup('env', 'ONCLAVE_VAULT_S3_SECRET_KEY') }}"
+      when: seaweedfs_object_backup_command == 'restore-test'
+      changed_when: true
+      no_log: true

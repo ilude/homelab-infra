@@ -165,7 +165,7 @@ class ServiceStateCatalogTests(unittest.TestCase):
             ["hermes-gateway", "hermes-dashboard"],
         )
 
-    def test_onclave_backup_covers_adopted_postgres_and_minio_not_ollama(self) -> None:
+    def test_onclave_backup_covers_adopted_postgres_and_not_ollama(self) -> None:
         definition = load_catalog()["onclave_onramp"]
         paths = [item["path"] for item in definition["paths"]]
         expected_root = "/srv/onramp"
@@ -175,7 +175,6 @@ class ServiceStateCatalogTests(unittest.TestCase):
             [
                 f"{expected_root}/onclave",
                 f"{expected_root}/menos/data/postgres",
-                f"{expected_root}/menos/data/minio",
                 "/etc/caddy/sites.d/onclave.caddy",
             ],
         )
@@ -1169,7 +1168,6 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
         managed_paths = [
             "/srv/onramp/onclave",
             "/srv/onramp/menos/data/postgres",
-            "/srv/onramp/menos/data/minio",
             "/etc/caddy/sites.d/onclave.caddy",
         ]
         with tempfile.TemporaryDirectory() as temp:
@@ -1203,7 +1201,6 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
         managed_paths = [
             "/srv/onramp/onclave",
             "/srv/onramp/menos/data/postgres",
-            "/srv/onramp/menos/data/minio",
             "/etc/caddy/sites.d/onclave.caddy",
         ]
         with tempfile.TemporaryDirectory() as temp:

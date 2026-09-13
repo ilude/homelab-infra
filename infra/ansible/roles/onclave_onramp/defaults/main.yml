@@ -12,6 +12,10 @@ onclave_onramp_max_exchanges: 16
 onclave_onramp_max_total_tokens: 200000
 onclave_onramp_s3_bucket: menos
 onclave_onramp_s3_region: us-east-1
+# SeaweedFS is managed separately. This is the server-side Compose/Podman
+# endpoint; the workstation endpoint is resolved lazily from BWS by Pi.
+onclave_onramp_s3_endpoint: host.containers.internal:8333
+onclave_onramp_s3_secure: false
 onclave_onramp_openai_api_key: ""
 onclave_onramp_embedding_provider: openrouter
 onclave_onramp_embedding_model: intfloat/e5-large-v2

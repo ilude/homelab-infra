@@ -81,6 +81,9 @@ class BwsSnapshotTests(unittest.TestCase):
                 "ONCLAVE_VAULT_POSTGRES_PASSWORD": "postgres-password-with-24-characters",
                 "ONCLAVE_VAULT_S3_ACCESS_KEY": "s3-access-key",
                 "ONCLAVE_VAULT_S3_SECRET_KEY": "s3-secret-with-24-characters",
+                "ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT": "https://s3.example.internal",
+                "ONCLAVE_VAULT_S3_BUCKET": "menos",
+                "ONCLAVE_VAULT_S3_REGION": "us-east-1",
                 "ONCLAVE_VAULT_SEARXNG_SECRET": "searxng-secret-with-24-characters",
                 "ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME": "webshare-user",
                 "ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD": "webshare-password",
@@ -685,6 +688,11 @@ class BwsSnapshotTests(unittest.TestCase):
                 "id-inventory",
                 bws_snapshot.encode_family(inventory_family, inventory),
             ),
+            "ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT": (
+                "id-s3-endpoint", "https://s3.example.internal"
+            ),
+            "ONCLAVE_VAULT_S3_BUCKET": ("id-s3-bucket", "menos"),
+            "ONCLAVE_VAULT_S3_REGION": ("id-s3-region", "us-east-1"),
         }
 
     def test_freellmapi_runtime_profile_is_scoped_to_its_encryption_key(self) -> None:

@@ -1,7 +1,7 @@
 {
   "identities": [
     {
-      "name": "opentofu-state",
+      "name": {{ seaweedfs_onramp_state_identity | to_json }},
       "credentials": [
         {
           "accessKey": {{ seaweedfs_s3_access_key | to_json }},
@@ -14,6 +14,21 @@
         "List",
         "Tagging",
         "Admin"
+      ]
+    },
+    {
+      "name": {{ seaweedfs_onramp_onclave_identity | to_json }},
+      "credentials": [
+        {
+          "accessKey": {{ seaweedfs_onramp_onclave_access_key | to_json }},
+          "secretKey": {{ seaweedfs_onramp_onclave_secret_key | to_json }}
+        }
+      ],
+      "actions": [
+        "Read",
+        "Write",
+        "List",
+        "Tagging"
       ]
     }
   ]

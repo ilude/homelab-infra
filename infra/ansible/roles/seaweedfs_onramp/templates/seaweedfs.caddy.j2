@@ -1,5 +1,9 @@
 {{ seaweedfs_server_name }} {
-    reverse_proxy 127.0.0.1:{{ seaweedfs_onramp_s3_port }}
+    # Preserve the signed authority. Caddy forwards all other SigV4 headers
+    # unchanged, including Authorization, X-Amz-Date, and X-Amz-Content-Sha256.
+    reverse_proxy 127.0.0.1:{{ seaweedfs_onramp_s3_port }} {
+        header_up Host {http.request.host}
+    }
 
     tls {
         dns cloudflare {env.CF_DNS_API_TOKEN}

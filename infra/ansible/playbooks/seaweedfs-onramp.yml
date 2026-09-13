@@ -13,12 +13,39 @@
       ansible.builtin.set_fact:
         seaweedfs_s3_access_key: "{{ lookup('env', 'SEAWEEDFS_S3_ACCESS_KEY') }}"
         seaweedfs_s3_secret_key: "{{ lookup('env', 'SEAWEEDFS_S3_SECRET_KEY') }}"
+        seaweedfs_onramp_onclave_access_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_ACCESS_KEY') }}"
+        seaweedfs_onramp_onclave_secret_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_SECRET_KEY') }}"
       no_log: true
 
   roles:
     - seaweedfs_onramp
 
   post_tasks:
+    - name: Ensure the independent Onclave menos bucket exists
+      become: false
+      delegate_to: localhost
+      ansible.builtin.command:
+        argv:
+          - python
+          - -c
+          - >-
+            import boto3;
+            from botocore.client import Config;
+            c=boto3.client('s3', endpoint_url='{{ seaweedfs_s3_endpoint }}',
+            region_name='{{ seaweedfs_s3_region }}',
+            aws_access_key_id='{{ seaweedfs_s3_access_key }}',
+            aws_secret_access_key='{{ seaweedfs_s3_secret_key }}',
+            config=Config(signature_version='s3v4', s3={'addressing_style':'path'}));
+            b='{{ seaweedfs_onramp_onclave_bucket }}';
+            created=b not in [x['Name'] for x in c.list_buckets().get('Buckets', [])];
+            c.create_bucket(Bucket=b) if created else c.head_bucket(Bucket=b);
+            print({'created': created})
+      args:
+        chdir: /workspace
+      changed_when: "'True' in seaweedfs_onramp_bucket_init.stdout"
+      register: seaweedfs_onramp_bucket_init
+      no_log: true
+
     - name: Configure and verify the versioned state bucket
       become: false
       delegate_to: localhost

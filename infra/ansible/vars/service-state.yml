@@ -109,7 +109,7 @@ managed_service_state_catalog:
         recurse: false
   onclave_onramp:
     group: onramp_host
-    description: Onclave app definition, private env, persistent broker/core data, PostgreSQL, and MinIO data on the onramp host.
+    description: Onclave app definition, private env, persistent broker/core data, and PostgreSQL data on the onramp host; object assets are backed up from SeaweedFS.
     services:
       - caddy
     user_services:
@@ -126,10 +126,6 @@ managed_service_state_catalog:
         group: "{{ onramp_host_deploy_user }}"
         recurse: true
       - path: "{{ onramp_host_deploy_dir }}/menos/data/postgres"
-        owner: "{{ onramp_host_deploy_user }}"
-        group: "{{ onramp_host_deploy_user }}"
-        recurse: true
-      - path: "{{ onramp_host_deploy_dir }}/menos/data/minio"
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"
         recurse: true

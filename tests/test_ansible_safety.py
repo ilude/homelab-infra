@@ -815,7 +815,6 @@ class AnsibleSafetyTests(unittest.TestCase):
             inspect["loop"],
             [
                 "{{ onclave_onramp_data_root }}/postgres",
-                "{{ onclave_onramp_data_root }}/minio",
                 "{{ onclave_onramp_data_root }}/ollama",
             ],
         )
@@ -831,10 +830,8 @@ class AnsibleSafetyTests(unittest.TestCase):
             conditions,
         )
         for mapping in (
-            "'POSTGRES_PASSWORD: ${ONCLAVE_VAULT_POSTGRES_PASSWORD:?}' in onclave_onramp_upstream_text",
-            "'MINIO_ROOT_USER: ${ONCLAVE_VAULT_S3_ACCESS_KEY:?}' in onclave_onramp_upstream_text",
-            "'MINIO_ROOT_PASSWORD: ${ONCLAVE_VAULT_S3_SECRET_KEY:?}' in onclave_onramp_upstream_text",
-            "'SEARXNG_SECRET: ${ONCLAVE_VAULT_SEARXNG_SECRET:?}' in onclave_onramp_upstream_text",
+            "'POSTGRES_PASSWORD' in onclave_onramp_upstream_text",
+            "'SEARXNG_SECRET' in onclave_onramp_upstream_text",
         ):
             self.assertIn(mapping, conditions)
         render = task_by_name(
@@ -846,10 +843,9 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertIn("'onclave-core'", expression)
         self.assertNotIn("onclave_onramp_amqp_port", expression)
         self.assertNotIn("onclave_onramp_management_port", expression)
-        self.assertEqual(expression.count("'ports': []"), 5)
+        self.assertEqual(expression.count("'ports': []"), 4)
         for mount in (
             "onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U'",
-            "onclave_onramp_data_root ~ '/minio:/data:Z,U'",
             "onclave_onramp_data_root ~ '/ollama:/root/.ollama:Z,U'",
             "'./authorized_keys:/keys/authorized_keys:ro,Z'",
         ):
@@ -908,7 +904,6 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertNotIn(name, defaults)
         for key in (
             "POSTGRES_IMAGE={{ onclave_postgres_image }}",
-            "MINIO_IMAGE={{ onclave_minio_image }}",
             "OLLAMA_IMAGE={{ onclave_ollama_image }}",
             "SEARXNG_IMAGE={{ onclave_searxng_image }}",
             "DOCLING_IMAGE={{ onclave_docling_image }}",
@@ -916,6 +911,7 @@ class AnsibleSafetyTests(unittest.TestCase):
             "ONCLAVE_VAULT_POSTGRES_PASSWORD={{ onclave_onramp_postgres_password }}",
             "ONCLAVE_VAULT_POSTGRES_DATABASE={{ onclave_onramp_postgres_database }}",
             "ONCLAVE_VAULT_POSTGRES_USER={{ onclave_onramp_postgres_user }}",
+            "ONCLAVE_VAULT_S3_ENDPOINT_URL={{ onclave_onramp_s3_endpoint }}",
             "ONCLAVE_VAULT_S3_ACCESS_KEY={{ onclave_onramp_s3_access_key }}",
             "ONCLAVE_VAULT_S3_SECRET_KEY={{ onclave_onramp_s3_secret_key }}",
             "ONCLAVE_VAULT_SEARXNG_SECRET={{ onclave_onramp_searxng_secret }}",
@@ -1085,13 +1081,14 @@ class AnsibleSafetyTests(unittest.TestCase):
             role_tasks, "Verify configured Onclave embedding provider"
         )
         bucket = task_by_name(
-            role_tasks, "Ensure unified Onclave managed MinIO bucket exists"
+            role_tasks, "Verify SeaweedFS application bucket through the Onclave S3 contract"
         )
         self.assertIn("/api/pull", command_text(model))
         self.assertIn("/api/embed", command_text(model))
         self.assertIn("https://openrouter.ai/api/v1/embeddings", command_text(model))
         self.assertIn("bucketExists", command_text(bucket))
-        self.assertIn("makeBucket", command_text(bucket))
+        self.assertIn("putObject", command_text(bucket))
+        self.assertIn("removeObject", command_text(bucket))
         self.assertTrue(model.get("no_log"))
         self.assertTrue(bucket.get("no_log"))
 

@@ -16,8 +16,11 @@
       - seaweedfs_lock_noncurrent_days | int > 0
       - seaweedfs_s3_access_key | length >= 16
       - seaweedfs_s3_secret_key | length >= 32
+      - seaweedfs_onramp_onclave_bucket == 'menos'
+      - seaweedfs_onramp_onclave_access_key | length >= 16
+      - seaweedfs_onramp_onclave_secret_key | length >= 32
       - seaweedfs_onramp_image is match('^docker\.io/chrislusf/seaweedfs:4\.41@sha256:[0-9a-f]{64}$')
-    fail_msg: "SeaweedFS requires a pinned image, HTTPS endpoint, dedicated bucket, and BWS-resolved credentials."
+    fail_msg: "SeaweedFS requires a pinned image, separate state/Onclave identities, and BWS-resolved credentials."
   no_log: true
 
 - name: Ensure SeaweedFS persistent directories exist
@@ -41,9 +44,18 @@
     dest: "{{ seaweedfs_onramp_base_dir }}/s3.json"
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
-    mode: "0644"
+    mode: "0600"
   no_log: true
   notify: Restart seaweedfs state
+
+- name: Verify separate SeaweedFS bucket identity configuration
+  ansible.builtin.assert:
+    that:
+      - seaweedfs_s3_access_key != seaweedfs_onramp_onclave_access_key
+      - seaweedfs_s3_secret_key != seaweedfs_onramp_onclave_secret_key
+      - seaweedfs_onramp_onclave_bucket != seaweedfs_s3_bucket
+    fail_msg: "The state and Onclave SeaweedFS identities must remain isolated."
+  no_log: true
 
 - name: Install SeaweedFS compose file
   ansible.builtin.template:

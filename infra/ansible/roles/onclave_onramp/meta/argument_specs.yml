@@ -166,3 +166,7 @@ argument_specs:
       onclave_onramp_callback_secret:
         type: str
         required: false
+      onclave_onramp_enable_cutover:
+        type: bool
+        required: false
+        description: "Explicitly enable the destructive service cutover and retired MinIO container removal."

@@ -8,6 +8,10 @@
   hosts: onramp_host
   gather_facts: true
   become: true
+  vars:
+    # The route name is derived from the BWS-backed endpoint, never a tracked
+    # live hostname supplied independently by an inventory file.
+    seaweedfs_server_name: "{{ seaweedfs_s3_endpoint | regex_replace('^https?://', '') }}"
   pre_tasks:
     - name: Resolve controller-only SeaweedFS BWS credentials
       ansible.builtin.set_fact:
@@ -15,6 +19,32 @@
         seaweedfs_s3_secret_key: "{{ lookup('env', 'SEAWEEDFS_S3_SECRET_KEY') }}"
         seaweedfs_onramp_onclave_access_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_ACCESS_KEY') }}"
         seaweedfs_onramp_onclave_secret_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_SECRET_KEY') }}"
+      no_log: true
+
+    - name: Validate SeaweedFS Caddy hostname from BWS workstation HTTPS endpoint
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT') is match('^https://[A-Za-z0-9.-]+$')
+          - seaweedfs_s3_endpoint == lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT')
+          - seaweedfs_server_name == (lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT') | regex_replace('^https://', ''))
+        fail_msg: >-
+          SeaweedFS Caddy must use the hostname from the BWS workstation HTTPS
+          endpoint; do not supply a separate tracked live hostname.
+      no_log: true
+
+    - name: Read BWS DNS record catalog for SeaweedFS hostname validation
+      ansible.builtin.set_fact:
+        seaweedfs_bws_dns_records: "{{ lookup('file', lookup('env', 'DNS_RECORDS_FILE')) | from_json }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Validate existing BWS DNS workflow contains SeaweedFS Caddy hostname
+      ansible.builtin.assert:
+        that:
+          - seaweedfs_bws_dns_records.a_records[seaweedfs_server_name] is defined
+        fail_msg: >-
+          Add the SeaweedFS hostname to the existing BWS DNS record catalog and
+          run the established Technitium DNS workflow before enabling the route.
       no_log: true
 
   roles:

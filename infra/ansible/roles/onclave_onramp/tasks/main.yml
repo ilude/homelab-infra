@@ -44,6 +44,7 @@
       - onclave_onramp_core_port | int < 65536
       - onclave_onramp_amqp_port | int > 0
       - onclave_onramp_amqp_port | int < 65536
+      - onclave_onramp_enable_cutover is boolean
     fail_msg: >-
       Unified Onclave requires the Debian 13 onramp host, immutable source and
       image pins, adopted state, authorized public keys, private runtime
@@ -333,8 +334,123 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_legacy_target_stop
-  failed_when: false
-  when: onclave_onramp_legacy_target.stat.exists
+  when:
+    - onclave_onramp_enable_cutover | bool
+    - onclave_onramp_legacy_target.stat.exists
+
+- name: Verify legacy Onclave target is stopped before cutover
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - is-active
+      - onclave-onramp.target
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_legacy_target_active
+  changed_when: false
+  failed_when: onclave_onramp_legacy_target_active.rc == 0
+  when: onclave_onramp_enable_cutover | bool
+
+- name: Stop legacy Onclave containers before final corpus backup
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - stop
+      - --ignore
+      - --time
+      - "30"
+      - onclave-rabbitmq
+      - onclave-core
+      - minio
+      - onclave-minio
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_legacy_stop
+  changed_when: onclave_onramp_legacy_stop.stdout | trim | length > 0
+  when: onclave_onramp_enable_cutover | bool
+
+- name: Verify no legacy Onclave containers are running before backup
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - ps
+      - --quiet
+      - --filter
+      - "name={{ item }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_legacy_running
+  changed_when: false
+  failed_when: onclave_onramp_legacy_running.stdout_lines | length > 0
+  loop:
+    - onclave-rabbitmq
+    - onclave-core
+    - minio
+    - onclave-minio
+  when: onclave_onramp_enable_cutover | bool
+
+- name: Validate explicit Onclave cutover backup inputs
+  ansible.builtin.assert:
+    that:
+      - lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT') is match('^https://[A-Za-z0-9.-]+$')
+      - lookup('env', 'ONCLAVE_VAULT_S3_BUCKET') == 'menos'
+      - lookup('env', 'ONCLAVE_VAULT_S3_REGION') is match('^[a-z0-9-]+$')
+      - lookup('env', 'SEAWEEDFS_OBJECT_BACKUP_ARCHIVE') is match('^/workspace/values/service-backups/onclave_onramp/[^/]+\\.tar\\.gz$')
+    fail_msg: >-
+      An explicit Onclave cutover requires the BWS workstation HTTPS endpoint,
+      the menos bucket, and a new private final corpus archive path.
+  no_log: true
+  when: onclave_onramp_enable_cutover | bool
+
+- name: Create final Onclave corpus backup while writes are quiesced
+  block:
+    - name: Create orchestration-owned Onclave quiescence marker
+      ansible.builtin.tempfile:
+        state: file
+        prefix: onclave-quiesced-
+      delegate_to: localhost
+      register: onclave_onramp_quiescence_marker
+      changed_when: true
+
+    - name: Write exact fresh final Onclave corpus artifact
+      ansible.builtin.command:
+        argv:
+          - python
+          - scripts/seaweedfs-object-backup.py
+          - backup
+          - --endpoint
+          - "{{ lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT') }}"
+          - --bucket
+          - "{{ lookup('env', 'ONCLAVE_VAULT_S3_BUCKET') }}"
+          - --region
+          - "{{ lookup('env', 'ONCLAVE_VAULT_S3_REGION') }}"
+          - --output
+          - "{{ lookup('env', 'SEAWEEDFS_OBJECT_BACKUP_ARCHIVE') }}"
+          - --quiesced-marker
+          - "{{ onclave_onramp_quiescence_marker.path }}"
+      args:
+        chdir: /workspace
+      delegate_to: localhost
+      environment:
+        AWS_ACCESS_KEY_ID: "{{ lookup('env', 'ONCLAVE_VAULT_S3_ACCESS_KEY') }}"
+        AWS_SECRET_ACCESS_KEY: "{{ lookup('env', 'ONCLAVE_VAULT_S3_SECRET_KEY') }}"
+      changed_when: true
+      no_log: true
+  always:
+    - name: Remove orchestration-owned Onclave quiescence marker
+      ansible.builtin.file:
+        path: "{{ onclave_onramp_quiescence_marker.path }}"
+        state: absent
+      delegate_to: localhost
+      when: onclave_onramp_quiescence_marker.path is defined
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Remove legacy Onclave containers
   become: true
@@ -351,12 +467,15 @@
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_legacy_rm
   changed_when: onclave_onramp_legacy_rm.stdout | trim | length > 0
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Remove legacy Onclave target unit file
   ansible.builtin.file:
     path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
     state: absent
-  when: onclave_onramp_legacy_target.stat.exists
+  when:
+    - onclave_onramp_enable_cutover | bool
+    - onclave_onramp_legacy_target.stat.exists
 
 - name: Reload user systemd manager after legacy target removal
   become: true
@@ -366,7 +485,9 @@
     daemon_reload: true
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
-  when: onclave_onramp_legacy_target.stat.exists
+  when:
+    - onclave_onramp_enable_cutover | bool
+    - onclave_onramp_legacy_target.stat.exists
 
 - name: Find retired MinIO containers from the previous Onclave stack
   become: true
@@ -383,6 +504,7 @@
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_retired_minio_containers
   changed_when: false
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Remove retired MinIO containers without touching their data directory
   become: true
@@ -397,6 +519,7 @@
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   loop: "{{ onclave_onramp_retired_minio_containers.stdout_lines }}"
   changed_when: true
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Install unified Onclave rootless systemd unit
   ansible.builtin.template:
@@ -406,6 +529,7 @@
     group: "{{ onramp_host_deploy_user }}"
     mode: "0644"
   notify: Restart onclave onramp
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Enable unified Onclave rootless systemd unit
   become: true
@@ -418,6 +542,7 @@
     state: started
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify persisted RabbitMQ password matches BWS
   become: true
@@ -440,6 +565,7 @@
   changed_when: false
   failed_when: false
   no_log: true
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Reconcile persisted RabbitMQ password from BWS
   become: true
@@ -458,7 +584,9 @@
       - "{{ onclave_rabbitmq_default_pass }}"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
-  when: onclave_onramp_rabbitmq_auth.rc != 0
+  when:
+    - onclave_onramp_enable_cutover | bool
+    - onclave_onramp_rabbitmq_auth.rc != 0
   no_log: true
 
 - name: Remove retired inbound Onclave AMQP firewall rules
@@ -484,10 +612,12 @@
     'Could not delete non-existent rule' not in
     (onclave_onramp_retired_amqp_firewall.stdout ~ onclave_onramp_retired_amqp_firewall.stderr)
   no_log: true
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Ensure onramp Caddy supports Cloudflare DNS-01
   ansible.builtin.include_role:
     name: caddy_build
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Install Onclave Caddy site snippets
   ansible.builtin.template:
@@ -497,6 +627,7 @@
     group: root
     mode: "0644"
   notify: Reload caddy
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Validate Onclave Caddy config
   ansible.builtin.command:
@@ -505,9 +636,11 @@
       - -lc
       - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
   changed_when: false
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Flush unified Onclave service restarts before health checks
   ansible.builtin.meta: flush_handlers
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify unified Onclave rootless service is active
   become: true
@@ -525,6 +658,7 @@
   retries: 12
   delay: 10
   until: onclave_onramp_service_active.rc == 0
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Resolve running unified Onclave core container ID
   become: true
@@ -543,6 +677,7 @@
   register: onclave_onramp_core_container_ids
   changed_when: false
   no_log: true
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Fail closed without exactly one running unified Onclave core container
   ansible.builtin.assert:
@@ -550,6 +685,7 @@
       - onclave_onramp_core_container_ids.stdout_lines | length == 1
     quiet: true
   no_log: true
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify configured Onclave embedding provider
   become: true
@@ -593,6 +729,7 @@
   register: onclave_onramp_embedding_model
   changed_when: "'\"downloaded\":true' in onclave_onramp_embedding_model.stdout"
   no_log: true
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify SeaweedFS application bucket through the Onclave S3 contract
   become: true
@@ -626,6 +763,7 @@
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   changed_when: false
   no_log: true
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify unified Onclave health and source revision
   ansible.builtin.uri:
@@ -640,6 +778,7 @@
     - onclave_onramp_health.json.status | default('') == 'ok'
     - onclave_onramp_health.json.git_sha | default('') == onclave_source_git_sha
     - onclave_onramp_health.json.broker.connected | default(false) | bool
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify unified Onclave dependency readiness
   ansible.builtin.uri:
@@ -655,6 +794,7 @@
     - onclave_onramp_ready.json.checks.postgres | default('') == 'ok'
     - onclave_onramp_ready.json.checks.s3 | default('') == 'ok'
     - onclave_onramp_ready.json.checks.ollama | default('') == 'ok'
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify unified Onclave HTTPS route locally
   ansible.builtin.command:
@@ -674,6 +814,7 @@
   retries: 24
   delay: 5
   until: onclave_onramp_https_check.rc == 0
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Validate signed Onclave API
   block:
@@ -692,3 +833,4 @@
     - name: Report signed Onclave API validation failure
       ansible.builtin.fail:
         msg: signed Onclave API validation failed
+  when: onclave_onramp_enable_cutover | bool

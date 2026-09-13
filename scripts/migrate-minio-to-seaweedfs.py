@@ -3,7 +3,7 @@
 
 The source and destination credentials are read from environment variables.  The
 final phase is deliberately fail-closed: callers must create a private
-quiescence marker (or set ONCLAVE_MIGRATION_QUIESCED=1) before taking the final
+quiescence marker owned by the cutover orchestration before taking the final
 source inventory.  Output contains counts and digests, never object contents.
 """
 
@@ -161,14 +161,19 @@ def copy_corpus(source: Any, destination: Any, source_bucket: str, destination_b
 
 
 def require_quiescence(marker: str | None) -> None:
-    if os.environ.get("ONCLAVE_MIGRATION_QUIESCED") == "1":
-        return
     if marker and Path(marker).is_file():
         return
     raise MigrationError(
-        "final migration requires a private quiescence marker or "
-        "ONCLAVE_MIGRATION_QUIESCED=1"
+        "final migration requires a private quiescence marker created by orchestration"
     )
+
+
+def require_fresh_artifact(path: Path | None) -> Path:
+    if path is None:
+        raise MigrationError("final migration requires a new --artifact path")
+    if path.exists():
+        raise MigrationError(f"refusing to overwrite existing parity artifact: {path}")
+    return path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -198,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in {"inventory", "parity", "finalize"}:
             if args.command == "finalize":
                 require_quiescence(args.quiesced_marker)
+                require_fresh_artifact(args.artifact)
             source_inventory = inventory(source, args.source_bucket)
         else:
             source_inventory = []

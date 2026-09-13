@@ -11,6 +11,7 @@ import os
 import secrets
 import sys
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +58,26 @@ def read_object(client: Any, bucket: str, key: str) -> tuple[bytes, dict[str, An
     }
 
 
-def backup(client: Any, bucket: str, output: Path) -> dict[str, Any]:
+def require_quiescence(marker: str | None) -> None:
+    if not marker or not Path(marker).is_file():
+        raise BackupError(
+            "an orchestration-owned quiescence marker is required for the final corpus backup"
+        )
+
+
+def validate_restore_bucket(bucket: str) -> None:
+    if bucket == "menos" or not bucket.startswith("menos-restore-test-"):
+        raise BackupError(
+            "restore-test requires an isolated menos-restore-test-* bucket"
+        )
+
+
+def backup(
+    client: Any, bucket: str, output: Path, quiesced_marker: str | None = None
+) -> dict[str, Any]:
+    require_quiescence(quiesced_marker)
+    if output.exists():
+        raise BackupError(f"refusing to overwrite existing backup artifact: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
     objects: list[tuple[str, bytes]] = []
@@ -79,17 +99,29 @@ def backup(client: Any, bucket: str, output: Path) -> dict[str, Any]:
             ).hexdigest(),
         },
     }
-    with tarfile.open(output, "w:gz") as archive:
-        raw = json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8")
-        info = tarfile.TarInfo("MANIFEST.json")
-        info.size = len(raw)
-        info.mode = 0o600
-        archive.addfile(info, io.BytesIO(raw))
-        for name, content in objects:
-            info = tarfile.TarInfo(name)
-            info.size = len(content)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
+    )
+    os.close(fd)
+    temporary = Path(temporary_name)
+    try:
+        with tarfile.open(temporary, "w:gz") as archive:
+            raw = json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8")
+            info = tarfile.TarInfo("MANIFEST.json")
+            info.size = len(raw)
             info.mode = 0o600
-            archive.addfile(info, io.BytesIO(content))
+            archive.addfile(info, io.BytesIO(raw))
+            for name, content in objects:
+                info = tarfile.TarInfo(name)
+                info.size = len(content)
+                info.mode = 0o600
+                archive.addfile(info, io.BytesIO(content))
+        temporary.replace(output)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
     try:
         output.chmod(0o600)
     except OSError:
@@ -148,6 +180,10 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--archive", type=Path)
     command.add_argument("--restore-bucket", default="")
     command.add_argument("--keep-restore-bucket", action="store_true")
+    command.add_argument(
+        "--quiesced-marker",
+        help="private marker created by the orchestration after stopping Onclave writes",
+    )
     return command
 
 
@@ -158,11 +194,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "backup":
             if args.output is None:
                 raise BackupError("--output is required for backup")
-            print(json.dumps(backup(client, args.bucket, args.output), sort_keys=True))
+            print(
+                json.dumps(
+                    backup(client, args.bucket, args.output, args.quiesced_marker),
+                    sort_keys=True,
+                )
+            )
         else:
             if args.archive is None:
                 raise BackupError("--archive is required for restore-test")
             restore_bucket = args.restore_bucket or f"menos-restore-test-{secrets.token_hex(6)}"
+            validate_restore_bucket(restore_bucket)
             print(json.dumps(restore_test(client, args.archive, restore_bucket, not args.keep_restore_bucket), sort_keys=True))
         return 0
     except (BackupError, BotoCoreError, ClientError, OSError, tarfile.TarError, json.JSONDecodeError) as error:

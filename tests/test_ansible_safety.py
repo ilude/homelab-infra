@@ -27,6 +27,13 @@ ONCLAVE_ONRAMP_PLAYBOOK = (
 ONCLAVE_ONRAMP_TASKS = (
     REPO / "infra" / "ansible" / "roles" / "onclave_onramp" / "tasks" / "main.yml"
 )
+SEAWEEDFS_ONRAMP_PLAYBOOK = REPO / "infra" / "ansible" / "playbooks" / "seaweedfs-onramp.yml"
+SEAWEEDFS_S3_TEMPLATE = (
+    REPO / "infra" / "ansible" / "roles" / "seaweedfs_onramp" / "templates" / "s3.json.j2"
+)
+SEAWEEDFS_ONRAMP_DEFAULTS = (
+    REPO / "infra" / "ansible" / "roles" / "seaweedfs_onramp" / "defaults" / "main.yml"
+)
 SEARXNG_ONRAMP_TASKS = (
     REPO / "infra" / "ansible" / "roles" / "searxng_onramp" / "tasks" / "main.yml"
 )
@@ -776,6 +783,28 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertTrue(secret_task["no_log"])
         self.assertIn("FREELLMAPI_ENCRYPTION_KEY", str(secret_task))
 
+    def test_seaweedfs_route_uses_bws_endpoint_and_existing_dns_catalog(self) -> None:
+        playbook = yaml.safe_load(SEAWEEDFS_ONRAMP_PLAYBOOK.read_text(encoding="utf-8"))
+        deployment = playbook[-1]
+        self.assertIn("seaweedfs_server_name", deployment["vars"])
+        self.assertIn("seaweedfs_s3_endpoint", deployment["vars"]["seaweedfs_server_name"])
+        names = [task["name"] for task in deployment["pre_tasks"]]
+        self.assertIn("Validate SeaweedFS Caddy hostname from BWS workstation HTTPS endpoint", names)
+        self.assertIn("Validate existing BWS DNS workflow contains SeaweedFS Caddy hostname", names)
+        self.assertIn("ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT", SEAWEEDFS_ONRAMP_PLAYBOOK.read_text(encoding="utf-8"))
+
+    def test_seaweedfs_onclave_identity_is_bucket_and_object_scoped(self) -> None:
+        source = SEAWEEDFS_S3_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn('"Read:menos/*"', source)
+        self.assertIn('"Write:menos/*"', source)
+        self.assertIn('"List:menos"', source)
+        self.assertIn('"Tagging:menos/*"', source)
+        onclave = source.split('"name": {{ seaweedfs_onramp_onclave_identity', 1)[1]
+        self.assertNotIn('"Admin', onclave)
+        self.assertNotIn('"Read"', onclave)
+        self.assertNotIn('"Write"', onclave)
+        self.assertNotIn('"List"', onclave)
+
     def test_onclave_onramp_consumes_host_rendered_bws_secrets(self) -> None:
         plays = yaml.safe_load(ONCLAVE_ONRAMP_PLAYBOOK.read_text(encoding="utf-8"))
         deployment = plays[-1]
@@ -797,6 +826,22 @@ class AnsibleSafetyTests(unittest.TestCase):
         # requiring a fragile tuple slice that leaks newly appended service keys.
         self.assertIn('"RABBITMQ_DEFAULT_USER"', snapshot)
         self.assertIn('"RABBITMQ_DEFAULT_PASS"', snapshot)
+
+    def test_onclave_cutover_is_explicit_and_quiesces_before_backup_or_removal(self) -> None:
+        role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
+        defaults = yaml.safe_load((role / "defaults" / "main.yml").read_text(encoding="utf-8"))
+        self.assertFalse(defaults["onclave_onramp_enable_cutover"])
+        source = (role / "tasks" / "main.yml").read_text(encoding="utf-8")
+        self.assertIn("Verify legacy Onclave target is stopped before cutover", source)
+        self.assertIn("Create final Onclave corpus backup while writes are quiesced", source)
+        for task_name in (
+            "Remove legacy Onclave containers",
+            "Remove retired MinIO containers without touching their data directory",
+            "Install unified Onclave rootless systemd unit",
+            "Enable unified Onclave rootless systemd unit",
+        ):
+            task = task_by_name(role / "tasks" / "main.yml", task_name)
+            self.assertIn("onclave_onramp_enable_cutover", str(task.get("when")))
 
     def test_onclave_adopts_existing_storage_and_renders_unified_contract(
         self,
@@ -1113,7 +1158,13 @@ class AnsibleSafetyTests(unittest.TestCase):
             role_tasks, "Reconcile persisted RabbitMQ password from BWS"
         )
         self.assertIn("change_password", reconcile["ansible.builtin.command"]["argv"])
-        self.assertEqual(reconcile["when"], "onclave_onramp_rabbitmq_auth.rc != 0")
+        self.assertEqual(
+            reconcile["when"],
+            [
+                "onclave_onramp_enable_cutover | bool",
+                "onclave_onramp_rabbitmq_auth.rc != 0",
+            ],
+        )
         self.assertTrue(reconcile["no_log"])
 
     def test_onramp_default_http_ports_do_not_collide(self) -> None:

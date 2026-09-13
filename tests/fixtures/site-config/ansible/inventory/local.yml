@@ -97,7 +97,6 @@ all:
     searxng_bind_address: 127.0.0.1
     searxng_instance_name: Homelab SearXNG
     onclave_server_name: onclave.example.internal
-    seaweedfs_server_name: s3.example.internal
     seaweedfs_s3_endpoint: https://s3.example.internal
     seaweedfs_s3_bucket: homelab-state
     seaweedfs_s3_key: infra/terraform.tfstate
@@ -105,6 +104,7 @@ all:
     onclave_onramp_s3_endpoint: host.containers.internal:8333
     onclave_onramp_s3_bucket: menos
     onclave_onramp_s3_region: us-east-1
+    onclave_onramp_enable_cutover: false
     freellmapi_server_name: freellmapi.example.internal
     freellmapi_image: ghcr.io/tashfeenahmed/freellmapi:v0.8.4@sha256:2c318e8f527c0bcfb027f8cba4a4f7b92e5965443215b6285f4c97d375df6f4d
     onclave_source_git_sha: b3e12e7266edb25c297f88c1a3bfbb9c6f0ff64e

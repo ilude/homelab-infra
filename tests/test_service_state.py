@@ -189,10 +189,19 @@ class ServiceStateCatalogTests(unittest.TestCase):
         )
         self.assertEqual(definition["backup_retention_count"], 5)
         self.assertTrue(definition["restore_require_all_paths"])
-        for path in definition["paths"][:3]:
+        for path in definition["paths"][:2]:
             self.assertEqual(path["owner"], "deploy")
             self.assertEqual(path["group"], "deploy")
             self.assertTrue(path["recurse"])
+        self.assertEqual(
+            definition["paths"][2],
+            {
+                "path": "/etc/caddy/sites.d/onclave.caddy",
+                "owner": "root",
+                "group": "root",
+                "recurse": False,
+            },
+        )
 
     def test_onramp_host_owns_only_caddy_base_files(self) -> None:
         paths = [item["path"] for item in load_catalog()["onramp_host"]["paths"]]

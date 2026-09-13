@@ -7,8 +7,8 @@
       - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
       - onramp_host_deploy_user != 'root'
       - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
-      - seaweedfs_server_name is match('^[A-Za-z0-9.-]+$')
-      - seaweedfs_s3_endpoint == 'https://' + seaweedfs_server_name
+      - seaweedfs_onramp_server_name is match('^[A-Za-z0-9.-]+$')
+      - seaweedfs_s3_endpoint == 'https://' + seaweedfs_onramp_server_name
       - seaweedfs_s3_bucket is match('^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$')
       - seaweedfs_s3_key is match('^[A-Za-z0-9._/-]+$')
       - seaweedfs_s3_region is match('^[a-z0-9-]+$')
@@ -156,8 +156,8 @@
       - --max-time
       - "10"
       - --resolve
-      - "{{ seaweedfs_server_name }}:443:127.0.0.1"
-      - "https://{{ seaweedfs_server_name }}/"
+      - "{{ seaweedfs_onramp_server_name }}:443:127.0.0.1"
+      - "https://{{ seaweedfs_onramp_server_name }}/"
   register: seaweedfs_onramp_https_check
   changed_when: false
   failed_when: seaweedfs_onramp_https_check.rc not in [0, 22]

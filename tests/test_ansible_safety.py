@@ -786,8 +786,8 @@ class AnsibleSafetyTests(unittest.TestCase):
     def test_seaweedfs_route_uses_bws_endpoint_and_existing_dns_catalog(self) -> None:
         playbook = yaml.safe_load(SEAWEEDFS_ONRAMP_PLAYBOOK.read_text(encoding="utf-8"))
         deployment = playbook[-1]
-        self.assertIn("seaweedfs_server_name", deployment["vars"])
-        self.assertIn("seaweedfs_s3_endpoint", deployment["vars"]["seaweedfs_server_name"])
+        self.assertIn("seaweedfs_onramp_server_name", deployment["vars"])
+        self.assertIn("seaweedfs_s3_endpoint", deployment["vars"]["seaweedfs_onramp_server_name"])
         names = [task["name"] for task in deployment["pre_tasks"]]
         self.assertIn("Validate SeaweedFS Caddy hostname from BWS workstation HTTPS endpoint", names)
         self.assertIn("Validate existing BWS DNS workflow contains SeaweedFS Caddy hostname", names)

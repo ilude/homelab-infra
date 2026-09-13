@@ -1,4 +1,4 @@
-{{ seaweedfs_server_name }} {
+{{ seaweedfs_onramp_server_name }} {
     # Preserve the signed authority. Caddy forwards all other SigV4 headers
     # unchanged, including Authorization, X-Amz-Date, and X-Amz-Content-Sha256.
     reverse_proxy 127.0.0.1:{{ seaweedfs_onramp_s3_port }} {

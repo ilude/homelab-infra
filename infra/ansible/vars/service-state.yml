@@ -109,7 +109,9 @@ managed_service_state_catalog:
         recurse: false
   onclave_onramp:
     group: onramp_host
-    description: Onclave app definition, private env, persistent broker/core data, and PostgreSQL data on the onramp host; object assets are backed up from SeaweedFS.
+    description: >-
+      Onclave app definition, private env, persistent broker/core data, and PostgreSQL data on the onramp host;
+      object assets are backed up from SeaweedFS.
     services:
       - caddy
     user_services:

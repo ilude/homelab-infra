@@ -410,6 +410,7 @@
   when: onclave_onramp_enable_cutover | bool
 
 - name: Create final Onclave corpus backup while writes are quiesced
+  when: onclave_onramp_enable_cutover | bool
   block:
     - name: Create orchestration-owned Onclave quiescence marker
       ansible.builtin.tempfile:
@@ -450,7 +451,6 @@
         state: absent
       delegate_to: localhost
       when: onclave_onramp_quiescence_marker.path is defined
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Remove legacy Onclave containers
   become: true
@@ -817,6 +817,7 @@
   when: onclave_onramp_enable_cutover | bool
 
 - name: Validate signed Onclave API
+  when: onclave_onramp_enable_cutover | bool
   block:
     - name: Run signed Onclave API validation
       ansible.builtin.command:
@@ -833,4 +834,3 @@
     - name: Report signed Onclave API validation failure
       ansible.builtin.fail:
         msg: signed Onclave API validation failed
-  when: onclave_onramp_enable_cutover | bool

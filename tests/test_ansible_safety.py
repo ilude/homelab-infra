@@ -271,6 +271,13 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertIn("--", command)
             self.assertTrue(by_name[name]["no_log"])
 
+        finalize = by_name["Finalize the copy and write a private parity artifact"]
+        self.assertEqual(finalize["register"], "onclave_migration_finalize")
+        self.assertFalse(finalize["failed_when"])
+        parity_gate = by_name["Require exact final object parity"]
+        self.assertIn("onclave_migration_finalize.rc == 0", parity_gate["ansible.builtin.assert"]["that"])
+        self.assertTrue(parity_gate["no_log"])
+
         self.assertIn("http://127.0.0.1:9000", source)
         self.assertIn("http://seaweedfs-state:8333", source)
         self.assertNotIn("ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT", source)

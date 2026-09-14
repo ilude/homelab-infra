@@ -650,7 +650,9 @@
               - --quiesced-marker
               - "{{ onclave_migration_quiesced_marker }}"
           when: onclave_migration_mode == 'final'
+          register: onclave_migration_finalize
           changed_when: true
+          failed_when: false
           no_log: true
           environment:
             MINIO_ACCESS_KEY: "{{ onclave_migration_minio_access_key }}"
@@ -685,6 +687,16 @@
           delegate_to: localhost
           become: false
           when: onclave_migration_mode == 'final'
+
+        - name: Require exact final object parity
+          ansible.builtin.assert:
+            that:
+              - onclave_migration_finalize.rc == 0
+            fail_msg: >-
+              Final source and destination parity failed; inspect the fetched
+              private artifact while keeping Onclave core stopped.
+          when: onclave_migration_mode == 'final'
+          no_log: true
 
         - name: Re-verify the final cutover boundary after parity succeeds
           become: true

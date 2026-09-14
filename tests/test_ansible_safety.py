@@ -916,6 +916,10 @@ class AnsibleSafetyTests(unittest.TestCase):
         deployment = plays[-1]
         self.assertIn(
             "ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT",
+            deployment["vars"]["onclave_onramp_s3_hostname"],
+        )
+        self.assertIn(
+            "onclave_onramp_s3_hostname",
             deployment["vars"]["onclave_onramp_s3_endpoint"],
         )
         self.assertIn(":443", deployment["vars"]["onclave_onramp_s3_endpoint"])

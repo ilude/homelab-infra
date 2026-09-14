@@ -31,6 +31,7 @@
       - onclave_onramp_postgres_password | length >= 24
       - onclave_onramp_s3_access_key | length > 0
       - onclave_onramp_s3_secret_key | length >= 24
+      - onclave_onramp_s3_hostname is match('^[A-Za-z0-9.-]+$')
       - onclave_onramp_s3_endpoint is match('^[A-Za-z0-9._-]+:[0-9]{1,5}$')
       - onclave_onramp_s3_secure is boolean
       - onclave_onramp_searxng_secret | length >= 24
@@ -236,6 +237,7 @@
                      | combine({
                          'ports': ['127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8000'],
                          'configs': [],
+                         'extra_hosts': [onclave_onramp_s3_hostname ~ ':host-gateway'],
                          'depends_on': (onclave_onramp_services['onclave-core'].depends_on | default({})
                            | dict2items
                            | rejectattr('key', 'equalto', 'minio')
@@ -271,6 +273,7 @@
       - onclave_onramp_rendered_definition.services['docling-serve'].ports | default([]) | length == 0
       - "onclave_onramp_rendered_definition.services['onclave-core'].ports == ['127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8000']"
       - "onclave_onramp_rendered_definition.services['onclave-core'].configs | default([]) | length == 0"
+      - "onclave_onramp_rendered_definition.services['onclave-core'].extra_hosts == [onclave_onramp_s3_hostname ~ ':host-gateway']"
       - "'minio' not in (onclave_onramp_rendered_definition.services['onclave-core'].depends_on | default({}))"
       - "onclave_onramp_rendered_definition.services['onclave-core'].environment.ONCLAVE_VAULT_S3_ENDPOINT_URL == onclave_onramp_s3_endpoint"
       - "onclave_onramp_rendered_definition.services['onclave-core'].volumes == ['./data/onclave:/data:Z,U', './authorized_keys:/keys/authorized_keys:ro,Z']"

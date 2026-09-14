@@ -14,6 +14,7 @@ onclave_onramp_s3_bucket: menos
 onclave_onramp_s3_region: us-east-1
 # SeaweedFS is managed separately. This is the server-side Compose/Podman
 # endpoint; the workstation endpoint is resolved lazily from BWS by Pi.
+onclave_onramp_s3_hostname: host.containers.internal
 onclave_onramp_s3_endpoint: host.containers.internal:8333
 onclave_onramp_s3_secure: false
 onclave_onramp_openai_api_key: ""

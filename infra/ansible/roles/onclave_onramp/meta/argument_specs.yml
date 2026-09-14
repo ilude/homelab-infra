@@ -138,10 +138,14 @@ argument_specs:
       onclave_onramp_s3_region:
         type: str
         required: false
+      onclave_onramp_s3_hostname:
+        type: str
+        required: false
+        description: "Internal HTTPS hostname mapped to the Podman host gateway."
       onclave_onramp_s3_endpoint:
         type: str
         required: false
-        description: "Compose-internal SeaweedFS S3 host:port used by Onclave core."
+        description: "SeaweedFS S3 host:port used by Onclave core."
       onclave_onramp_s3_secure:
         type: bool
         required: false

@@ -292,7 +292,7 @@
                     raise SystemExit(1)
                 print(name)
             ')
-            test "${#minio_networks[@]}" -gt 0
+            test -n "${minio_networks[*]:-}"
             podman network inspect "${minio_networks[@]}" | MINIO_ID="$minio_id" python3 -c '
             import json
             import os

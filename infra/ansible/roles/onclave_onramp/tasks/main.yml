@@ -463,7 +463,7 @@
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.shell: |
     set -euo pipefail
-    for service in rabbitmq onclave-core; do
+    for service in onclave-core rabbitmq; do
       ids="$(podman ps --all --quiet \
         --filter label=com.docker.compose.project=onclave \
         --filter "label=com.docker.compose.service=${service}")"

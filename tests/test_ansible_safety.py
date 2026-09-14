@@ -972,6 +972,10 @@ class AnsibleSafetyTests(unittest.TestCase):
             "Remove legacy Onclave containers",
         )
         self.assertIn(
+            "for service in onclave-core rabbitmq",
+            remove_legacy["ansible.builtin.shell"],
+        )
+        self.assertIn(
             "com.docker.compose.project=onclave",
             remove_legacy["ansible.builtin.shell"],
         )

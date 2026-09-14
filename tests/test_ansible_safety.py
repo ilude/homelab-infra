@@ -221,9 +221,36 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertEqual(
             deployment["vars"]["onclave_migration_destination_endpoint"],
-            "{{ lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT') }}",
+            "http://seaweedfs-state:8333",
         )
         self.assertNotIn("onclave_migration_compose_override", deployment["vars"])
+
+        network_discovery = by_name["Discover and validate the attached legacy Onclave network"]
+        self.assertTrue(network_discovery["no_log"])
+        network_script = network_discovery["ansible.builtin.shell"]
+        self.assertIn("podman network inspect", network_script)
+        self.assertIn('labels.get("com.docker.compose.project")', network_script)
+        self.assertIn('io.podman.compose.project', network_script)
+
+        for name in (
+            "Verify SeaweedFS is not already attached to the legacy network",
+            "Connect SeaweedFS temporarily to the verified legacy Onclave network",
+            "Verify SeaweedFS attachment to the verified legacy network",
+            "Validate direct SeaweedFS S3 reachability from the MinIO network namespace",
+        ):
+            self.assertTrue(by_name[name].get("no_log"), name)
+
+        direct_check = by_name[
+            "Validate direct SeaweedFS S3 reachability from the MinIO network namespace"
+        ]
+        self.assertEqual(
+            direct_check["ansible.builtin.command"]["argv"][:3],
+            ["podman", "unshare", "nsenter"],
+        )
+        self.assertIn(
+            "{{ onclave_migration_destination_endpoint }}",
+            direct_check["ansible.builtin.command"]["argv"],
+        )
 
         pid_check = by_name["Verify the running MinIO network namespace and capture its PID"]
         self.assertTrue(pid_check["no_log"])
@@ -243,7 +270,8 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertTrue(by_name[name]["no_log"])
 
         self.assertIn("http://127.0.0.1:9000", source)
-        self.assertIn("ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT", source)
+        self.assertIn("http://seaweedfs-state:8333", source)
+        self.assertNotIn("ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT", source)
         self.assertNotIn("onclave_migration_minio_port", source)
         self.assertNotIn("onclave_migration_compose_override", source)
         self.assertNotIn("binding=", source)
@@ -252,7 +280,15 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertNotIn("podman rm", source)
         self.assertEqual(
             list(always),
-            ["Remove the temporary migration workspace"],
+            [
+                "Disconnect SeaweedFS from the temporary legacy Onclave network",
+                "Verify SeaweedFS was disconnected from the temporary legacy network",
+                "Remove the temporary migration workspace",
+            ],
+        )
+        self.assertIn(
+            "onclave_migration_legacy_network is defined",
+            always["Disconnect SeaweedFS from the temporary legacy Onclave network"]["when"],
         )
         self.assertTrue(
             by_name["Stop only Onclave core for the final migration window"]["when"]

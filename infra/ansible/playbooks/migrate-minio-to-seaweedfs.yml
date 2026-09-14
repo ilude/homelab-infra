@@ -18,7 +18,9 @@
     onclave_migration_compose_provider: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
     onclave_migration_compose_file: "{{ onramp_host_deploy_dir }}/onclave/compose.yaml"
     onclave_migration_source_endpoint: "http://127.0.0.1:9000"
-    onclave_migration_destination_endpoint: "{{ lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT') }}"
+    # The endpoint is resolved on the verified legacy Onclave network below;
+    # it is intentionally not routed through the workstation HTTPS path.
+    onclave_migration_destination_endpoint: "http://seaweedfs-state:8333"
     onclave_migration_bucket: menos
     onclave_migration_region: us-east-1
     onclave_migration_remote_root: "{{ onramp_host_deploy_dir }}/.minio-seaweedfs-migration"
@@ -41,7 +43,7 @@
           - onclave_migration_compose_provider is match('^[A-Za-z0-9._/-]+$')
           - onclave_migration_compose_file is match('^/[A-Za-z0-9_./:-]+$')
           - onclave_migration_source_endpoint == 'http://127.0.0.1:9000'
-          - onclave_migration_destination_endpoint is match('^https://[A-Za-z0-9.-]+$')
+          - onclave_migration_destination_endpoint == 'http://seaweedfs-state:8333'
           - onclave_migration_bucket == 'menos'
           - onclave_migration_region is match('^[a-z0-9-]+$')
           - onclave_migration_remote_root is match('^/[A-Za-z0-9_./:-]+$')
@@ -259,6 +261,195 @@
             executable: /bin/bash
           register: onclave_migration_minio_pid
           changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Discover and validate the attached legacy Onclave network
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
+            minio_ids="$(podman ps \
+              --filter label=com.docker.compose.project=onclave \
+              --filter label=com.docker.compose.service=minio \
+              --filter status=running \
+              --quiet)"
+            test "$(echo "$minio_ids" | count_lines)" = 1
+            minio_id="$(echo "$minio_ids" | awk 'NF { print; exit }')"
+            mapfile -t minio_networks < <(podman inspect "$minio_id" | python3 -c '
+            import json
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1:
+                raise SystemExit(1)
+            networks = items[0].get("NetworkSettings", {}).get("Networks")
+            if not isinstance(networks, dict) or not networks:
+                raise SystemExit(1)
+            for name in networks:
+                if not isinstance(name, str) or not name:
+                    raise SystemExit(1)
+                print(name)
+            ')
+            test "${#minio_networks[@]}" -gt 0
+            podman network inspect "${minio_networks[@]}" | MINIO_ID="$minio_id" python3 -c '
+            import json
+            import os
+            import re
+            import sys
+            items = json.load(sys.stdin)
+            minio_id = os.environ["MINIO_ID"]
+            matches = []
+            for item in items:
+                labels = item.get("Labels") or item.get("labels") or {}
+                containers = item.get("containers") or {}
+                attached = any(
+                    str(container_id) == minio_id
+                    or str(container_id).startswith(minio_id)
+                    or minio_id.startswith(str(container_id))
+                    for container_id in containers
+                )
+                project = labels.get("com.docker.compose.project") or labels.get(
+                    "io.podman.compose.project"
+                )
+                if project == "onclave" and attached:
+                    matches.append(item)
+            if len(matches) != 1:
+                raise SystemExit(1)
+            name = matches[0].get("name")
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
+                raise SystemExit(1)
+            print(name)
+            '
+          args:
+            executable: /bin/bash
+          register: onclave_migration_legacy_network
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Verify SeaweedFS is not already attached to the legacy network
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            podman inspect seaweedfs-state | python3 -c '
+            import json
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1:
+                raise SystemExit(1)
+            item = items[0]
+            if str(item.get("Name", "")).lstrip("/") != "seaweedfs-state":
+                raise SystemExit(1)
+            if item.get("State", {}).get("Status") != "running":
+                raise SystemExit(1)
+            networks = item.get("NetworkSettings", {}).get("Networks") or {}
+            if "{{ onclave_migration_legacy_network.stdout | trim }}" in networks:
+                raise SystemExit(1)
+            '
+          args:
+            executable: /bin/bash
+          register: onclave_migration_seaweedfs_network_precondition
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Connect SeaweedFS temporarily to the verified legacy Onclave network
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - podman
+              - network
+              - connect
+              - --alias
+              - seaweedfs-state
+              - "{{ onclave_migration_legacy_network.stdout | trim }}"
+              - seaweedfs-state
+          register: onclave_migration_network_connect
+          changed_when: true
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Verify SeaweedFS attachment to the verified legacy network
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            seaweed_id="$(podman inspect seaweedfs-state | python3 -c '
+            import json
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1:
+                raise SystemExit(1)
+            item = items[0]
+            if str(item.get("Name", "")).lstrip("/") != "seaweedfs-state":
+                raise SystemExit(1)
+            networks = item.get("NetworkSettings", {}).get("Networks") or {}
+            if "{{ onclave_migration_legacy_network.stdout | trim }}" not in networks:
+                raise SystemExit(1)
+            container_id = item.get("Id")
+            if not isinstance(container_id, str) or not container_id:
+                raise SystemExit(1)
+            print(container_id)
+            ')"
+            podman network inspect "{{ onclave_migration_legacy_network.stdout | trim }}" | SEAWEED_ID="$seaweed_id" python3 -c '
+            import json
+            import os
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1:
+                raise SystemExit(1)
+            containers = items[0].get("containers") or {}
+            seaweed_id = os.environ["SEAWEED_ID"]
+            if not any(
+                str(container_id) == seaweed_id
+                or str(container_id).startswith(seaweed_id)
+                or seaweed_id.startswith(str(container_id))
+                for container_id in containers
+            ):
+                raise SystemExit(1)
+            '
+          args:
+            executable: /bin/bash
+          register: onclave_migration_seaweedfs_network_attachment
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Validate direct SeaweedFS S3 reachability from the MinIO network namespace
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - podman
+              - unshare
+              - nsenter
+              - -t
+              - "{{ onclave_migration_minio_pid.stdout | trim }}"
+              - -n
+              - --
+              - curl
+              - --silent
+              - --show-error
+              - --output
+              - /dev/null
+              - --write-out
+              - "%{http_code}"
+              - --max-time
+              - "10"
+              - "{{ onclave_migration_destination_endpoint }}"
+          register: onclave_migration_direct_s3_check
+          changed_when: false
+          failed_when: >-
+            onclave_migration_direct_s3_check.rc != 0 or
+            (onclave_migration_direct_s3_check.stdout | trim) not in ['200', '403']
           no_log: true
           environment:
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
@@ -504,6 +695,50 @@
           environment:
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
       always:
+        - name: Disconnect SeaweedFS from the temporary legacy Onclave network
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - podman
+              - network
+              - disconnect
+              - "{{ onclave_migration_legacy_network.stdout | trim }}"
+              - seaweedfs-state
+          when: >-
+            onclave_migration_legacy_network is defined and
+            (onclave_migration_legacy_network.stdout | default('') | trim | length) > 0
+          failed_when: false
+          changed_when: true
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Verify SeaweedFS was disconnected from the temporary legacy network
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            podman inspect seaweedfs-state | python3 -c '
+            import json
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1:
+                raise SystemExit(1)
+            networks = items[0].get("NetworkSettings", {}).get("Networks") or {}
+            if "{{ onclave_migration_legacy_network.stdout | trim }}" in networks:
+                raise SystemExit(1)
+            '
+          args:
+            executable: /bin/bash
+          when: >-
+            onclave_migration_legacy_network is defined and
+            (onclave_migration_legacy_network.stdout | default('') | trim | length) > 0
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
         - name: Remove the temporary migration workspace
           ansible.builtin.file:
             path: "{{ onclave_migration_remote_root }}"

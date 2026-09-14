@@ -420,6 +420,7 @@
         state: file
         prefix: onclave-quiesced-
       delegate_to: localhost
+      become: false
       register: onclave_onramp_quiescence_marker
       changed_when: true
 
@@ -442,6 +443,7 @@
       args:
         chdir: /workspace
       delegate_to: localhost
+      become: false
       environment:
         AWS_ACCESS_KEY_ID: "{{ lookup('env', 'ONCLAVE_VAULT_S3_ACCESS_KEY') }}"
         AWS_SECRET_ACCESS_KEY: "{{ lookup('env', 'ONCLAVE_VAULT_S3_SECRET_KEY') }}"
@@ -453,6 +455,7 @@
         path: "{{ onclave_onramp_quiescence_marker.path }}"
         state: absent
       delegate_to: localhost
+      become: false
       when: onclave_onramp_quiescence_marker.path is defined
 
 - name: Remove legacy Onclave containers

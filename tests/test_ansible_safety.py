@@ -955,6 +955,18 @@ class AnsibleSafetyTests(unittest.TestCase):
             stop_legacy["ansible.builtin.shell"],
         )
         self.assertTrue(stop_legacy["no_log"])
+        backup_block = task_by_name(
+            role / "tasks" / "main.yml",
+            "Create final Onclave corpus backup while writes are quiesced",
+        )
+        local_tasks = {task["name"]: task for task in backup_block["block"]}
+        for local_task_name in (
+            "Create orchestration-owned Onclave quiescence marker",
+            "Write exact fresh final Onclave corpus artifact",
+        ):
+            local_task = local_tasks[local_task_name]
+            self.assertEqual(local_task["delegate_to"], "localhost")
+            self.assertFalse(local_task["become"])
         verify_stopped = task_by_name(
             role / "tasks" / "main.yml",
             "Verify no legacy Onclave containers are running before backup",

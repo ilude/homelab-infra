@@ -550,7 +550,7 @@
     scope: user
     daemon_reload: true
     enabled: true
-    state: started
+    state: restarted
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   when: onclave_onramp_enable_cutover | bool

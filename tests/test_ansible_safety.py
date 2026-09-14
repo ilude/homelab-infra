@@ -984,6 +984,14 @@ class AnsibleSafetyTests(unittest.TestCase):
             remove_legacy["ansible.builtin.shell"],
         )
         self.assertTrue(remove_legacy["no_log"])
+        enable_unified = task_by_name(
+            role / "tasks" / "main.yml",
+            "Enable unified Onclave rootless systemd unit",
+        )
+        self.assertEqual(
+            enable_unified["ansible.builtin.systemd_service"]["state"],
+            "restarted",
+        )
         rabbitmq_reconcile = task_by_name(
             role / "tasks" / "main.yml",
             "Reconcile persisted RabbitMQ password from BWS",

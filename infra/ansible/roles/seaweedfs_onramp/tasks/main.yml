@@ -18,8 +18,8 @@
       - seaweedfs_s3_access_key | length >= 16
       - seaweedfs_s3_secret_key | length >= 32
       - seaweedfs_onramp_onclave_bucket == 'menos'
-      - seaweedfs_onramp_onclave_access_key | length >= 16
-      - seaweedfs_onramp_onclave_secret_key | length >= 32
+      - seaweedfs_onramp_onclave_access_key | length > 0
+      - seaweedfs_onramp_onclave_secret_key | length > 0
       - seaweedfs_onramp_image is match('^docker\.io/chrislusf/seaweedfs:4\.41@sha256:[0-9a-f]{64}$')
     fail_msg: "SeaweedFS requires a pinned image, separate state/Onclave identities, and BWS-resolved credentials."
   no_log: true

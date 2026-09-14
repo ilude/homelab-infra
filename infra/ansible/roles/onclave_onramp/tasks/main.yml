@@ -461,18 +461,23 @@
 - name: Remove legacy Onclave containers
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
-  ansible.builtin.command:
-    argv:
-      - podman
-      - rm
-      - --force
-      - --ignore
-      - onclave-rabbitmq
-      - onclave-core
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for service in rabbitmq onclave-core; do
+      ids="$(podman ps --all --quiet \
+        --filter label=com.docker.compose.project=onclave \
+        --filter "label=com.docker.compose.service=${service}")"
+      if [[ -n "$ids" ]]; then
+        podman rm --force $ids
+      fi
+    done
+  args:
+    executable: /bin/bash
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_legacy_rm
   changed_when: onclave_onramp_legacy_rm.stdout | trim | length > 0
+  no_log: true
   when: onclave_onramp_enable_cutover | bool
 
 - name: Remove legacy Onclave target unit file

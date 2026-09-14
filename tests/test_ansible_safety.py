@@ -967,6 +967,19 @@ class AnsibleSafetyTests(unittest.TestCase):
             local_task = local_tasks[local_task_name]
             self.assertEqual(local_task["delegate_to"], "localhost")
             self.assertFalse(local_task["become"])
+        remove_legacy = task_by_name(
+            role / "tasks" / "main.yml",
+            "Remove legacy Onclave containers",
+        )
+        self.assertIn(
+            "com.docker.compose.project=onclave",
+            remove_legacy["ansible.builtin.shell"],
+        )
+        self.assertIn(
+            "com.docker.compose.service=${service}",
+            remove_legacy["ansible.builtin.shell"],
+        )
+        self.assertTrue(remove_legacy["no_log"])
         verify_stopped = task_by_name(
             role / "tasks" / "main.yml",
             "Verify no legacy Onclave containers are running before backup",

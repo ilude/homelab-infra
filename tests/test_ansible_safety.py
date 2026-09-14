@@ -901,6 +901,7 @@ class AnsibleSafetyTests(unittest.TestCase):
 
     def test_seaweedfs_onclave_identity_is_bucket_and_object_scoped(self) -> None:
         source = SEAWEEDFS_S3_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn('"Read:menos"', source)
         self.assertIn('"Read:menos/*"', source)
         self.assertIn('"Write:menos/*"', source)
         self.assertIn('"List:menos"', source)

@@ -115,6 +115,7 @@
           changed_when: false
 
         - name: Check whether the remote Python already has boto3
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.command:
             argv:
@@ -135,6 +136,7 @@
           when: onclave_migration_boto3_check.rc != 0
 
         - name: Create a temporary remote Python venv when boto3 is absent
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.command:
             argv:
@@ -147,6 +149,7 @@
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
 
         - name: Install boto3 into the temporary remote venv
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.command:
             argv:
@@ -167,6 +170,7 @@
                  else onclave_migration_remote_root ~ '/venv/bin/python' }}
 
         - name: Verify the existing Onclave Compose project is present
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.stat:
             path: "{{ onclave_migration_compose_file }}"
@@ -184,12 +188,21 @@
               must run before the unified MinIO-free Compose deployment.
 
         - name: Verify core, legacy MinIO, and SeaweedFS are all running
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.shell: |
             set -euo pipefail
             count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
-            core_ids="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --filter status=running --quiet)"
-            minio_ids="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=minio --filter status=running --quiet)"
+            core_ids="$(podman ps \
+              --filter label=com.docker.compose.project=onclave \
+              --filter label=com.docker.compose.service=onclave-core \
+              --filter status=running \
+              --quiet)"
+            minio_ids="$(podman ps \
+              --filter label=com.docker.compose.project=onclave \
+              --filter label=com.docker.compose.service=minio \
+              --filter status=running \
+              --quiet)"
             test "$(printf '%s\n' "$core_ids" | count_lines)" = 1
             test "$(printf '%s\n' "$minio_ids" | count_lines)" = 1
             podman inspect seaweedfs-state | python3 -c '
@@ -210,12 +223,13 @@
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
 
         - name: Discover exactly one legacy MinIO container IPv4 safely
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.shell: |
             set -euo pipefail
             count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
             minio_ids="$(podman ps \
-              --filter label=io.podman.compose.project=onclave \
+              --filter label=com.docker.compose.project=onclave \
               --filter label=com.docker.compose.service=minio \
               --filter status=running \
               --quiet)"
@@ -230,7 +244,7 @@
                 raise SystemExit(1)
             item = items[0]
             labels = (item.get("Config") or {}).get("Labels") or {}
-            if labels.get("io.podman.compose.project") != "onclave":
+            if labels.get("com.docker.compose.project") != "onclave":
                 raise SystemExit(1)
             if labels.get("com.docker.compose.service") != "minio":
                 raise SystemExit(1)
@@ -262,6 +276,7 @@
             onclave_migration_source_endpoint: "http://{{ onclave_migration_minio_ip.stdout | trim }}:9000"
 
         - name: Refuse to reuse a stale final quiescence marker
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.stat:
             path: "{{ onclave_migration_quiesced_marker }}"
@@ -281,6 +296,7 @@
           no_log: true
 
         - name: Refuse to reuse a stale remote parity artifact
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.stat:
             path: "{{ onclave_migration_remote_artifact }}"
@@ -298,6 +314,7 @@
           no_log: true
 
         - name: Run the resumable copy while Onclave core remains live
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.command:
             argv:
@@ -325,6 +342,7 @@
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
 
         - name: Stop only Onclave core for the final migration window
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.command:
             argv:
@@ -340,13 +358,25 @@
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
 
         - name: Verify only Onclave core stopped and MinIO/SeaweedFS stayed running
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.shell: |
             set -euo pipefail
             count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
-            core_all="$(podman ps --all --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --quiet)"
-            core_running="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --filter status=running --quiet)"
-            minio_ids="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=minio --filter status=running --quiet)"
+            core_all="$(podman ps --all \
+              --filter label=com.docker.compose.project=onclave \
+              --filter label=com.docker.compose.service=onclave-core \
+              --quiet)"
+            core_running="$(podman ps \
+              --filter label=com.docker.compose.project=onclave \
+              --filter label=com.docker.compose.service=onclave-core \
+              --filter status=running \
+              --quiet)"
+            minio_ids="$(podman ps \
+              --filter label=com.docker.compose.project=onclave \
+              --filter label=com.docker.compose.service=minio \
+              --filter status=running \
+              --quiet)"
             test "$(printf '%s\n' "$core_all" | count_lines)" = 1
             test -z "$core_running"
             test "$(printf '%s\n' "$minio_ids" | count_lines)" = 1
@@ -379,6 +409,7 @@
           no_log: true
 
         - name: Finalize the copy and write a private parity artifact
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.command:
             argv:
@@ -437,12 +468,21 @@
           when: onclave_migration_mode == 'final'
 
         - name: Re-verify the final cutover boundary after parity succeeds
+          become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.shell: |
             set -euo pipefail
             count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
-            core_running="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --filter status=running --quiet)"
-            minio_ids="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=minio --filter status=running --quiet)"
+            core_running="$(podman ps \
+              --filter label=com.docker.compose.project=onclave \
+              --filter label=com.docker.compose.service=onclave-core \
+              --filter status=running \
+              --quiet)"
+            minio_ids="$(podman ps \
+              --filter label=com.docker.compose.project=onclave \
+              --filter label=com.docker.compose.service=minio \
+              --filter status=running \
+              --quiet)"
             test -z "$core_running"
             test "$(printf '%s\n' "$minio_ids" | count_lines)" = 1
             podman inspect seaweedfs-state | python3 -c '

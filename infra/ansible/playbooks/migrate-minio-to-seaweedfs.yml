@@ -203,8 +203,8 @@
               --filter label=com.docker.compose.service=minio \
               --filter status=running \
               --quiet)"
-            test "$(printf '%s\n' "$core_ids" | count_lines)" = 1
-            test "$(printf '%s\n' "$minio_ids" | count_lines)" = 1
+            test "$(echo "$core_ids" | count_lines)" = 1
+            test "$(echo "$minio_ids" | count_lines)" = 1
             podman inspect seaweedfs-state | python3 -c '
             import json
             import sys
@@ -233,8 +233,8 @@
               --filter label=com.docker.compose.service=minio \
               --filter status=running \
               --quiet)"
-            test "$(printf '%s\\n' "$minio_ids" | count_lines)" = 1
-            minio_id="$(printf '%s\\n' "$minio_ids" | awk 'NF { print; exit }')"
+            test "$(echo "$minio_ids" | count_lines)" = 1
+            minio_id="$(echo "$minio_ids" | awk 'NF { print; exit }')"
             podman inspect "$minio_id" | python3 -c '
             import ipaddress
             import json
@@ -377,9 +377,9 @@
               --filter label=com.docker.compose.service=minio \
               --filter status=running \
               --quiet)"
-            test "$(printf '%s\n' "$core_all" | count_lines)" = 1
+            test "$(echo "$core_all" | count_lines)" = 1
             test -z "$core_running"
-            test "$(printf '%s\n' "$minio_ids" | count_lines)" = 1
+            test "$(echo "$minio_ids" | count_lines)" = 1
             podman inspect seaweedfs-state | python3 -c '
             import json
             import sys
@@ -484,7 +484,7 @@
               --filter status=running \
               --quiet)"
             test -z "$core_running"
-            test "$(printf '%s\n' "$minio_ids" | count_lines)" = 1
+            test "$(echo "$minio_ids" | count_lines)" = 1
             podman inspect seaweedfs-state | python3 -c '
             import json
             import sys

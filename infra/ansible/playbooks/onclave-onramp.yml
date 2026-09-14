@@ -7,6 +7,11 @@
   hosts: onramp_host
   gather_facts: true
   become: true
+  vars:
+    onclave_onramp_s3_endpoint: >-
+      {{ lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT')
+         | regex_replace('^https://', '') }}:443
+    onclave_onramp_s3_secure: true
   pre_tasks:
     - name: Resolve host-rendered Onclave BWS secrets
       ansible.builtin.set_fact:

@@ -914,6 +914,12 @@ class AnsibleSafetyTests(unittest.TestCase):
     def test_onclave_onramp_consumes_host_rendered_bws_secrets(self) -> None:
         plays = yaml.safe_load(ONCLAVE_ONRAMP_PLAYBOOK.read_text(encoding="utf-8"))
         deployment = plays[-1]
+        self.assertIn(
+            "ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT",
+            deployment["vars"]["onclave_onramp_s3_endpoint"],
+        )
+        self.assertIn(":443", deployment["vars"]["onclave_onramp_s3_endpoint"])
+        self.assertTrue(deployment["vars"]["onclave_onramp_s3_secure"])
         tasks = {task["name"]: task for task in deployment["pre_tasks"]}
         resolve_task = tasks["Resolve host-rendered Onclave BWS secrets"]
         facts = resolve_task["ansible.builtin.set_fact"]

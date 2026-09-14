@@ -1,0 +1,469 @@
+---
+# Explicit, operator-invoked live migration.  This is deliberately not a
+# service-registry entry: it is a one-time data operation, not steady-state
+# reconciliation.
+- name: Prepare verified direct access for the onramp VM
+  ansible.builtin.import_playbook: vm-direct-access-ready.yml
+  vars:
+    direct_vm_access_target_group: onramp_host
+
+- name: Orchestrate the live MinIO to SeaweedFS migration
+  hosts: onramp_host
+  gather_facts: false
+  become: true
+  vars:
+    # The safe default is the resumable live copy.  Finalization must always be
+    # explicit because it intentionally leaves the core service stopped.
+    onclave_migration_mode: "{{ migration_mode | default('initial') }}"
+    onclave_migration_compose_provider: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
+    onclave_migration_compose_file: "{{ onramp_host_deploy_dir }}/onclave/compose.yaml"
+    onclave_migration_destination_endpoint: "http://localhost:8333"
+    onclave_migration_bucket: menos
+    onclave_migration_region: us-east-1
+    onclave_migration_remote_root: "{{ onramp_host_deploy_dir }}/.minio-seaweedfs-migration"
+    onclave_migration_remote_script: "{{ onclave_migration_remote_root }}/migrate-minio-to-seaweedfs.py"
+    onclave_migration_remote_artifact: "{{ onclave_migration_remote_root }}/parity.json"
+    # This marker is intentionally outside the temporary work directory.  It
+    # remains as evidence of the final quiescence while core awaits cutover.
+    onclave_migration_quiesced_marker: "{{ onramp_host_deploy_dir }}/.minio-seaweedfs-quiesced"
+    onclave_migration_artifact: >-
+      {{ migration_artifact_path
+         | default(lookup('env', 'MINIO_SEAWEEDFS_MIGRATION_ARTIFACT'), true)
+         | default('/workspace/values/artifacts/onclave/minio-to-seaweedfs-parity.json', true) }}
+    onclave_migration_deploy_user: "{{ onramp_host_deploy_user | default('anvil') }}"
+  pre_tasks:
+    - name: Validate live migration inputs
+      ansible.builtin.assert:
+        that:
+          - onclave_migration_mode in ['initial', 'final']
+          - onclave_migration_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+          - onclave_migration_compose_provider is match('^[A-Za-z0-9._/-]+$')
+          - onclave_migration_compose_file is match('^/[A-Za-z0-9_./:-]+$')
+          - onclave_migration_destination_endpoint == 'http://localhost:8333'
+          - onclave_migration_bucket == 'menos'
+          - onclave_migration_region is match('^[a-z0-9-]+$')
+          - onclave_migration_remote_root is match('^/[A-Za-z0-9_./:-]+$')
+          - onclave_migration_artifact is match('^/workspace/values/artifacts/[A-Za-z0-9._/-]+\.json$')
+        fail_msg: >-
+          Migration requires initial or explicit final mode, the existing
+          onramp Onclave Compose project, localhost:8333 as the destination,
+          the menos bucket, and a private values/artifacts parity path.
+      no_log: true
+
+    - name: Resolve migration credentials from BWS runtime environment
+      ansible.builtin.set_fact:
+        onclave_migration_minio_access_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_ACCESS_KEY') }}"
+        onclave_migration_minio_secret_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_SECRET_KEY') }}"
+        onclave_migration_seaweedfs_access_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_ACCESS_KEY') }}"
+        onclave_migration_seaweedfs_secret_key: "{{ lookup('env', 'ONCLAVE_VAULT_S3_SECRET_KEY') }}"
+      no_log: true
+
+    - name: Validate migration credentials without displaying them
+      ansible.builtin.assert:
+        that:
+          - onclave_migration_minio_access_key | length > 0
+          - onclave_migration_minio_secret_key | length > 0
+          - onclave_migration_seaweedfs_access_key | length > 0
+          - onclave_migration_seaweedfs_secret_key | length > 0
+        fail_msg: "Onclave S3 credentials are required from the BWS runtime environment."
+      no_log: true
+
+    - name: Refuse to overwrite an existing local final parity artifact
+      ansible.builtin.stat:
+        path: "{{ onclave_migration_artifact }}"
+      register: onclave_migration_local_artifact
+      delegate_to: localhost
+      become: false
+      when: onclave_migration_mode == 'final'
+
+    - name: Require a new local final parity artifact path
+      ansible.builtin.assert:
+        that:
+          - not onclave_migration_local_artifact.stat.exists
+        fail_msg: >-
+          The final parity artifact already exists; choose a new private
+          MINIO_SEAWEEDFS_MIGRATION_ARTIFACT path rather than overwriting it.
+      when: onclave_migration_mode == 'final'
+      no_log: true
+
+  tasks:
+    - name: Run the bounded migration operation
+      block:
+        - name: Ensure the temporary migration workspace is private
+          ansible.builtin.file:
+            path: "{{ onclave_migration_remote_root }}"
+            state: directory
+            owner: "{{ onclave_migration_deploy_user }}"
+            group: "{{ onclave_migration_deploy_user }}"
+            mode: "0700"
+
+        - name: Install the migration script in the temporary workspace
+          ansible.builtin.copy:
+            content: "{{ lookup('file', playbook_dir ~ '/../../../scripts/migrate-minio-to-seaweedfs.py') }}"
+            dest: "{{ onclave_migration_remote_script }}"
+            owner: "{{ onclave_migration_deploy_user }}"
+            group: "{{ onclave_migration_deploy_user }}"
+            mode: "0700"
+
+        - name: Resolve the rootless deploy user UID
+          ansible.builtin.command:
+            argv:
+              - id
+              - -u
+              - "{{ onclave_migration_deploy_user }}"
+          register: onclave_migration_uid
+          changed_when: false
+
+        - name: Check whether the remote Python already has boto3
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -c
+              - import boto3
+          register: onclave_migration_boto3_check
+          changed_when: false
+          failed_when: false
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Install the temporary remote venv prerequisite when needed
+          ansible.builtin.apt:
+            name: python3-venv
+            state: present
+            update_cache: true
+          when: onclave_migration_boto3_check.rc != 0
+
+        - name: Create a temporary remote Python venv when boto3 is absent
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - venv
+              - "{{ onclave_migration_remote_root }}/venv"
+          when: onclave_migration_boto3_check.rc != 0
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Install boto3 into the temporary remote venv
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - "{{ onclave_migration_remote_root }}/venv/bin/pip"
+              - install
+              - --disable-pip-version-check
+              - --no-cache-dir
+              - boto3
+          when: onclave_migration_boto3_check.rc != 0
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Select the migration Python interpreter
+          ansible.builtin.set_fact:
+            onclave_migration_python: >-
+              {{ 'python3' if onclave_migration_boto3_check.rc == 0
+                 else onclave_migration_remote_root ~ '/venv/bin/python' }}
+
+        - name: Verify the existing Onclave Compose project is present
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.stat:
+            path: "{{ onclave_migration_compose_file }}"
+          register: onclave_migration_compose_stat
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Fail closed when the existing Onclave Compose project is absent
+          ansible.builtin.assert:
+            that:
+              - onclave_migration_compose_stat.stat.exists
+              - onclave_migration_compose_stat.stat.isreg
+            fail_msg: >-
+              The existing Onclave Compose project is required; this operation
+              must run before the unified MinIO-free Compose deployment.
+
+        - name: Verify core, legacy MinIO, and SeaweedFS are all running
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
+            core_ids="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --filter status=running --quiet)"
+            minio_ids="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=minio --filter status=running --quiet)"
+            test "$(printf '%s\n' "$core_ids" | count_lines)" = 1
+            test "$(printf '%s\n' "$minio_ids" | count_lines)" = 1
+            podman inspect seaweedfs-state | python3 -c '
+            import json
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1 or items[0].get("Name") != "/seaweedfs-state":
+                raise SystemExit(1)
+            if items[0].get("State", {}).get("Status") != "running":
+                raise SystemExit(1)
+            '
+          args:
+            executable: /bin/bash
+          register: onclave_migration_live_services
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Discover exactly one legacy MinIO container IPv4 safely
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
+            minio_ids="$(podman ps \
+              --filter label=io.podman.compose.project=onclave \
+              --filter label=com.docker.compose.service=minio \
+              --filter status=running \
+              --quiet)"
+            test "$(printf '%s\\n' "$minio_ids" | count_lines)" = 1
+            minio_id="$(printf '%s\\n' "$minio_ids" | awk 'NF { print; exit }')"
+            podman inspect "$minio_id" | python3 -c '
+            import ipaddress
+            import json
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1:
+                raise SystemExit(1)
+            item = items[0]
+            labels = (item.get("Config") or {}).get("Labels") or {}
+            if labels.get("io.podman.compose.project") != "onclave":
+                raise SystemExit(1)
+            if labels.get("com.docker.compose.service") != "minio":
+                raise SystemExit(1)
+            networks = (item.get("NetworkSettings") or {}).get("Networks") or {}
+            addresses = []
+            for network in networks.values():
+                value = network.get("IPAddress")
+                if value:
+                    try:
+                        address = ipaddress.ip_address(value)
+                    except ValueError:
+                        continue
+                    if address.version == 4:
+                        addresses.append(str(address))
+            if len(set(addresses)) != 1:
+                raise SystemExit(1)
+            print(addresses[0])
+            '
+          args:
+            executable: /bin/bash
+          register: onclave_migration_minio_ip
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Set the discovered source endpoint and fresh remote artifact path
+          ansible.builtin.set_fact:
+            onclave_migration_source_endpoint: "http://{{ onclave_migration_minio_ip.stdout | trim }}:9000"
+
+        - name: Refuse to reuse a stale final quiescence marker
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.stat:
+            path: "{{ onclave_migration_quiesced_marker }}"
+          register: onclave_migration_marker_stat
+          when: onclave_migration_mode == 'final'
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Require final orchestration to create a fresh quiescence marker
+          ansible.builtin.assert:
+            that:
+              - not onclave_migration_marker_stat.stat.exists
+            fail_msg: >-
+              A previous migration quiescence marker exists; inspect the stopped
+              core and cutover state rather than silently reusing it.
+          when: onclave_migration_mode == 'final'
+          no_log: true
+
+        - name: Refuse to reuse a stale remote parity artifact
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.stat:
+            path: "{{ onclave_migration_remote_artifact }}"
+          register: onclave_migration_remote_artifact_stat
+          when: onclave_migration_mode == 'final'
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Require a new remote parity artifact
+          ansible.builtin.assert:
+            that:
+              - not onclave_migration_remote_artifact_stat.stat.exists
+            fail_msg: "Refusing to overwrite a prior remote parity artifact."
+          when: onclave_migration_mode == 'final'
+          no_log: true
+
+        - name: Run the resumable copy while Onclave core remains live
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - "{{ onclave_migration_python }}"
+              - "{{ onclave_migration_remote_script }}"
+              - copy
+              - --source-endpoint
+              - "{{ onclave_migration_source_endpoint }}"
+              - --destination-endpoint
+              - "{{ onclave_migration_destination_endpoint }}"
+              - --source-bucket
+              - "{{ onclave_migration_bucket }}"
+              - --destination-bucket
+              - "{{ onclave_migration_bucket }}"
+              - --region
+              - "{{ onclave_migration_region }}"
+          when: onclave_migration_mode == 'initial'
+          changed_when: true
+          no_log: true
+          environment:
+            MINIO_ACCESS_KEY: "{{ onclave_migration_minio_access_key }}"
+            MINIO_SECRET_KEY: "{{ onclave_migration_minio_secret_key }}"
+            AWS_ACCESS_KEY_ID: "{{ onclave_migration_seaweedfs_access_key }}"
+            AWS_SECRET_ACCESS_KEY: "{{ onclave_migration_seaweedfs_secret_key }}"
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Stop only Onclave core for the final migration window
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - "{{ onclave_migration_compose_provider }}"
+              - -f
+              - "{{ onclave_migration_compose_file }}"
+              - stop
+              - onclave-core
+          when: onclave_migration_mode == 'final'
+          changed_when: true
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Verify only Onclave core stopped and MinIO/SeaweedFS stayed running
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
+            core_all="$(podman ps --all --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --quiet)"
+            core_running="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --filter status=running --quiet)"
+            minio_ids="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=minio --filter status=running --quiet)"
+            test "$(printf '%s\n' "$core_all" | count_lines)" = 1
+            test -z "$core_running"
+            test "$(printf '%s\n' "$minio_ids" | count_lines)" = 1
+            podman inspect seaweedfs-state | python3 -c '
+            import json
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1 or items[0].get("Name") != "/seaweedfs-state":
+                raise SystemExit(1)
+            if items[0].get("State", {}).get("Status") != "running":
+                raise SystemExit(1)
+            '
+          args:
+            executable: /bin/bash
+          when: onclave_migration_mode == 'final'
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Create the orchestration-owned final quiescence marker
+          ansible.builtin.copy:
+            content: "Onclave core stopped by MinIO to SeaweedFS cutover orchestration.\n"
+            dest: "{{ onclave_migration_quiesced_marker }}"
+            owner: "{{ onclave_migration_deploy_user }}"
+            group: "{{ onclave_migration_deploy_user }}"
+            mode: "0600"
+            force: false
+          when: onclave_migration_mode == 'final'
+          no_log: true
+
+        - name: Finalize the copy and write a private parity artifact
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - "{{ onclave_migration_python }}"
+              - "{{ onclave_migration_remote_script }}"
+              - finalize
+              - --source-endpoint
+              - "{{ onclave_migration_source_endpoint }}"
+              - --destination-endpoint
+              - "{{ onclave_migration_destination_endpoint }}"
+              - --source-bucket
+              - "{{ onclave_migration_bucket }}"
+              - --destination-bucket
+              - "{{ onclave_migration_bucket }}"
+              - --region
+              - "{{ onclave_migration_region }}"
+              - --artifact
+              - "{{ onclave_migration_remote_artifact }}"
+              - --quiesced-marker
+              - "{{ onclave_migration_quiesced_marker }}"
+          when: onclave_migration_mode == 'final'
+          changed_when: true
+          no_log: true
+          environment:
+            MINIO_ACCESS_KEY: "{{ onclave_migration_minio_access_key }}"
+            MINIO_SECRET_KEY: "{{ onclave_migration_minio_secret_key }}"
+            AWS_ACCESS_KEY_ID: "{{ onclave_migration_seaweedfs_access_key }}"
+            AWS_SECRET_ACCESS_KEY: "{{ onclave_migration_seaweedfs_secret_key }}"
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Ensure the private local parity artifact directory exists
+          ansible.builtin.file:
+            path: "{{ onclave_migration_artifact | dirname }}"
+            state: directory
+            mode: "0700"
+          delegate_to: localhost
+          become: false
+          when: onclave_migration_mode == 'final'
+
+        - name: Fetch the private parity artifact to the controller
+          ansible.builtin.fetch:
+            src: "{{ onclave_migration_remote_artifact }}"
+            dest: "{{ onclave_migration_artifact }}"
+            flat: true
+            validate_checksum: true
+          when: onclave_migration_mode == 'final'
+          no_log: true
+
+        - name: Restrict the fetched parity artifact
+          ansible.builtin.file:
+            path: "{{ onclave_migration_artifact }}"
+            state: file
+            mode: "0600"
+          delegate_to: localhost
+          become: false
+          when: onclave_migration_mode == 'final'
+
+        - name: Re-verify the final cutover boundary after parity succeeds
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
+            core_running="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=onclave-core --filter status=running --quiet)"
+            minio_ids="$(podman ps --filter label=io.podman.compose.project=onclave --filter label=com.docker.compose.service=minio --filter status=running --quiet)"
+            test -z "$core_running"
+            test "$(printf '%s\n' "$minio_ids" | count_lines)" = 1
+            podman inspect seaweedfs-state | python3 -c '
+            import json
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1 or items[0].get("Name") != "/seaweedfs-state":
+                raise SystemExit(1)
+            if items[0].get("State", {}).get("Status") != "running":
+                raise SystemExit(1)
+            '
+          args:
+            executable: /bin/bash
+          when: onclave_migration_mode == 'final'
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+      always:
+        - name: Remove the temporary migration workspace
+          ansible.builtin.file:
+            path: "{{ onclave_migration_remote_root }}"
+            state: absent
+          no_log: true

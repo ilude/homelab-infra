@@ -209,7 +209,7 @@
             import json
             import sys
             items = json.load(sys.stdin)
-            if len(items) != 1 or items[0].get("Name") != "/seaweedfs-state":
+            if len(items) != 1 or str(items[0].get("Name", "")).lstrip("/") != "seaweedfs-state":
                 raise SystemExit(1)
             if items[0].get("State", {}).get("Status") != "running":
                 raise SystemExit(1)
@@ -384,7 +384,7 @@
             import json
             import sys
             items = json.load(sys.stdin)
-            if len(items) != 1 or items[0].get("Name") != "/seaweedfs-state":
+            if len(items) != 1 or str(items[0].get("Name", "")).lstrip("/") != "seaweedfs-state":
                 raise SystemExit(1)
             if items[0].get("State", {}).get("Status") != "running":
                 raise SystemExit(1)
@@ -489,7 +489,7 @@
             import json
             import sys
             items = json.load(sys.stdin)
-            if len(items) != 1 or items[0].get("Name") != "/seaweedfs-state":
+            if len(items) != 1 or str(items[0].get("Name", "")).lstrip("/") != "seaweedfs-state":
                 raise SystemExit(1)
             if items[0].get("State", {}).get("Status") != "running":
                 raise SystemExit(1)

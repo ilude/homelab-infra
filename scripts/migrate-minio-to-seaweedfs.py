@@ -15,8 +15,9 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import boto3
 from botocore.client import Config
@@ -99,7 +100,14 @@ def summary(entries: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def write_artifact(path: Path, source: list[dict[str, Any]], destination: list[dict[str, Any]] | None = None) -> None:
+def has_object_parity(source: list[dict[str, Any]], destination: list[dict[str, Any]]) -> bool:
+    """Compare the preserved migration contract, not backend-inferred MIME types."""
+    return summary(source) == summary(destination)
+
+
+def write_artifact(
+    path: Path, source: list[dict[str, Any]], destination: list[dict[str, Any]] | None = None
+) -> None:
     payload = {
         "schema_version": 1,
         "source": {**summary(source), "objects": source},
@@ -114,7 +122,9 @@ def write_artifact(path: Path, source: list[dict[str, Any]], destination: list[d
         pass
 
 
-def copy_one(source: Any, destination: Any, source_bucket: str, destination_bucket: str, key: str) -> bool:
+def copy_one(
+    source: Any, destination: Any, source_bucket: str, destination_bucket: str, key: str
+) -> bool:
     size, digest, content_type, metadata = object_digest(source, source_bucket, key)
     try:
         (
@@ -200,10 +210,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        source = client(args.source_endpoint, args.region, args.source_access_key_env, args.source_secret_key_env)
+        source = client(
+            args.source_endpoint,
+            args.region,
+            args.source_access_key_env,
+            args.source_secret_key_env,
+        )
         destination = None
         if args.command != "inventory":
-            destination = client(args.destination_endpoint, args.region, args.destination_access_key_env, args.destination_secret_key_env)
+            destination = client(
+                args.destination_endpoint,
+                args.region,
+                args.destination_access_key_env,
+                args.destination_secret_key_env,
+            )
         if args.command in {"inventory", "parity", "finalize"}:
             if args.command == "finalize":
                 require_quiescence(args.quiesced_marker)
@@ -227,7 +247,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.artifact:
                 write_artifact(args.artifact, source_inventory, destination_inventory)
             if args.command == "copy":
-                print(json.dumps({"copied": changed, **summary(destination_inventory)}, sort_keys=True))
+                print(
+                    json.dumps(
+                        {"copied": changed, **summary(destination_inventory)}, sort_keys=True
+                    )
+                )
                 return 0
         elif args.command == "parity":
             assert destination is not None
@@ -238,8 +262,10 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.artifact:
             write_artifact(args.artifact, source_inventory, destination_inventory)
-        if summary(source_inventory) != summary(destination_inventory) or source_inventory != destination_inventory:
-            raise MigrationError("source and destination object parity failed; see the private artifact")
+        if not has_object_parity(source_inventory, destination_inventory):
+            raise MigrationError(
+                "source and destination object parity failed; see the private artifact"
+            )
         print(json.dumps({"parity": "ok", **summary(source_inventory)}, sort_keys=True))
         return 0
     except (MigrationError, BotoCoreError, ClientError) as error:

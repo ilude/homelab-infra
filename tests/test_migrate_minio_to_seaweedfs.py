@@ -41,7 +41,30 @@ class MigrationSafetyTests(unittest.TestCase):
             path.touch()
             with self.assertRaisesRegex(migration.MigrationError, "overwrite existing"):
                 migration.require_fresh_artifact(path)
-            self.assertEqual(migration.require_fresh_artifact(Path(temp) / "new.json"), Path(temp) / "new.json")
+            self.assertEqual(
+                migration.require_fresh_artifact(Path(temp) / "new.json"), Path(temp) / "new.json"
+            )
+
+    def test_parity_uses_keys_bytes_and_digests_not_backend_inferred_mime_types(self) -> None:
+        source = [
+            {
+                "key": "youtube/example/transcript.txt",
+                "bytes": 12,
+                "sha256": "a" * 64,
+                "content_type": "application/octet-stream",
+                "metadata": {},
+            }
+        ]
+        destination = [
+            {
+                **source[0],
+                "content_type": "text/plain; charset=utf-8",
+            }
+        ]
+
+        self.assertTrue(migration.has_object_parity(source, destination))
+        destination[0]["sha256"] = "b" * 64
+        self.assertFalse(migration.has_object_parity(source, destination))
 
 
 if __name__ == "__main__":

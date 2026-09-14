@@ -935,11 +935,34 @@ class AnsibleSafetyTests(unittest.TestCase):
 
     def test_onclave_cutover_is_explicit_and_quiesces_before_backup_or_removal(self) -> None:
         role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
-        defaults = yaml.safe_load((role / "defaults" / "main.yml").read_text(encoding="utf-8"))
+        defaults = yaml.safe_load(
+            (role / "defaults" / "main.yml").read_text(encoding="utf-8")
+        )
         self.assertFalse(defaults["onclave_onramp_enable_cutover"])
         source = (role / "tasks" / "main.yml").read_text(encoding="utf-8")
         self.assertIn("Verify legacy Onclave target is stopped before cutover", source)
         self.assertIn("Create final Onclave corpus backup while writes are quiesced", source)
+        stop_legacy = task_by_name(
+            role / "tasks" / "main.yml",
+            "Stop legacy Onclave containers before final corpus backup",
+        )
+        self.assertIn(
+            "com.docker.compose.project=onclave",
+            stop_legacy["ansible.builtin.shell"],
+        )
+        self.assertIn(
+            "com.docker.compose.service=${service}",
+            stop_legacy["ansible.builtin.shell"],
+        )
+        self.assertTrue(stop_legacy["no_log"])
+        verify_stopped = task_by_name(
+            role / "tasks" / "main.yml",
+            "Verify no legacy Onclave containers are running before backup",
+        )
+        self.assertIn(
+            "label=com.docker.compose.project=onclave",
+            verify_stopped["ansible.builtin.command"]["argv"],
+        )
         for task_name in (
             "Remove legacy Onclave containers",
             "Remove retired MinIO containers without touching their data directory",

@@ -357,21 +357,23 @@
 - name: Stop legacy Onclave containers before final corpus backup
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
-  ansible.builtin.command:
-    argv:
-      - podman
-      - stop
-      - --ignore
-      - --time
-      - "30"
-      - onclave-rabbitmq
-      - onclave-core
-      - minio
-      - onclave-minio
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for service in rabbitmq onclave-core minio; do
+      ids="$(podman ps --quiet \
+        --filter label=com.docker.compose.project=onclave \
+        --filter "label=com.docker.compose.service=${service}")"
+      if [[ -n "$ids" ]]; then
+        podman stop --time 30 $ids
+      fi
+    done
+  args:
+    executable: /bin/bash
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_legacy_stop
   changed_when: onclave_onramp_legacy_stop.stdout | trim | length > 0
+  no_log: true
   when: onclave_onramp_enable_cutover | bool
 
 - name: Verify no legacy Onclave containers are running before backup
@@ -383,17 +385,18 @@
       - ps
       - --quiet
       - --filter
-      - "name={{ item }}"
+      - label=com.docker.compose.project=onclave
+      - --filter
+      - "label=com.docker.compose.service={{ item }}"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_legacy_running
   changed_when: false
   failed_when: onclave_onramp_legacy_running.stdout_lines | length > 0
   loop:
-    - onclave-rabbitmq
+    - rabbitmq
     - onclave-core
     - minio
-    - onclave-minio
   when: onclave_onramp_enable_cutover | bool
 
 - name: Validate explicit Onclave cutover backup inputs

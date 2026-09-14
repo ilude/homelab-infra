@@ -423,6 +423,32 @@
           environment:
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
 
+        - name: Resolve SeaweedFS address on the temporary legacy network
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - podman
+              - inspect
+              - --format
+              - "{{ '{{' }} (index .NetworkSettings.Networks \"{{ onclave_migration_legacy_network.stdout | trim }}\").IPAddress {{ '}}' }}"
+              - seaweedfs-state
+          register: onclave_migration_seaweedfs_address
+          changed_when: false
+          failed_when: >-
+            onclave_migration_seaweedfs_address.rc != 0 or
+            (onclave_migration_seaweedfs_address.stdout | trim)
+              is not match('^[0-9A-Fa-f:.]+$')
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Select the direct SeaweedFS migration endpoint
+          ansible.builtin.set_fact:
+            onclave_migration_destination_effective_endpoint: >-
+              http://{{ onclave_migration_seaweedfs_address.stdout | trim }}:8333
+          no_log: true
+
         - name: Validate direct SeaweedFS S3 reachability from the MinIO network namespace
           become: true
           become_user: "{{ onclave_migration_deploy_user }}"
@@ -444,7 +470,7 @@
               - "%{http_code}"
               - --max-time
               - "10"
-              - "{{ onclave_migration_destination_endpoint }}"
+              - "{{ onclave_migration_destination_effective_endpoint }}"
           register: onclave_migration_direct_s3_check
           changed_when: false
           failed_when: >-
@@ -510,7 +536,7 @@
               - --source-endpoint
               - "{{ onclave_migration_source_endpoint }}"
               - --destination-endpoint
-              - "{{ onclave_migration_destination_endpoint }}"
+              - "{{ onclave_migration_destination_effective_endpoint }}"
               - --source-bucket
               - "{{ onclave_migration_bucket }}"
               - --destination-bucket
@@ -612,7 +638,7 @@
               - --source-endpoint
               - "{{ onclave_migration_source_endpoint }}"
               - --destination-endpoint
-              - "{{ onclave_migration_destination_endpoint }}"
+              - "{{ onclave_migration_destination_effective_endpoint }}"
               - --source-bucket
               - "{{ onclave_migration_bucket }}"
               - --destination-bucket

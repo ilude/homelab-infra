@@ -236,6 +236,8 @@ class AnsibleSafetyTests(unittest.TestCase):
             "Verify SeaweedFS is not already attached to the legacy network",
             "Connect SeaweedFS temporarily to the verified legacy Onclave network",
             "Verify SeaweedFS attachment to the verified legacy network",
+            "Resolve SeaweedFS address on the temporary legacy network",
+            "Select the direct SeaweedFS migration endpoint",
             "Validate direct SeaweedFS S3 reachability from the MinIO network namespace",
         ):
             self.assertTrue(by_name[name].get("no_log"), name)
@@ -248,7 +250,7 @@ class AnsibleSafetyTests(unittest.TestCase):
             ["podman", "unshare", "nsenter"],
         )
         self.assertIn(
-            "{{ onclave_migration_destination_endpoint }}",
+            "{{ onclave_migration_destination_effective_endpoint }}",
             direct_check["ansible.builtin.command"]["argv"],
         )
 

@@ -38,7 +38,11 @@ def client(endpoint: str, region: str, access_env: str, secret_env: str) -> Any:
         region_name=region,
         aws_access_key_id=access,
         aws_secret_access_key=secret,
-        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        config=Config(
+            signature_version="s3v4",
+            retries={"max_attempts": 10, "mode": "standard"},
+            s3={"addressing_style": "path"},
+        ),
     )
 
 

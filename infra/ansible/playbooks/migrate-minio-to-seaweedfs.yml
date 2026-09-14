@@ -17,6 +17,9 @@
     onclave_migration_mode: "{{ migration_mode | default('initial') }}"
     onclave_migration_compose_provider: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
     onclave_migration_compose_file: "{{ onramp_host_deploy_dir }}/onclave/compose.yaml"
+    onclave_migration_compose_override: "{{ onramp_host_deploy_dir }}/onclave/.minio-seaweedfs-migration.override.yaml"
+    onclave_migration_minio_port: "{{ migration_minio_port | default(19000) }}"
+    onclave_migration_override_active: false
     onclave_migration_destination_endpoint: "http://localhost:8333"
     onclave_migration_bucket: menos
     onclave_migration_region: us-east-1
@@ -39,6 +42,10 @@
           - onclave_migration_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
           - onclave_migration_compose_provider is match('^[A-Za-z0-9._/-]+$')
           - onclave_migration_compose_file is match('^/[A-Za-z0-9_./:-]+$')
+          - onclave_migration_compose_override is match('^/[A-Za-z0-9_./:-]+$')
+          - (onclave_migration_minio_port | string) is match('^[0-9]{1,5}$')
+          - onclave_migration_minio_port | int > 1024
+          - onclave_migration_minio_port | int < 65536
           - onclave_migration_destination_endpoint == 'http://localhost:8333'
           - onclave_migration_bucket == 'menos'
           - onclave_migration_region is match('^[a-z0-9-]+$')
@@ -222,21 +229,76 @@
           environment:
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
 
-        - name: Discover exactly one legacy MinIO container IPv4 safely
+        - name: Verify the temporary MinIO host port is unused
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            command -v ss >/dev/null
+            if ss -Hln sport = :{{ onclave_migration_minio_port }} | grep -q .; then
+              printf 'temporary MinIO migration port is already in use\n' >&2
+              exit 1
+            fi
+          args:
+            executable: /bin/bash
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Render a private temporary MinIO Compose override
+          ansible.builtin.copy:
+            content: |
+              services:
+                minio:
+                  ports:
+                    - "127.0.0.1:{{ onclave_migration_minio_port }}:9000"
+            dest: "{{ onclave_migration_compose_override }}"
+            owner: "{{ onclave_migration_deploy_user }}"
+            group: "{{ onclave_migration_deploy_user }}"
+            mode: "0600"
+
+        - name: Mark the temporary MinIO Compose override active
+          ansible.builtin.set_fact:
+            onclave_migration_override_active: true
+
+        - name: Recreate legacy MinIO with a temporary loopback-only publish
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - "{{ onclave_migration_compose_provider }}"
+              - -f
+              - "{{ onclave_migration_compose_file }}"
+              - -f
+              - "{{ onclave_migration_compose_override }}"
+              - up
+              - -d
+              - --force-recreate
+              - --no-deps
+              - minio
+          args:
+            chdir: "{{ onclave_migration_compose_file | dirname }}"
+          changed_when: true
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Validate legacy MinIO through the temporary loopback endpoint
           become: true
           become_user: "{{ onclave_migration_deploy_user }}"
           ansible.builtin.shell: |
             set -euo pipefail
             count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
-            minio_ids="$(podman ps \
-              --filter label=com.docker.compose.project=onclave \
-              --filter label=com.docker.compose.service=minio \
-              --filter status=running \
-              --quiet)"
-            test "$(echo "$minio_ids" | count_lines)" = 1
-            minio_id="$(echo "$minio_ids" | awk 'NF { print; exit }')"
-            podman inspect "$minio_id" | python3 -c '
-            import ipaddress
+            for attempt in $(seq 1 30); do
+              minio_ids="$(podman ps \
+                --filter label=com.docker.compose.project=onclave \
+                --filter label=com.docker.compose.service=minio \
+                --filter status=running \
+                --quiet)"
+              if [ "$(echo "$minio_ids" | count_lines)" = 1 ]; then
+                minio_id="$(echo "$minio_ids" | awk 'NF { print; exit }')"
+                if podman inspect "$minio_id" | python3 -c '
             import json
             import sys
             items = json.load(sys.stdin)
@@ -248,32 +310,37 @@
                 raise SystemExit(1)
             if labels.get("com.docker.compose.service") != "minio":
                 raise SystemExit(1)
-            networks = (item.get("NetworkSettings") or {}).get("Networks") or {}
-            addresses = []
-            for network in networks.values():
-                value = network.get("IPAddress")
-                if value:
-                    try:
-                        address = ipaddress.ip_address(value)
-                    except ValueError:
-                        continue
-                    if address.version == 4:
-                        addresses.append(str(address))
-            if len(set(addresses)) != 1:
+            bindings = (item.get("HostConfig") or {}).get("PortBindings") or {}
+            if set(bindings) != {"9000/tcp"}:
                 raise SystemExit(1)
-            print(addresses[0])
-            '
+            values = bindings["9000/tcp"]
+            if len(values) != 1:
+                raise SystemExit(1)
+            binding = values[0]
+            if str(binding.get("HostIp", "")) != "127.0.0.1":
+                raise SystemExit(1)
+            if str(binding.get("HostPort", "")) != sys.argv[1]:
+                raise SystemExit(1)
+            ' "{{ onclave_migration_minio_port }}" \
+                  && curl --fail --silent --show-error --max-time 5 \
+                    "http://localhost:{{ onclave_migration_minio_port }}/minio/health/live" >/dev/null; then
+                  exit 0
+                fi
+              fi
+              sleep 1
+            done
+            printf 'temporary loopback MinIO endpoint did not become ready\n' >&2
+            exit 1
           args:
             executable: /bin/bash
-          register: onclave_migration_minio_ip
           changed_when: false
           no_log: true
           environment:
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
 
-        - name: Set the discovered source endpoint and fresh remote artifact path
+        - name: Set the localhost source endpoint
           ansible.builtin.set_fact:
-            onclave_migration_source_endpoint: "http://{{ onclave_migration_minio_ip.stdout | trim }}:9000"
+            onclave_migration_source_endpoint: "http://localhost:{{ onclave_migration_minio_port }}"
 
         - name: Refuse to reuse a stale final quiescence marker
           become: true
@@ -502,6 +569,66 @@
           environment:
             XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
       always:
+        - name: Remove the temporary MinIO Compose override
+          ansible.builtin.file:
+            path: "{{ onclave_migration_compose_override }}"
+            state: absent
+          no_log: true
+
+        - name: Recreate legacy MinIO without the temporary migration port
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.command:
+            argv:
+              - "{{ onclave_migration_compose_provider }}"
+              - -f
+              - "{{ onclave_migration_compose_file }}"
+              - up
+              - -d
+              - --force-recreate
+              - --no-deps
+              - minio
+          args:
+            chdir: "{{ onclave_migration_compose_file | dirname }}"
+          when: onclave_migration_override_active | default(false) | bool
+          changed_when: true
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
+        - name: Validate legacy MinIO has no temporary migration port
+          become: true
+          become_user: "{{ onclave_migration_deploy_user }}"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            count_lines() { awk 'NF { count += 1 } END { print count + 0 }'; }
+            minio_ids="$(podman ps \
+              --filter label=com.docker.compose.project=onclave \
+              --filter label=com.docker.compose.service=minio \
+              --filter status=running \
+              --quiet)"
+            test "$(echo "$minio_ids" | count_lines)" = 1
+            minio_id="$(echo "$minio_ids" | awk 'NF { print; exit }')"
+            podman inspect "$minio_id" | python3 -c '
+            import json
+            import sys
+            items = json.load(sys.stdin)
+            if len(items) != 1:
+                raise SystemExit(1)
+            bindings = (items[0].get("HostConfig") or {}).get("PortBindings") or {}
+            for values in bindings.values():
+                for binding in values or []:
+                    if str(binding.get("HostPort", "")) == sys.argv[1]:
+                        raise SystemExit(1)
+            ' "{{ onclave_migration_minio_port }}"
+          args:
+            executable: /bin/bash
+          when: onclave_migration_override_active | default(false) | bool
+          changed_when: false
+          no_log: true
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ onclave_migration_uid.stdout | trim }}"
+
         - name: Remove the temporary migration workspace
           ansible.builtin.file:
             path: "{{ onclave_migration_remote_root }}"

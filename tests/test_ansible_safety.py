@@ -21,6 +21,9 @@ DIRECT_ACCESS_PLAYBOOK = (
 VM_DIRECT_ACCESS_PLAYBOOK = (
     REPO / "infra" / "ansible" / "playbooks" / "vm-direct-access-ready.yml"
 )
+MINIO_MIGRATION_PLAYBOOK = (
+    REPO / "infra" / "ansible" / "playbooks" / "migrate-minio-to-seaweedfs.yml"
+)
 ONCLAVE_ONRAMP_PLAYBOOK = (
     REPO / "infra" / "ansible" / "playbooks" / "onclave-onramp.yml"
 )
@@ -202,6 +205,51 @@ class AnsibleSafetyTests(unittest.TestCase):
             "Install Forgejo runner config",
         ):
             self.assertTrue(task_by_name(RUNNER_TASKS, name).get("no_log"), name)
+
+    def test_minio_migration_uses_private_loopback_override_and_restores_it(self) -> None:
+        playbook = yaml.safe_load(MINIO_MIGRATION_PLAYBOOK.read_text(encoding="utf-8"))
+        deployment = playbook[-1]
+        migration = deployment["tasks"][0]
+        block = migration["block"]
+        by_name = {task["name"]: task for task in block}
+        always = {task["name"]: task for task in migration["always"]}
+        source = MINIO_MIGRATION_PLAYBOOK.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            deployment["vars"]["onclave_migration_minio_port"],
+            "{{ migration_minio_port | default(19000) }}",
+        )
+        override = by_name["Render a private temporary MinIO Compose override"]
+        self.assertEqual(override["ansible.builtin.copy"]["mode"], "0600")
+        override_content = override["ansible.builtin.copy"]["content"]
+        self.assertIn('"127.0.0.1:{{ onclave_migration_minio_port }}:9000"', override_content)
+        self.assertNotIn('"0.0.0.0:', override_content)
+
+        temporary_recreate = by_name[
+            "Recreate legacy MinIO with a temporary loopback-only publish"
+        ]
+        temporary_command = temporary_recreate["ansible.builtin.command"]["argv"]
+        self.assertIn("{{ onclave_migration_compose_override }}", temporary_command)
+        self.assertIn("--force-recreate", temporary_command)
+        self.assertIn("--no-deps", temporary_command)
+        self.assertEqual(temporary_command[-1], "minio")
+        self.assertIn("http://localhost:{{ onclave_migration_minio_port }}", source)
+        self.assertNotIn("onclave_migration_minio_ip", source)
+
+        self.assertTrue(by_name["Run the resumable copy while Onclave core remains live"]["no_log"])
+        self.assertEqual(
+            by_name["Stop only Onclave core for the final migration window"]["when"],
+            "onclave_migration_mode == 'final'",
+        )
+        self.assertIn("Remove the temporary MinIO Compose override", always)
+        restore_command = always[
+            "Recreate legacy MinIO without the temporary migration port"
+        ]["ansible.builtin.command"]["argv"]
+        self.assertNotIn("{{ onclave_migration_compose_override }}", restore_command)
+        self.assertIn("--force-recreate", restore_command)
+        self.assertIn("--no-deps", restore_command)
+        self.assertNotIn(" down ", " ".join(restore_command))
+        self.assertNotIn("podman rm", source)
 
     def test_caddy_override_directories_exist_before_templating(self) -> None:
         override_task_names = {

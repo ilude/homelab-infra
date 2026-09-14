@@ -298,32 +298,9 @@
                 --quiet)"
               if [ "$(echo "$minio_ids" | count_lines)" = 1 ]; then
                 minio_id="$(echo "$minio_ids" | awk 'NF { print; exit }')"
-                if podman inspect "$minio_id" | python3 -c '
-            import json
-            import sys
-            items = json.load(sys.stdin)
-            if len(items) != 1:
-                raise SystemExit(1)
-            item = items[0]
-            labels = (item.get("Config") or {}).get("Labels") or {}
-            if labels.get("com.docker.compose.project") != "onclave":
-                raise SystemExit(1)
-            if labels.get("com.docker.compose.service") != "minio":
-                raise SystemExit(1)
-            bindings = (item.get("HostConfig") or {}).get("PortBindings") or {}
-            if set(bindings) != {"9000/tcp"}:
-                raise SystemExit(1)
-            values = bindings["9000/tcp"]
-            if len(values) != 1:
-                raise SystemExit(1)
-            binding = values[0]
-            if str(binding.get("HostIp", "")) != "127.0.0.1":
-                raise SystemExit(1)
-            if str(binding.get("HostPort", "")) != sys.argv[1]:
-                raise SystemExit(1)
-            ' "{{ onclave_migration_minio_port }}" \
+                if test "$(podman port "$minio_id" 9000/tcp)" = "127.0.0.1:{{ onclave_migration_minio_port }}" \
                   && curl --fail --silent --show-error --max-time 5 \
-                    "http://localhost:{{ onclave_migration_minio_port }}/minio/health/live" >/dev/null; then
+                    "http://127.0.0.1:{{ onclave_migration_minio_port }}/minio/health/live" >/dev/null; then
                   exit 0
                 fi
               fi

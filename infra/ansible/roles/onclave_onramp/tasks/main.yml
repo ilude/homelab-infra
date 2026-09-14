@@ -595,6 +595,10 @@
       - "{{ onclave_rabbitmq_default_pass }}"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_rabbitmq_reconcile
+  retries: 24
+  delay: 5
+  until: onclave_onramp_rabbitmq_reconcile.rc == 0
   when:
     - onclave_onramp_enable_cutover | bool
     - onclave_onramp_rabbitmq_auth.rc != 0

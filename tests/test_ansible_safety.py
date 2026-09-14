@@ -984,6 +984,16 @@ class AnsibleSafetyTests(unittest.TestCase):
             remove_legacy["ansible.builtin.shell"],
         )
         self.assertTrue(remove_legacy["no_log"])
+        rabbitmq_reconcile = task_by_name(
+            role / "tasks" / "main.yml",
+            "Reconcile persisted RabbitMQ password from BWS",
+        )
+        self.assertEqual(rabbitmq_reconcile["retries"], 24)
+        self.assertEqual(rabbitmq_reconcile["delay"], 5)
+        self.assertIn(
+            "onclave_onramp_rabbitmq_reconcile.rc == 0",
+            rabbitmq_reconcile["until"],
+        )
         verify_stopped = task_by_name(
             role / "tasks" / "main.yml",
             "Verify no legacy Onclave containers are running before backup",

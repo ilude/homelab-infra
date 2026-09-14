@@ -67,9 +67,7 @@ def require_quiescence(marker: str | None) -> None:
 
 def validate_restore_bucket(bucket: str) -> None:
     if bucket == "menos" or not bucket.startswith("menos-restore-test-"):
-        raise BackupError(
-            "restore-test requires an isolated menos-restore-test-* bucket"
-        )
+        raise BackupError("restore-test requires an isolated menos-restore-test-* bucket")
 
 
 def backup(
@@ -129,22 +127,37 @@ def backup(
     return manifest["summary"]
 
 
+def cleanup_restore(client: Any, bucket: str, created_bucket: bool) -> None:
+    for key in list_entries(client, bucket):
+        client.delete_object(Bucket=bucket, Key=key)
+    if created_bucket:
+        client.delete_bucket(Bucket=bucket)
+
+
 def restore_test(client: Any, archive_path: Path, bucket: str, cleanup: bool) -> dict[str, Any]:
     with tarfile.open(archive_path, "r:gz") as archive:
         manifest_member = archive.getmember("MANIFEST.json")
         manifest = json.loads(archive.extractfile(manifest_member).read())  # type: ignore[union-attr]
         if manifest.get("kind") != "seaweedfs-application-objects":
             raise BackupError("archive is not a SeaweedFS application-object backup")
+        created_bucket = False
         try:
             client.head_bucket(Bucket=bucket)
             if list_entries(client, bucket):
                 raise BackupError("restore-test bucket must be empty")
-        except ClientError:
+        except ClientError as error:
+            code = str(error.response.get("Error", {}).get("Code", ""))
+            if code not in {"404", "NoSuchBucket", "NotFound"}:
+                raise
             client.create_bucket(Bucket=bucket)
+            created_bucket = True
         for entry in manifest["objects"]:
             member = archive.getmember(entry["archive_name"])
             content = archive.extractfile(member).read()  # type: ignore[union-attr]
-            if hashlib.sha256(content).hexdigest() != entry["sha256"] or len(content) != entry["bytes"]:
+            if (
+                hashlib.sha256(content).hexdigest() != entry["sha256"]
+                or len(content) != entry["bytes"]
+            ):
                 raise BackupError("backup object digest validation failed")
             client.put_object(
                 Bucket=bucket,
@@ -165,8 +178,7 @@ def restore_test(client: Any, archive_path: Path, bucket: str, cleanup: bool) ->
         if actual != expected:
             raise BackupError("restored object corpus does not match the backup manifest")
         if cleanup:
-            for key in list_entries(client, bucket):
-                client.delete_object(Bucket=bucket, Key=key)
+            cleanup_restore(client, bucket, created_bucket)
         return manifest["summary"]
 
 
@@ -205,9 +217,23 @@ def main(argv: list[str] | None = None) -> int:
                 raise BackupError("--archive is required for restore-test")
             restore_bucket = args.restore_bucket or f"menos-restore-test-{secrets.token_hex(6)}"
             validate_restore_bucket(restore_bucket)
-            print(json.dumps(restore_test(client, args.archive, restore_bucket, not args.keep_restore_bucket), sort_keys=True))
+            print(
+                json.dumps(
+                    restore_test(
+                        client, args.archive, restore_bucket, not args.keep_restore_bucket
+                    ),
+                    sort_keys=True,
+                )
+            )
         return 0
-    except (BackupError, BotoCoreError, ClientError, OSError, tarfile.TarError, json.JSONDecodeError) as error:
+    except (
+        BackupError,
+        BotoCoreError,
+        ClientError,
+        OSError,
+        tarfile.TarError,
+        json.JSONDecodeError,
+    ) as error:
         print(f"SeaweedFS object backup failed: {error}", file=sys.stderr)
         return 1
 

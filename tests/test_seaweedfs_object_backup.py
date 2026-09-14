@@ -32,6 +32,23 @@ class _Paginator:
         yield {"Contents": [{"Key": "objects/example"}]}
 
 
+class _CleanupClient:
+    def __init__(self) -> None:
+        self.deleted_objects: list[str] = []
+        self.deleted_buckets: list[str] = []
+
+    def get_paginator(self, name: str) -> _Paginator:
+        assert name == "list_objects_v2"
+        return _Paginator()
+
+    def delete_object(self, *, Bucket: str, Key: str) -> None:
+        assert Bucket == "menos-restore-test-abcdef"
+        self.deleted_objects.append(Key)
+
+    def delete_bucket(self, *, Bucket: str) -> None:
+        self.deleted_buckets.append(Bucket)
+
+
 class _Client:
     def get_paginator(self, name: str) -> _Paginator:
         assert name == "list_objects_v2"
@@ -75,13 +92,26 @@ class SeaweedfsObjectBackupTests(unittest.TestCase):
                     archive.extractfile("MANIFEST.json").read()  # type: ignore[union-attr]
                 )
             self.assertEqual(manifest["objects"][0]["key"], "objects/example")
-            self.assertEqual(manifest["objects"][0]["sha256"], backup.hashlib.sha256(b"payload").hexdigest())
+            self.assertEqual(
+                manifest["objects"][0]["sha256"], backup.hashlib.sha256(b"payload").hexdigest()
+            )
 
     def test_restore_test_bucket_isolated_from_app_bucket(self) -> None:
         backup.validate_restore_bucket("menos-restore-test-abcdef")
         for bucket in ("menos", "other", "menos-restore"):
             with self.subTest(bucket=bucket), self.assertRaises(backup.BackupError):
                 backup.validate_restore_bucket(bucket)
+
+    def test_cleanup_deletes_only_a_bucket_created_by_the_restore_test(self) -> None:
+        client = _CleanupClient()
+        backup.cleanup_restore(client, "menos-restore-test-abcdef", False)
+        self.assertEqual(client.deleted_objects, ["objects/example"])
+        self.assertEqual(client.deleted_buckets, [])
+
+        client = _CleanupClient()
+        backup.cleanup_restore(client, "menos-restore-test-abcdef", True)
+        self.assertEqual(client.deleted_objects, ["objects/example"])
+        self.assertEqual(client.deleted_buckets, ["menos-restore-test-abcdef"])
 
 
 if __name__ == "__main__":

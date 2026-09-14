@@ -30,7 +30,7 @@ BWS inventory blocks rollback rather than overwriting an operator change.
 The Ansible playbook persists the selected core image pins and source revision
 in the existing host configuration, uses a temporary Compose override, and runs
 `pull` and `up -d --no-deps onclave-core`. It does not run the Onclave systemd unit and
-does not restart RabbitMQ, PostgreSQL, MinIO, Ollama, SearXNG, or Caddy. It
+does not restart RabbitMQ, PostgreSQL, SeaweedFS, Ollama, SearXNG, or Caddy. It
 fails immediately if the core container exits or reports a restart, then waits
 for HTTP `/health` to return `status=ok`, the requested `git_sha`, and
 `broker.connected=true`. Failures include at most 200 lines of redacted core

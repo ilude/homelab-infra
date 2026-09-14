@@ -788,6 +788,11 @@ class AnsibleSafetyTests(unittest.TestCase):
         deployment = playbook[-1]
         self.assertIn("seaweedfs_onramp_server_name", deployment["vars"])
         self.assertIn("seaweedfs_s3_endpoint", deployment["vars"]["seaweedfs_onramp_server_name"])
+        self.assertIn("seaweedfs_onramp_onclave_server_name", deployment["vars"])
+        self.assertIn(
+            "ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT",
+            deployment["vars"]["seaweedfs_onramp_onclave_server_name"],
+        )
         names = [task["name"] for task in deployment["pre_tasks"]]
         self.assertIn("Validate SeaweedFS Caddy hostname from BWS workstation HTTPS endpoint", names)
         self.assertIn("Validate existing BWS DNS workflow contains SeaweedFS Caddy hostname", names)

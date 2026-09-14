@@ -14,7 +14,11 @@ argument_specs:
       seaweedfs_onramp_server_name:
         type: str
         required: true
-        description: "HTTPS server name exposed through the shared onramp Caddy instance."
+        description: "OpenTofu state HTTPS server name exposed through the shared onramp Caddy instance."
+      seaweedfs_onramp_onclave_server_name:
+        type: str
+        required: true
+        description: "Onclave object HTTPS server name exposed through the shared onramp Caddy instance."
       seaweedfs_s3_endpoint:
         type: str
         required: true

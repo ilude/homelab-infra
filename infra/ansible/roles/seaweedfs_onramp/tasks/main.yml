@@ -8,6 +8,7 @@
       - onramp_host_deploy_user != 'root'
       - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
       - seaweedfs_onramp_server_name is match('^[A-Za-z0-9.-]+$')
+      - seaweedfs_onramp_onclave_server_name is match('^[A-Za-z0-9.-]+$')
       - seaweedfs_s3_endpoint == 'https://' + seaweedfs_onramp_server_name
       - seaweedfs_s3_bucket is match('^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$')
       - seaweedfs_s3_key is match('^[A-Za-z0-9._/-]+$')

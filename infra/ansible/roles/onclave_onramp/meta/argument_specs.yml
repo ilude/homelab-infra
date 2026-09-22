@@ -164,6 +164,9 @@ argument_specs:
       onclave_onramp_unified_pipeline_model:
         type: str
         required: false
+      onclave_onramp_unified_pipeline_input_budget:
+        type: int
+        required: false
       onclave_onramp_callback_url:
         type: str
         required: false

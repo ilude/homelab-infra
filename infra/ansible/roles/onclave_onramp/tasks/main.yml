@@ -43,6 +43,7 @@
       - onclave_onramp_data_root is match('^/[A-Za-z0-9_./:-]+$')
       - onclave_onramp_core_port | int > 0
       - onclave_onramp_core_port | int < 65536
+      - onclave_onramp_unified_pipeline_input_budget | int >= 4000
       - onclave_onramp_amqp_port | int > 0
       - onclave_onramp_amqp_port | int < 65536
       - onclave_onramp_enable_cutover is boolean

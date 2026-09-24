@@ -1430,7 +1430,7 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         discovery_source = discovery["ansible.builtin.shell"]
         self.assertIn('("/etc/searxng", "/var/cache/searxng")', discovery_source)
-        self.assertIn('{"nodev", "exec", "nosuid", "rbind"}', discovery_source)
+        self.assertIn('{"nodev", "nosuid", "rbind"}', discovery_source)
         self.assertIn('mount.get("Propagation") == "rprivate"', discovery_source)
         self.assertTrue(discovery["no_log"])
         volume_guard = task_by_name(

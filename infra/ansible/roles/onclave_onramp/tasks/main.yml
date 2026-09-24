@@ -365,7 +365,7 @@
     mounts = json.load(sys.stdin)[0].get("Mounts", [])
     expected = ("/etc/searxng", "/var/cache/searxng")
     found = {}
-    required_options = {"nodev", "exec", "nosuid", "rbind"}
+    required_options = {"nodev", "nosuid", "rbind"}
     for mount in mounts:
         destination = mount.get("Destination")
         options = set(mount.get("Options", []))

@@ -1164,7 +1164,18 @@ class AnsibleSafetyTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )["managed_service_state_catalog"]["onclave_onramp"]
-        self.assertEqual(state_catalog["user_services"], ["onclave-onramp.target"])
+        self.assertEqual(
+            state_catalog["user_services"],
+            [
+                "onclave-onramp.target",
+                "onclave-core.service",
+                "onclave-docling.service",
+                "onclave-searxng.service",
+                "onclave-ollama.service",
+                "onclave-postgres.service",
+                "onclave-rabbitmq.service",
+            ],
+        )
         rabbitmq_reconcile = task_by_name(
             role / "tasks" / "main.yml",
             "Reconcile persisted RabbitMQ password from BWS",

@@ -1,0 +1,109 @@
+---
+- name: Validate legacy restore native contract inputs
+  ansible.builtin.assert:
+    that:
+      - onramp_host_deploy_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - onramp_host_deploy_user != 'root'
+      - onramp_host_deploy_dir is match('^/[A-Za-z0-9_./:-]+$')
+      - onclave_source_git_sha is match('^[0-9a-f]{40}$')
+      - onclave_core_image_tag == onclave_source_git_sha
+      - onclave_core_image_digest is match('^sha256:[0-9a-f]{64}$')
+      - onclave_rabbitmq_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_postgres_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_ollama_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_searxng_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_docling_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - onclave_onramp_searxng_config_volume is match('^[A-Za-z0-9][A-Za-z0-9_.-]+$')
+      - onclave_onramp_searxng_cache_volume is match('^[A-Za-z0-9][A-Za-z0-9_.-]+$')
+      - onclave_onramp_searxng_config_volume != onclave_onramp_searxng_cache_volume
+    fail_msg: Legacy Onclave restore requires valid BWS pins and preserved native volume identities.
+  no_log: true
+
+- name: Ensure native Onclave definition directories exist after legacy restore
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ onclave_onramp_base_dir }}/env"
+      mode: "0700"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/containers"
+      mode: "0750"
+    - path: "{{ onclave_onramp_quadlet_dir }}"
+      mode: "0750"
+
+- name: Remove restored legacy Compose runtime definitions
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ onclave_onramp_base_dir }}/compose.yaml"
+    - "{{ onclave_onramp_base_dir }}/compose.upstream.yaml"
+    - "{{ onclave_onramp_base_dir }}/.core-rollout.override.yaml"
+    - "{{ onclave_onramp_base_dir }}/.env"
+
+- name: Regenerate native Onclave environment contracts from BWS
+  ansible.builtin.template:
+    src: "{{ item }}.env.j2"
+    dest: "{{ onclave_onramp_base_dir }}/env/{{ item }}.env"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0600"
+  loop:
+    - rabbitmq
+    - postgres
+    - ollama
+    - searxng
+    - docling
+    - core
+  no_log: true
+
+- name: Regenerate native Onclave authorized keys from BWS
+  ansible.builtin.template:
+    src: authorized_keys.j2
+    dest: "{{ onclave_onramp_base_dir }}/authorized_keys"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0640"
+  no_log: true
+
+- name: Regenerate native Onclave Quadlet sources from BWS
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ onclave_onramp_quadlet_dir }}/{{ item }}"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  loop:
+    - onclave.network
+    - onclave-rabbitmq.container
+    - onclave-postgres.container
+    - onclave-ollama.container
+    - onclave-searxng.container
+    - onclave-docling.container
+    - onclave-core.container
+  no_log: true
+
+- name: Regenerate native Onclave user target from BWS
+  ansible.builtin.template:
+    src: onclave-onramp.target.j2
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+
+- name: Regenerate Onclave Caddy site from BWS
+  ansible.builtin.template:
+    src: onclave.caddy.j2
+    dest: /etc/caddy/sites.d/onclave.caddy
+    owner: root
+    group: root
+    mode: "0644"

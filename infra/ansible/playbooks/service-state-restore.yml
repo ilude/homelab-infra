@@ -8,6 +8,15 @@
   vars:
     service_state_backup_root: "{{ lookup('env', 'SERVICE_STATE_BACKUP_ROOT') | default('/workspace/values/service-backups', true) }}"
     service_state_restore_file: "{{ lookup('env', 'SERVICE_STATE_RESTORE_FILE') | default('', true) }}"
+    service_state_legacy_onclave_retired_minio_path: "{{ onramp_host_deploy_dir }}/menos/data/minio"
+    service_state_legacy_onclave_manifest_paths:
+      - "{{ onramp_host_deploy_dir }}/onclave"
+      - "{{ onramp_host_deploy_dir }}/menos/data/postgres"
+      - "{{ service_state_legacy_onclave_retired_minio_path }}"
+      - /etc/caddy/sites.d/onclave.caddy
+    service_state_legacy_onclave_restore_paths:
+      - "{{ onramp_host_deploy_dir }}/onclave"
+      - "{{ onramp_host_deploy_dir }}/menos/data/postgres"
   tasks:
     - name: Validate service-state restore input
       ansible.builtin.assert:
@@ -283,7 +292,11 @@
               '--paths-json', service_state_managed_paths | to_json]
              + (['--require-all-paths']
                 if service_state_definition.restore_require_all_paths | default(false) | bool
-                else []) }}
+                else [])
+             + (['--legacy-onclave-paths-json',
+                 service_state_legacy_onclave_manifest_paths | to_json]
+                if service_state_service == 'onclave_onramp' else []) }}
+      register: service_state_controller_archive_validation
       changed_when: false
       delegate_to: localhost
       become: false
@@ -298,9 +311,38 @@
               '--paths-json', service_state_managed_paths | to_json]
              + (['--require-all-paths']
                 if service_state_definition.restore_require_all_paths | default(false) | bool
-                else []) }}
+                else [])
+             + (['--legacy-onclave-paths-json',
+                 service_state_legacy_onclave_manifest_paths | to_json]
+                if service_state_service == 'onclave_onramp' else []) }}
+      register: service_state_device_archive_validation
       changed_when: false
       when: service_state_restore_uses_device_archive | bool
+
+    - name: Select validated service-state archive format
+      ansible.builtin.set_fact:
+        service_state_restore_archive_format: >-
+          {{ (service_state_device_archive_validation.stdout
+              if service_state_restore_uses_device_archive | bool
+              else service_state_controller_archive_validation.stdout) | trim }}
+
+    - name: Validate detected service-state archive format
+      ansible.builtin.assert:
+        that:
+          - service_state_restore_archive_format in ['native', 'legacy_hermes', 'legacy_onclave_v1']
+          - >-
+            service_state_restore_archive_format != 'legacy_onclave_v1' or
+            service_state_service == 'onclave_onramp'
+        fail_msg: The archive validator returned an unsupported archive format.
+
+    - name: Select service-state restore mutation paths
+      ansible.builtin.set_fact:
+        service_state_restore_path_items: >-
+          {{ service_state_definition.paths
+             | selectattr('path', 'in', service_state_legacy_onclave_restore_paths)
+             | list
+             if service_state_restore_archive_format == 'legacy_onclave_v1'
+             else service_state_definition.paths }}
 
     - name: Validate managed service-state users exist
       ansible.builtin.command:
@@ -329,6 +371,44 @@
       register: service_state_user_service_uid
       changed_when: false
       when: service_state_definition.user_services | default([]) | length > 0
+
+    - name: Preserve native SearXNG volume identities for legacy Onclave restore
+      become: true
+      become_user: "{{ service_state_definition.user_service_owner }}"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        podman inspect onclave-searxng | python3 -c '
+        import json, re, sys
+        mounts = json.load(sys.stdin)[0].get("Mounts", [])
+        expected = ("/etc/searxng", "/var/cache/searxng")
+        found = {
+            mount.get("Destination"): mount.get("Name")
+            for mount in mounts
+            if mount.get("Type") == "volume" and mount.get("Destination") in expected
+        }
+        if set(found) != set(expected) or not all(
+            isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]+", name)
+            for name in found.values()
+        ):
+            raise SystemExit("native SearXNG volume identities were not found")
+        print(json.dumps(found, sort_keys=True))'
+      args:
+        executable: /bin/bash
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
+      register: service_state_legacy_onclave_searxng_mounts
+      changed_when: false
+      no_log: true
+      when: service_state_restore_archive_format == 'legacy_onclave_v1'
+
+    - name: Select native SearXNG volume identities for legacy Onclave restore
+      ansible.builtin.set_fact:
+        onclave_onramp_searxng_config_volume: >-
+          {{ (service_state_legacy_onclave_searxng_mounts.stdout | from_json)['/etc/searxng'] }}
+        onclave_onramp_searxng_cache_volume: >-
+          {{ (service_state_legacy_onclave_searxng_mounts.stdout | from_json)['/var/cache/searxng'] }}
+      no_log: true
+      when: service_state_restore_archive_format == 'legacy_onclave_v1'
 
     - name: Ensure local service-state backup directory exists
       ansible.builtin.file:
@@ -720,13 +800,30 @@
           ansible.builtin.file:
             path: "{{ item.path }}"
             state: absent
-          loop: "{{ service_state_definition.paths }}"
+          loop: "{{ service_state_restore_path_items }}"
 
-        - name: Restore managed service-state archive
+        - name: Restore native managed service-state archive
           ansible.builtin.unarchive:
             src: "{{ service_state_effective_restore_archive }}"
             dest: /
             remote_src: true
+          when: service_state_restore_archive_format != 'legacy_onclave_v1'
+
+        - name: Restore supported state from legacy Onclave archive
+          ansible.builtin.command:
+            argv: >-
+              {{ ['tar', '--extract', '--file', service_state_effective_restore_archive,
+                  '--directory', '/', '--']
+                 + (service_state_legacy_onclave_restore_paths
+                    | map('regex_replace', '^/', '') | list) }}
+          changed_when: true
+          when: service_state_restore_archive_format == 'legacy_onclave_v1'
+
+        - name: Regenerate native Onclave definitions from BWS inventory
+          ansible.builtin.include_role:
+            name: onclave_onramp
+            tasks_from: restore_native_contract
+          when: service_state_restore_archive_format == 'legacy_onclave_v1'
 
         - name: Check restored managed service-state paths
           ansible.builtin.stat:
@@ -776,6 +873,61 @@
             group: "{{ item.0.item.item.group }}"
             follow: false
           loop: "{{ service_state_restored_symlink_stats.results | subelements('files', skip_missing=True) }}"
+
+        - name: Start native RabbitMQ before legacy credential reconciliation
+          become: true
+          become_user: "{{ service_state_definition.user_service_owner }}"
+          ansible.builtin.systemd_service:
+            name: onclave-rabbitmq.service
+            scope: user
+            daemon_reload: true
+            state: started
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
+          when: service_state_restore_archive_format == 'legacy_onclave_v1'
+
+        - name: Verify restored RabbitMQ password matches BWS
+          become: true
+          become_user: "{{ service_state_definition.user_service_owner }}"
+          ansible.builtin.command:
+            argv:
+              - podman
+              - exec
+              - onclave-rabbitmq
+              - rabbitmqctl
+              - authenticate_user
+              - "{{ onclave_rabbitmq_default_user }}"
+              - "{{ onclave_rabbitmq_default_pass }}"
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
+          register: service_state_legacy_onclave_rabbitmq_auth
+          changed_when: false
+          failed_when: false
+          no_log: true
+          when: service_state_restore_archive_format == 'legacy_onclave_v1'
+
+        - name: Reconcile restored RabbitMQ password from BWS
+          become: true
+          become_user: "{{ service_state_definition.user_service_owner }}"
+          ansible.builtin.command:
+            argv:
+              - podman
+              - exec
+              - onclave-rabbitmq
+              - rabbitmqctl
+              - change_password
+              - "{{ onclave_rabbitmq_default_user }}"
+              - "{{ onclave_rabbitmq_default_pass }}"
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
+          register: service_state_legacy_onclave_rabbitmq_reconcile
+          retries: 24
+          delay: 5
+          until: service_state_legacy_onclave_rabbitmq_reconcile.rc == 0
+          no_log: true
+          when:
+            - service_state_restore_archive_format == 'legacy_onclave_v1'
+            - service_state_legacy_onclave_rabbitmq_auth.rc != 0
 
         - name: Restart managed user services after restore
           become: true
@@ -891,6 +1043,19 @@
           when:
             - service_state_restore_mutation_started | bool
             - service_state_definition.user_services | default([]) | length > 0
+
+        - name: Keep legacy reconciliation RabbitMQ stopped after restore failure
+          become: true
+          become_user: "{{ service_state_definition.user_service_owner }}"
+          ansible.builtin.systemd_service:
+            name: onclave-rabbitmq.service
+            scope: user
+            state: stopped
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
+          when:
+            - service_state_restore_mutation_started | bool
+            - service_state_restore_archive_format == 'legacy_onclave_v1'
 
         - name: Fail managed service-state restore
           ansible.builtin.fail:

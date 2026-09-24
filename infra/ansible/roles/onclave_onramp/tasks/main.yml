@@ -573,14 +573,22 @@
 - name: Find retired MinIO containers from the previous Onclave stack
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
-  ansible.builtin.command:
-    argv:
-      - podman
-      - ps
-      - --all
-      - --quiet
-      - --filter
-      - label=com.docker.compose.service=minio
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {
+      podman ps --all --quiet \
+        --filter label=com.docker.compose.project=onclave \
+        --filter label=com.docker.compose.service=minio
+      podman ps --all --quiet \
+        --filter label=io.podman.compose.project=onclave \
+        --filter label=com.docker.compose.service=minio
+      podman ps --all --quiet \
+        --filter label=io.podman.compose.project=onclave \
+        --filter label=io.podman.compose.service=minio
+      podman ps --all --quiet --filter 'name=^onclave[-_]minio[-_][0-9]+$'
+    } | sort -u
+  args:
+    executable: /bin/bash
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_retired_minio_containers

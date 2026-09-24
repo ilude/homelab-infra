@@ -84,7 +84,7 @@ Current service-state targets are:
 - `technitium` -- `/etc/dns`.
 - `onramp_host` -- host-owned Caddy base files: `/etc/caddy/env`, `/etc/caddy/Caddyfile`, and `/etc/caddy/sites.d/00-placeholder.caddy`.
 - `infisical_onramp` -- Infisical onramp deployment directory and Caddy snippet.
-- `onclave_onramp` -- Onclave app definition, native Quadlet contracts, private env, persistent broker/core data, adopted PostgreSQL directory, and Caddy snippet. Backup and restore quiesce the native `onclave-onramp.target`. SeaweedFS application objects use the separate `seaweedfs-object-backup.yml` workflow; rebuildable Ollama data is excluded.
+- `onclave_onramp` -- Onclave app definition, all native Quadlet source files, the native user target, private env, persistent broker/core data, adopted PostgreSQL directory, and Caddy snippet. Backup and restore quiesce the native `onclave-onramp.target`. Native archives require the complete current path manifest. A narrowly recognized pre-Quadlet manifest may restore the Onclave deployment directory and PostgreSQL state; its retired MinIO path is validated but never extracted or removed, and Caddy plus native definitions are regenerated from BWS before services start. Other legacy manifest or path mismatches fail before mutation. SeaweedFS application objects use the separate `seaweedfs-object-backup.yml` workflow; rebuildable Ollama data is excluded.
 
 The managed paths live in `infra/ansible/vars/service-state.yml`. Every path
 explicitly declares its owner, group, and whether ownership repair is recursive.

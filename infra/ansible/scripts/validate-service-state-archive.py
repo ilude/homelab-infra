@@ -60,7 +60,8 @@ def validate_archive(
     managed_paths: list[str],
     *,
     require_all_paths: bool = False,
-) -> None:
+    legacy_onclave_paths: list[str] | None = None,
+) -> str:
     if any(not path.startswith("/") for path in managed_paths):
         raise ArchiveValidationError("managed paths must be absolute")
     roots = [normalized_member_path(path.lstrip("/")) for path in managed_paths]
@@ -73,6 +74,28 @@ def validate_archive(
     )
     if overlaps:
         raise ArchiveValidationError("managed paths must not overlap")
+
+    legacy_paths = legacy_onclave_paths or []
+    if legacy_paths:
+        if target != "onclave_onramp" or not require_all_paths:
+            raise ArchiveValidationError(
+                "legacy Onclave compatibility requires the strict Onclave target"
+            )
+        if any(not path.startswith("/") for path in legacy_paths):
+            raise ArchiveValidationError("legacy Onclave paths must be absolute")
+        legacy_roots = [
+            normalized_member_path(path.lstrip("/")) for path in legacy_paths
+        ]
+        if len(legacy_roots) != len(set(legacy_roots)):
+            raise ArchiveValidationError("legacy Onclave paths must be unique")
+        legacy_overlaps = any(
+            left in right.parents or right in left.parents
+            for index, left in enumerate(legacy_roots)
+            for right in legacy_roots[index + 1 :]
+        )
+        if legacy_overlaps:
+            raise ArchiveValidationError("legacy Onclave paths must not overlap")
+        roots = list(dict.fromkeys([*roots, *legacy_roots]))
     manifest: dict[str, object] | None = None
     represented_paths: set[str] = set()
 
@@ -148,7 +171,7 @@ def validate_archive(
             raise ArchiveValidationError(
                 "manifestless archives are supported only for legacy Hermes backups"
             )
-        return
+        return "legacy_hermes"
 
     manifest_target = manifest.get("target", manifest.get("service"))
     if manifest_target != target:
@@ -162,7 +185,17 @@ def validate_archive(
         raise ArchiveValidationError("manifest paths must be a list of strings")
     configured = set(managed_paths)
     declared_paths = set(manifest_paths)
-    if not declared_paths.issubset(configured):
+    if len(declared_paths) != len(manifest_paths):
+        raise ArchiveValidationError("manifest paths must be unique")
+    legacy_configured = set(legacy_paths)
+    legacy_onclave_archive = bool(legacy_configured) and declared_paths == legacy_configured
+    if legacy_onclave_archive and (
+        manifest.get("schema_version") != 1 or manifest.get("archive_kind") != "backup"
+    ):
+        raise ArchiveValidationError(
+            "legacy Onclave archives require the version 1 backup manifest"
+        )
+    if not declared_paths.issubset(configured) and not legacy_onclave_archive:
         raise ArchiveValidationError(
             "manifest contains paths outside the selected target catalog"
         )
@@ -171,9 +204,12 @@ def validate_archive(
             "manifest paths do not match paths represented in the archive"
         )
     if require_all_paths and declared_paths != configured:
+        if legacy_onclave_archive:
+            return "legacy_onclave_v1"
         raise ArchiveValidationError(
             "archive must represent every managed path for the selected target"
         )
+    return "native"
 
 
 def parse_args() -> argparse.Namespace:
@@ -183,6 +219,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--path", action="append", dest="paths")
     parser.add_argument("--paths-json")
     parser.add_argument("--require-all-paths", action="store_true")
+    parser.add_argument("--legacy-onclave-paths-json")
     args = parser.parse_args()
     if args.paths_json:
         decoded = json.loads(args.paths_json)
@@ -199,15 +236,26 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        validate_archive(
+        legacy_onclave_paths = None
+        if args.legacy_onclave_paths_json:
+            legacy_onclave_paths = json.loads(args.legacy_onclave_paths_json)
+            if not isinstance(legacy_onclave_paths, list) or not all(
+                isinstance(path, str) for path in legacy_onclave_paths
+            ):
+                raise ArchiveValidationError(
+                    "--legacy-onclave-paths-json must be a JSON list of strings"
+                )
+        archive_format = validate_archive(
             args.archive,
             args.target,
             args.paths,
             require_all_paths=args.require_all_paths,
+            legacy_onclave_paths=legacy_onclave_paths,
         )
     except ArchiveValidationError as error:
         print(f"service-state archive validation failed: {error}", file=sys.stderr)
         return 1
+    print(archive_format)
     return 0
 
 

@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -19,6 +20,9 @@ from jinja2 import StrictUndefined, Template
 REPO = Path(__file__).resolve().parents[1]
 CATALOG_PATH = REPO / "infra/ansible/vars/service-state.yml"
 RESTORE_PATH = REPO / "infra/ansible/playbooks/service-state-restore.yml"
+RESTORE_NATIVE_CONTRACT_PATH = (
+    REPO / "infra/ansible/roles/onclave_onramp/tasks/restore_native_contract.yml"
+)
 BACKUP_PATH = REPO / "infra/ansible/playbooks/service-state-backup.yml"
 VALIDATOR_PATH = REPO / "infra/ansible/scripts/validate-service-state-archive.py"
 COMPRESSION_HELPER_PATH = REPO / "infra/ansible/scripts/compress-service-state-backup.py"
@@ -100,19 +104,23 @@ def make_archive(
     include_state: bool = True,
     state_paths: list[str] | None = None,
     link: tuple[str, str, bytes] | None = None,
+    extra_files: dict[str, bytes] | None = None,
     compression_mode: str = "gz",
+    schema_version: int = 1,
+    archive_kind: str = "backup",
 ) -> None:
     managed_paths = state_paths or ["/home/anvil/.hermes"]
     with tarfile.open(path, f"w:{compression_mode}" if compression_mode else "w") as handle:
         root = tarfile.TarInfo(".")
         root.type = tarfile.DIRTYPE
+        root.mode = 0o755
         handle.addfile(root)
         if manifest:
             data = json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": schema_version,
                     "target": target,
-                    "archive_kind": "backup",
+                    "archive_kind": archive_kind,
                     "paths": (
                         managed_paths if manifest_paths is None else manifest_paths
                     ),
@@ -124,8 +132,12 @@ def make_archive(
                 archive_path = managed_path.lstrip("/")
                 directory = tarfile.TarInfo(archive_path)
                 directory.type = tarfile.DIRTYPE
+                directory.mode = 0o750
                 handle.addfile(directory)
                 add_bytes(handle, f"{archive_path}/state.txt", b"state")
+        if extra_files:
+            for name, content in extra_files.items():
+                add_bytes(handle, name, content)
         if link:
             name, target_name, kind = link
             info = tarfile.TarInfo(name)
@@ -175,6 +187,8 @@ class ServiceStateCatalogTests(unittest.TestCase):
             [
                 f"{expected_root}/onclave",
                 f"{expected_root}/menos/data/postgres",
+                "/home/deploy/.config/containers/systemd",
+                "/home/deploy/.config/systemd/user/onclave-onramp.target",
                 "/etc/caddy/sites.d/onclave.caddy",
             ],
         )
@@ -189,12 +203,16 @@ class ServiceStateCatalogTests(unittest.TestCase):
         )
         self.assertEqual(definition["backup_retention_count"], 5)
         self.assertTrue(definition["restore_require_all_paths"])
-        for path in definition["paths"][:2]:
+        for path in definition["paths"][:3]:
             self.assertEqual(path["owner"], "deploy")
             self.assertEqual(path["group"], "deploy")
             self.assertTrue(path["recurse"])
+        target = definition["paths"][3]
+        self.assertEqual(target["owner"], "deploy")
+        self.assertEqual(target["group"], "deploy")
+        self.assertFalse(target["recurse"])
         self.assertEqual(
-            definition["paths"][2],
+            definition["paths"][-1],
             {
                 "path": "/etc/caddy/sites.d/onclave.caddy",
                 "owner": "root",
@@ -779,9 +797,123 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
             names.index("Stop managed system services before restore"),
         )
 
+    def test_legacy_onclave_restore_is_filtered_and_regenerates_native_contract(
+        self,
+    ) -> None:
+        playbook = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
+        play = playbook[0]
+        tasks = play["tasks"]
+        names = task_names(RESTORE_PATH)
+        validation = next(
+            task
+            for task in tasks
+            if task.get("name") == "Validate service-state restore archive contents"
+        )
+        restore_block = next(
+            task["block"]
+            for task in tasks
+            if task.get("name")
+            == "Restore service state after successful preflight and stops"
+        )
+        restore_tasks = {task["name"]: task for task in restore_block}
+
+        self.assertIn(
+            "--legacy-onclave-paths-json",
+            validation["ansible.builtin.command"]["argv"],
+        )
+        self.assertEqual(
+            validation["register"], "service_state_controller_archive_validation"
+        )
+        self.assertEqual(
+            play["vars"]["service_state_legacy_onclave_manifest_paths"],
+            [
+                "{{ onramp_host_deploy_dir }}/onclave",
+                "{{ onramp_host_deploy_dir }}/menos/data/postgres",
+                "{{ service_state_legacy_onclave_retired_minio_path }}",
+                "/etc/caddy/sites.d/onclave.caddy",
+            ],
+        )
+        self.assertEqual(
+            play["vars"]["service_state_legacy_onclave_restore_paths"],
+            [
+                "{{ onramp_host_deploy_dir }}/onclave",
+                "{{ onramp_host_deploy_dir }}/menos/data/postgres",
+            ],
+        )
+        self.assertLess(
+            names.index("Select validated service-state archive format"),
+            names.index("Stop managed system services before restore"),
+        )
+        self.assertLess(
+            names.index(
+                "Preserve native SearXNG volume identities for legacy Onclave restore"
+            ),
+            names.index("Stop managed system services before restore"),
+        )
+        self.assertEqual(
+            restore_tasks["Remove existing managed service-state paths before restore"][
+                "loop"
+            ],
+            "{{ service_state_restore_path_items }}",
+        )
+        legacy_extract = restore_tasks[
+            "Restore supported state from legacy Onclave archive"
+        ]
+        self.assertIn(
+            "service_state_legacy_onclave_restore_paths",
+            legacy_extract["ansible.builtin.command"]["argv"],
+        )
+        self.assertEqual(
+            legacy_extract["when"],
+            "service_state_restore_archive_format == 'legacy_onclave_v1'",
+        )
+        native_extract = restore_tasks["Restore native managed service-state archive"]
+        self.assertEqual(
+            native_extract["when"],
+            "service_state_restore_archive_format != 'legacy_onclave_v1'",
+        )
+        regenerate = restore_tasks[
+            "Regenerate native Onclave definitions from BWS inventory"
+        ]
+        self.assertEqual(
+            regenerate["ansible.builtin.include_role"]["tasks_from"],
+            "restore_native_contract",
+        )
+        restore_names = list(restore_tasks)
+        self.assertLess(
+            restore_names.index(
+                "Regenerate native Onclave definitions from BWS inventory"
+            ),
+            restore_names.index("Start native RabbitMQ before legacy credential reconciliation"),
+        )
+        self.assertLess(
+            restore_names.index("Reconcile restored RabbitMQ password from BWS"),
+            restore_names.index("Restart managed user services after restore"),
+        )
+
+        contract = yaml.safe_load(
+            RESTORE_NATIVE_CONTRACT_PATH.read_text(encoding="utf-8")
+        )
+        contract_names = [task["name"] for task in contract]
+        self.assertIn("Remove restored legacy Compose runtime definitions", contract_names)
+        removal = next(
+            task
+            for task in contract
+            if task["name"] == "Remove restored legacy Compose runtime definitions"
+        )
+        self.assertIn("{{ onclave_onramp_base_dir }}/.env", removal["loop"])
+        self.assertIn("Regenerate native Onclave Quadlet sources from BWS", contract_names)
+        self.assertIn("Regenerate native Onclave user target from BWS", contract_names)
+        compose_without_removal = [
+            name
+            for name in contract_names
+            if "compose" in name.lower() and "remove" not in name.lower()
+        ]
+        self.assertEqual(compose_without_removal, [])
+
     def test_unarchive_ownership_repair_restart_ordering(self) -> None:
         names = task_names(RESTORE_PATH)
-        unarchive = names.index("Restore managed service-state archive")
+        unarchive = names.index("Restore native managed service-state archive")
         root_owner = names.index("Apply catalog ownership to restored path roots")
         recursive_owner = names.index(
             "Apply recursive catalog ownership to restored directories"
@@ -1005,6 +1137,17 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
             ]["when"],
             "service_state_restore_mutation_started | bool",
         )
+        rabbitmq_stop = rescue[
+            "Keep legacy reconciliation RabbitMQ stopped after restore failure"
+        ]
+        self.assertEqual(
+            rabbitmq_stop["ansible.builtin.systemd_service"]["name"],
+            "onclave-rabbitmq.service",
+        )
+        self.assertIn(
+            "service_state_restore_archive_format == 'legacy_onclave_v1'",
+            rabbitmq_stop["when"],
+        )
         self.assertLess(
             names.index(
                 "Restart managed user services after pre-mutation restore failure"
@@ -1177,6 +1320,14 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
         managed_paths = [
             "/srv/onramp/onclave",
             "/srv/onramp/menos/data/postgres",
+            "/home/anvil/.config/containers/systemd",
+            "/home/anvil/.config/systemd/user/onclave-onramp.target",
+            "/etc/caddy/sites.d/onclave.caddy",
+        ]
+        legacy_paths = [
+            "/srv/onramp/onclave",
+            "/srv/onramp/menos/data/postgres",
+            "/srv/onramp/menos/data/minio",
             "/etc/caddy/sites.d/onclave.caddy",
         ]
         with tempfile.TemporaryDirectory() as temp:
@@ -1187,12 +1338,14 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
                 state_paths=managed_paths,
                 compression_mode="",
             )
-            validator.validate_archive(
+            archive_format = validator.validate_archive(
                 str(archive),
                 "onclave_onramp",
                 managed_paths,
                 require_all_paths=True,
+                legacy_onclave_paths=legacy_paths,
             )
+            self.assertEqual(archive_format, "native")
 
     def test_legacy_manifestless_hermes_archive_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1200,16 +1353,20 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
             make_archive(archive, manifest=False)
             validator.validate_archive(str(archive), "hermes", ["/home/anvil/.hermes"])
 
-    def test_legacy_onclave_archive_missing_adopted_paths_fails_strict_preflight(
+    def test_exact_legacy_onclave_archive_is_classified_for_compatibility(
         self,
     ) -> None:
-        old_paths = [
+        legacy_paths = [
             "/srv/onramp/onclave",
+            "/srv/onramp/menos/data/postgres",
+            "/srv/onramp/menos/data/minio",
             "/etc/caddy/sites.d/onclave.caddy",
         ]
         managed_paths = [
             "/srv/onramp/onclave",
             "/srv/onramp/menos/data/postgres",
+            "/home/anvil/.config/containers/systemd",
+            "/home/anvil/.config/systemd/user/onclave-onramp.target",
             "/etc/caddy/sites.d/onclave.caddy",
         ]
         with tempfile.TemporaryDirectory() as temp:
@@ -1217,10 +1374,10 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
             make_archive(
                 archive,
                 target="onclave_onramp",
-                manifest_paths=old_paths,
-                state_paths=old_paths,
+                manifest_paths=legacy_paths,
+                state_paths=legacy_paths,
+                extra_files={"srv/onramp/onclave/.env": b"legacy-compose-env"},
             )
-            validator.validate_archive(str(archive), "onclave_onramp", managed_paths)
             with self.assertRaises(validator.ArchiveValidationError):
                 validator.validate_archive(
                     str(archive),
@@ -1228,6 +1385,128 @@ class ServiceStateArchiveValidationTests(unittest.TestCase):
                     managed_paths,
                     require_all_paths=True,
                 )
+            archive_format = validator.validate_archive(
+                str(archive),
+                "onclave_onramp",
+                managed_paths,
+                require_all_paths=True,
+                legacy_onclave_paths=legacy_paths,
+            )
+            self.assertEqual(archive_format, "legacy_onclave_v1")
+
+    def test_legacy_onclave_filtered_extraction_preserves_only_supported_state(
+        self,
+    ) -> None:
+        legacy_paths = [
+            "/srv/onramp/onclave",
+            "/srv/onramp/menos/data/postgres",
+            "/srv/onramp/menos/data/minio",
+            "/etc/caddy/sites.d/onclave.caddy",
+        ]
+        restored_paths = legacy_paths[:2]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / "legacy-onclave.tar.gz"
+            destination = root / "restore"
+            destination.mkdir()
+            make_archive(
+                archive,
+                target="onclave_onramp",
+                state_paths=legacy_paths,
+                extra_files={"srv/onramp/onclave/.env": b"legacy-compose-env"},
+            )
+            subprocess.run(
+                [
+                    "tar",
+                    "--extract",
+                    "--file",
+                    str(archive),
+                    "--directory",
+                    str(destination),
+                    "--",
+                    *(path.lstrip("/") for path in restored_paths),
+                ],
+                check=True,
+            )
+            self.assertTrue((destination / "srv/onramp/onclave/state.txt").exists())
+            self.assertTrue(
+                (destination / "srv/onramp/menos/data/postgres/state.txt").exists()
+            )
+            self.assertTrue((destination / "srv/onramp/onclave/.env").exists())
+            self.assertFalse((destination / "srv/onramp/menos/data/minio").exists())
+            self.assertFalse(
+                (destination / "etc/caddy/sites.d/onclave.caddy").exists()
+            )
+
+    def test_legacy_onclave_compatibility_rejects_manifest_variants(self) -> None:
+        legacy_paths = [
+            "/srv/onramp/onclave",
+            "/srv/onramp/menos/data/postgres",
+            "/srv/onramp/menos/data/minio",
+            "/etc/caddy/sites.d/onclave.caddy",
+        ]
+        managed_paths = [
+            "/srv/onramp/onclave",
+            "/srv/onramp/menos/data/postgres",
+            "/home/anvil/.config/containers/systemd",
+            "/home/anvil/.config/systemd/user/onclave-onramp.target",
+            "/etc/caddy/sites.d/onclave.caddy",
+        ]
+        missing_minio = legacy_paths[:-2] + legacy_paths[-1:]
+        wrong_minio = [*legacy_paths]
+        wrong_minio[2] = "/srv/onramp/menos/data/minio-other"
+        cases = [
+            (missing_minio, missing_minio, 1, "backup"),
+            (wrong_minio, wrong_minio, 1, "backup"),
+            (legacy_paths + [legacy_paths[0]], legacy_paths, 1, "backup"),
+            (legacy_paths, legacy_paths, 2, "backup"),
+            (legacy_paths, legacy_paths, 1, "pre_restore"),
+        ]
+        for manifest_paths, state_paths, schema, kind in cases:
+            with self.subTest(manifest_paths=manifest_paths, schema=schema, kind=kind):
+                with tempfile.TemporaryDirectory() as temp:
+                    archive = Path(temp) / "invalid-legacy-onclave.tar.gz"
+                    make_archive(
+                        archive,
+                        target="onclave_onramp",
+                        manifest_paths=manifest_paths,
+                        state_paths=state_paths,
+                        schema_version=schema,
+                        archive_kind=kind,
+                    )
+                    with self.assertRaises(validator.ArchiveValidationError):
+                        validator.validate_archive(
+                            str(archive),
+                            "onclave_onramp",
+                            managed_paths,
+                            require_all_paths=True,
+                            legacy_onclave_paths=legacy_paths,
+                        )
+
+    def test_legacy_onclave_compatibility_is_strict_and_target_scoped(self) -> None:
+        legacy_paths = [
+            "/srv/onramp/onclave",
+            "/srv/onramp/menos/data/postgres",
+            "/srv/onramp/menos/data/minio",
+            "/etc/caddy/sites.d/onclave.caddy",
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "legacy-onclave.tar.gz"
+            make_archive(
+                archive,
+                target="onclave_onramp",
+                state_paths=legacy_paths,
+            )
+            for target, strict in (("onclave_onramp", False), ("hermes", True)):
+                with self.subTest(target=target, strict=strict):
+                    with self.assertRaises(validator.ArchiveValidationError):
+                        validator.validate_archive(
+                            str(archive),
+                            target,
+                            legacy_paths,
+                            require_all_paths=strict,
+                            legacy_onclave_paths=legacy_paths,
+                        )
 
     def test_empty_and_root_only_archives_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

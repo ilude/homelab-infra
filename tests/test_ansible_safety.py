@@ -1042,6 +1042,21 @@ class AnsibleSafetyTests(unittest.TestCase):
             "label=com.docker.compose.project=onclave",
             verify_stopped["ansible.builtin.shell"],
         )
+        minio_find = task_by_name(
+            role / "tasks" / "main.yml",
+            "Find retired MinIO containers from the previous Onclave stack",
+        )
+        minio_matcher = minio_find["ansible.builtin.shell"]
+        self.assertIn("label=com.docker.compose.project=onclave", minio_matcher)
+        self.assertIn("label=io.podman.compose.project=onclave", minio_matcher)
+        self.assertIn("label=com.docker.compose.service=minio", minio_matcher)
+        self.assertIn("label=io.podman.compose.service=minio", minio_matcher)
+        self.assertIn("name=^onclave[-_]minio[-_][0-9]+$", minio_matcher)
+        self.assertNotIn(
+            "ansible.builtin.command",
+            minio_find,
+            "A service-only filter could select unrelated rootless MinIO containers",
+        )
         for task_name in (
             "Remove legacy Onclave containers",
             "Remove retired MinIO containers without touching their data directory",
@@ -1137,6 +1152,12 @@ class AnsibleSafetyTests(unittest.TestCase):
             core,
         )
         self.assertIn("PublishPort=127.0.0.1:{{ onclave_onramp_core_port }}:8000", core)
+        health_cmd = (
+            "HealthCmd=node -e 'fetch(\"http://127.0.0.1:8000/health\")"
+            ".then(response => { if (!response.ok) process.exit(1); })"
+            ".catch(() => process.exit(1))'"
+        )
+        self.assertIn(health_cmd, core)
         self.assertIn("HealthOnFailure=kill", core)
         self.assertIn("Restart=always", core)
         self.assertIn("Requires=onclave-rabbitmq.service onclave-postgres.service", core)

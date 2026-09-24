@@ -410,6 +410,33 @@
       no_log: true
       when: service_state_restore_archive_format == 'legacy_onclave_v1'
 
+    - name: Resolve host-rendered Onclave BWS contract for legacy restore
+      ansible.builtin.set_fact:
+        onclave_rabbitmq_default_user: "{{ lookup('env', 'RABBITMQ_DEFAULT_USER') }}"
+        onclave_rabbitmq_default_pass: "{{ lookup('env', 'RABBITMQ_DEFAULT_PASS') }}"
+        onclave_onramp_s3_hostname: >-
+          {{ lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT')
+             | regex_replace('^https://', '') }}
+        onclave_onramp_s3_endpoint: >-
+          {{ lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT')
+             | regex_replace('^https://', '') }}:443
+        onclave_onramp_s3_secure: true
+      no_log: true
+      when: service_state_restore_archive_format == 'legacy_onclave_v1'
+
+    - name: Validate host-rendered Onclave BWS contract before legacy restore
+      ansible.builtin.assert:
+        that:
+          - onclave_rabbitmq_default_user is match('^[A-Za-z0-9_.-]+$')
+          - onclave_rabbitmq_default_pass | length >= 24
+          - lookup('env', 'ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT') is match('^https://[A-Za-z0-9.-]+$')
+          - onclave_onramp_s3_hostname is match('^[A-Za-z0-9.-]+$')
+          - onclave_onramp_s3_endpoint is match('^[A-Za-z0-9.-]+:443$')
+          - onclave_onramp_s3_secure is true
+        fail_msg: Legacy Onclave restore requires the onclave BWS runtime profile.
+      no_log: true
+      when: service_state_restore_archive_format == 'legacy_onclave_v1'
+
     - name: Ensure local service-state backup directory exists
       ansible.builtin.file:
         path: "{{ service_state_local_dir }}"

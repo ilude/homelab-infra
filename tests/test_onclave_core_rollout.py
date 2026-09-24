@@ -77,6 +77,8 @@ class OnclaveCoreRolloutTests(unittest.TestCase):
         self.assertIn("name: onclave-core.service", source)
         self.assertIn("Image={{ onclave_core_rollout_image }}", source)
         self.assertIn("GIT_SHA={{ onclave_core_rollout_expected_sha }}", source)
+        self.assertIn(".RestartCount{{ '}}' }}", source)
+        self.assertNotIn(".State.RestartCount", source)
         self.assertNotIn("compose", source.lower())
         self.assertNotIn("onclave-onramp.target", source)
         self.assertEqual(rollout_play["hosts"], "onramp_host")

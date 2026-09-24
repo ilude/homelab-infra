@@ -167,6 +167,10 @@ run_playbook() {
   msys_env_conv_excl+="SERVICE_STATE_BACKUP_ROOT;SERVICE_STATE_RESTORE_FILE"
 
   local inventory_args="-i \"\${VALUES_DIR}/ansible/inventory/local.yml\" -i infra/ansible/inventory/tfvars.py"
+  local bws_runtime_profile="${BWS_RUNTIME_PROFILE:-config}"
+  if [[ "${mode}" == "restore" && "${service}" == "onclave_onramp" ]]; then
+    bws_runtime_profile="onclave"
+  fi
   local refresh_direct_access=""
   local execution_resource
   execution_resource="$(jq -r --arg service "${service}" '.services[$service].execution_resource // ""' infra/services.json | tr -d '\r')"
@@ -180,14 +184,16 @@ run_playbook() {
   esac
 
   if [[ "${mode}" == "backup" ]]; then
-    INFRA_COPY_SSH_KEYS="${INFRA_COPY_SSH_KEYS:-true}" \
+    BWS_RUNTIME_PROFILE="${bws_runtime_profile}" \
+      INFRA_COPY_SSH_KEYS="${INFRA_COPY_SSH_KEYS:-true}" \
       MSYS2_ENV_CONV_EXCL="${msys_env_conv_excl}" \
       SERVICE_STATE_BACKUP_ROOT="${backup_root}" \
       SERVICE_STATE_HOST_ACL_ENFORCED="${service_state_host_acl_enforced}" \
       scripts/run-infra.sh bash -lc \
       "export PATH=/opt/ansible/bin:\$PATH; ${refresh_direct_access} ansible-playbook ${inventory_args} -e service_state_service=${service@Q} -e service_state_hosts=${group@Q} infra/ansible/playbooks/service-state-backup.yml"
   else
-    INFRA_COPY_SSH_KEYS="${INFRA_COPY_SSH_KEYS:-true}" \
+    BWS_RUNTIME_PROFILE="${bws_runtime_profile}" \
+      INFRA_COPY_SSH_KEYS="${INFRA_COPY_SSH_KEYS:-true}" \
       MSYS2_ENV_CONV_EXCL="${msys_env_conv_excl}" \
       SERVICE_STATE_BACKUP_ROOT="${backup_root}" \
       SERVICE_STATE_RESTORE_FILE="${restore_file}" \

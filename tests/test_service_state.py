@@ -850,6 +850,25 @@ class ServiceStateRestorePlaybookTests(unittest.TestCase):
             ),
             names.index("Stop managed system services before restore"),
         )
+        resolve_bws = next(
+            task
+            for task in tasks
+            if task.get("name")
+            == "Resolve host-rendered Onclave BWS contract for legacy restore"
+        )
+        self.assertIn(
+            "lookup('env', 'RABBITMQ_DEFAULT_USER')",
+            resolve_bws["ansible.builtin.set_fact"]["onclave_rabbitmq_default_user"],
+        )
+        self.assertIn(
+            "ONCLAVE_VAULT_S3_WORKSTATION_ENDPOINT",
+            resolve_bws["ansible.builtin.set_fact"]["onclave_onramp_s3_endpoint"],
+        )
+        self.assertTrue(resolve_bws["no_log"])
+        self.assertLess(
+            names.index("Validate host-rendered Onclave BWS contract before legacy restore"),
+            names.index("Stop managed system services before restore"),
+        )
         self.assertEqual(
             restore_tasks["Remove existing managed service-state paths before restore"][
                 "loop"

@@ -76,6 +76,8 @@ class ServiceStateCliTests(unittest.TestCase):
             'printf \'MSYS2_ENV_CONV_EXCL=%s\\n\' "${MSYS2_ENV_CONV_EXCL:-}" >> "${CAPTURE_FILE}"\n'
             'printf \'SERVICE_STATE_RESTORE_FILE=%s\\n\' '
             '"${SERVICE_STATE_RESTORE_FILE:-}" >> "${CAPTURE_FILE}"\n'
+            'printf \'BWS_RUNTIME_PROFILE=%s\\n\' '
+            '"${BWS_RUNTIME_PROFILE:-}" >> "${CAPTURE_FILE}"\n'
             'printf \'%s\\n\' "$*" >> "${CAPTURE_FILE}"\n',
             encoding="utf-8",
         )
@@ -135,6 +137,26 @@ class ServiceStateCliTests(unittest.TestCase):
             self.assertIn(
                 "MSYS2_ENV_CONV_EXCL=KEEP;SERVICE_STATE_BACKUP_ROOT;SERVICE_STATE_RESTORE_FILE",
                 output,
+            )
+
+    def test_onclave_restore_selects_onclave_bws_runtime_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = self.make_registry_fixture(root)
+            capture = root / "run-infra.txt"
+
+            result = run_script(
+                script,
+                "restore",
+                "onclave_onramp",
+                "latest",
+                cwd=root,
+                env={"CAPTURE_FILE": str(capture)},
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn(
+                "BWS_RUNTIME_PROFILE=onclave", capture.read_text(encoding="utf-8")
             )
 
     def test_windows_backup_acl_hardening_is_fail_closed(self) -> None:

@@ -1,0 +1,27 @@
+[Unit]
+Description=FreeLLMAPI onramp
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}
+
+[Container]
+ContainerName=freellmapi-onramp
+Image={{ freellmapi_onramp_image }}
+Pull=missing
+EnvironmentFile={{ freellmapi_onramp_base_dir }}/freellmapi.env
+PublishPort={{ freellmapi_onramp_bind_address }}:{{ freellmapi_onramp_host_port }}:3001
+Volume={{ freellmapi_onramp_base_dir }}/data:/app/server/data:Z,U
+HealthCmd=node -e 'fetch("http://127.0.0.1:3001/api/ping").then(response => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))'
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=15s
+Notify=healthy
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target

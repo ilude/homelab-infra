@@ -107,6 +107,35 @@ managed_service_state_catalog:
         owner: root
         group: root
         recurse: false
+  freellmapi_onramp:
+    group: onramp_host
+    description: FreeLLMAPI onramp data, private environment, deployment definitions, and Caddy route.
+    services:
+      - caddy
+    user_services:
+      - freellmapi-onramp.service
+    user_services_skip_enable:
+      - freellmapi-onramp.service
+    user_service_owner: "{{ onramp_host_deploy_user }}"
+    backup_quiesce_user_services: true
+    backup_staging_root: "{{ onramp_host_deploy_dir }}/.service-state-backup-staging"
+    paths:
+      - path: "{{ onramp_host_deploy_dir }}/freellmapi"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: true
+      - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/freellmapi-onramp.service"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
+      - path: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd/freellmapi-onramp.container"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
+      - path: /etc/caddy/sites.d/freellmapi.caddy
+        owner: root
+        group: root
+        recurse: false
   onclave_onramp:
     group: onramp_host
     description: >-
@@ -131,10 +160,34 @@ managed_service_state_catalog:
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"
         recurse: true
-      - path: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd"
+      - path: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd/onclave.network"
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"
-        recurse: true
+        recurse: false
+      - path: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd/onclave-rabbitmq.container"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
+      - path: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd/onclave-postgres.container"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
+      - path: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd/onclave-ollama.container"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
+      - path: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd/onclave-searxng.container"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
+      - path: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd/onclave-docling.container"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
+      - path: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd/onclave-core.container"
+        owner: "{{ onramp_host_deploy_user }}"
+        group: "{{ onramp_host_deploy_user }}"
+        recurse: false
       - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
         owner: "{{ onramp_host_deploy_user }}"
         group: "{{ onramp_host_deploy_user }}"

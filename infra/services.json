@@ -376,7 +376,8 @@
     },
     "freellmapi_onramp": {
       "runtime_profile": "freellmapi",
-      "state_capable": false,
+      "state_capable": true,
+      "state_order": 9,
       "execution_resource": "onramp_host",
       "playbooks": [
         "infra/ansible/playbooks/freellmapi-onramp.yml"

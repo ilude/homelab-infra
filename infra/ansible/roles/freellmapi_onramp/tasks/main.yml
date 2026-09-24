@@ -34,6 +34,21 @@
     - { path: "{{ freellmapi_onramp_base_dir }}", mode: "0750" }
     - { path: "{{ freellmapi_onramp_base_dir }}/data", mode: "0750" }
     - { path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user", mode: "0750" }
+    - { path: "{{ freellmapi_onramp_quadlet_dir }}", mode: "0750" }
+
+- name: Resolve FreeLLMAPI deploy user UID
+  ansible.builtin.command:
+    argv: [id, -u, "{{ onramp_host_deploy_user }}"]
+  register: freellmapi_onramp_deploy_user_uid
+  changed_when: false
+
+- name: Inspect legacy FreeLLMAPI definitions
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/freellmapi-onramp.service"
+    - "{{ freellmapi_onramp_base_dir }}/docker-compose.yml"
+  register: freellmapi_onramp_legacy_files
 
 - name: Install FreeLLMAPI private environment
   ansible.builtin.template:
@@ -45,41 +60,54 @@
   no_log: true
   notify: Restart freellmapi onramp
 
-- name: Install FreeLLMAPI compose definition
-  ansible.builtin.template:
-    src: docker-compose.yml.j2
-    dest: "{{ freellmapi_onramp_base_dir }}/docker-compose.yml"
-    owner: "{{ onramp_host_deploy_user }}"
-    group: "{{ onramp_host_deploy_user }}"
-    mode: "0640"
-  notify: Restart freellmapi onramp
-
-- name: Resolve FreeLLMAPI deploy user UID
-  ansible.builtin.command:
-    argv: [id, -u, "{{ onramp_host_deploy_user }}"]
-  register: freellmapi_onramp_deploy_user_uid
-  changed_when: false
-
-- name: Install FreeLLMAPI rootless systemd unit
-  ansible.builtin.template:
-    src: freellmapi-onramp.service.j2
-    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/freellmapi-onramp.service"
-    owner: "{{ onramp_host_deploy_user }}"
-    group: "{{ onramp_host_deploy_user }}"
-    mode: "0644"
-  notify: Restart freellmapi onramp
-
-- name: Enable FreeLLMAPI rootless systemd unit
+- name: Stop and disable legacy FreeLLMAPI rootless unit
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.systemd_service:
     name: freellmapi-onramp.service
     scope: user
-    daemon_reload: true
-    enabled: true
-    state: started
+    state: stopped
+    enabled: false
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+  when: freellmapi_onramp_legacy_files.results[0].stat.exists
+
+- name: Remove legacy FreeLLMAPI rootless unit
+  ansible.builtin.file:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/freellmapi-onramp.service"
+    state: absent
+  notify: Restart freellmapi onramp
+
+- name: Stop and remove legacy FreeLLMAPI Compose container
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman-compose
+      - -f
+      - "{{ freellmapi_onramp_base_dir }}/docker-compose.yml"
+      - down
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+  register: freellmapi_onramp_legacy_compose_down
+  changed_when: freellmapi_onramp_legacy_compose_down.rc == 0
+  when:
+    - ansible_check_mode is false
+    - freellmapi_onramp_legacy_files.results[1].stat.exists
+
+- name: Remove legacy FreeLLMAPI Compose definition
+  ansible.builtin.file:
+    path: "{{ freellmapi_onramp_base_dir }}/docker-compose.yml"
+    state: absent
+
+- name: Install FreeLLMAPI rootless Quadlet
+  ansible.builtin.template:
+    src: freellmapi-onramp.container.j2
+    dest: "{{ freellmapi_onramp_quadlet_dir }}/freellmapi-onramp.container"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  notify: Restart freellmapi onramp
 
 - name: Install FreeLLMAPI Caddy site snippet
   ansible.builtin.template:
@@ -106,6 +134,30 @@
     onramp_service_activation_deploy_user: "{{ onramp_host_deploy_user }}"
     onramp_service_activation_uid: "{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
     onramp_service_activation_runtime_dir: "/run/user/{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+
+- name: Wait for FreeLLMAPI container health
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv: [podman, healthcheck, run, freellmapi-onramp]
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+  register: freellmapi_onramp_container_health
+  changed_when: false
+  retries: 24
+  delay: 5
+  until: freellmapi_onramp_container_health.rc == 0
+
+- name: Assert FreeLLMAPI container reached healthy state
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv: [podman, inspect, --format, "{{ '{{' }}.State.Health.Status{{ '}}' }}", freellmapi-onramp]
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ freellmapi_onramp_deploy_user_uid.stdout | trim }}"
+  register: freellmapi_onramp_container_health_status
+  changed_when: false
+  failed_when: freellmapi_onramp_container_health_status.stdout | trim != 'healthy'
 
 - name: Verify FreeLLMAPI loopback health endpoint
   ansible.builtin.uri:

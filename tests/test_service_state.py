@@ -72,6 +72,16 @@ def load_catalog() -> dict[str, Any]:
     return yaml.safe_load(rendered)["managed_service_state_catalog"]
 
 
+def all_tasks(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for task in tasks:
+        result.append(task)
+        for section in ("block", "rescue", "always"):
+            if section in task:
+                result.extend(all_tasks(task[section]))
+    return result
+
+
 def task_names(playbook: Path) -> list[str]:
     plays = yaml.safe_load(playbook.read_text(encoding="utf-8"))
     names: list[str] = []
@@ -187,7 +197,13 @@ class ServiceStateCatalogTests(unittest.TestCase):
             [
                 f"{expected_root}/onclave",
                 f"{expected_root}/menos/data/postgres",
-                "/home/deploy/.config/containers/systemd",
+                "/home/deploy/.config/containers/systemd/onclave.network",
+                "/home/deploy/.config/containers/systemd/onclave-rabbitmq.container",
+                "/home/deploy/.config/containers/systemd/onclave-postgres.container",
+                "/home/deploy/.config/containers/systemd/onclave-ollama.container",
+                "/home/deploy/.config/containers/systemd/onclave-searxng.container",
+                "/home/deploy/.config/containers/systemd/onclave-docling.container",
+                "/home/deploy/.config/containers/systemd/onclave-core.container",
                 "/home/deploy/.config/systemd/user/onclave-onramp.target",
                 "/etc/caddy/sites.d/onclave.caddy",
             ],
@@ -203,11 +219,12 @@ class ServiceStateCatalogTests(unittest.TestCase):
         )
         self.assertEqual(definition["backup_retention_count"], 5)
         self.assertTrue(definition["restore_require_all_paths"])
-        for path in definition["paths"][:3]:
+        for path in definition["paths"][:9]:
             self.assertEqual(path["owner"], "deploy")
             self.assertEqual(path["group"], "deploy")
-            self.assertTrue(path["recurse"])
-        target = definition["paths"][3]
+        self.assertTrue(all(item["recurse"] for item in definition["paths"][:2]))
+        self.assertTrue(all(not item["recurse"] for item in definition["paths"][2:9]))
+        target = definition["paths"][9]
         self.assertEqual(target["owner"], "deploy")
         self.assertEqual(target["group"], "deploy")
         self.assertFalse(target["recurse"])
@@ -240,7 +257,9 @@ class ServiceStateCatalogTests(unittest.TestCase):
             if definition.get("backup_quiesce_user_services", False)
         ]
 
-        self.assertEqual(enabled, ["web_fetch_onramp", "onclave_onramp"])
+        self.assertEqual(
+            enabled, ["web_fetch_onramp", "freellmapi_onramp", "onclave_onramp"]
+        )
         for target in enabled:
             self.assertIs(type(catalog[target]["backup_quiesce_user_services"]), bool)
         strict_restore_targets = [
@@ -298,6 +317,67 @@ class ServiceStateCatalogTests(unittest.TestCase):
                 self.assertNotEqual(left, right, (left_target, right_target))
                 self.assertNotIn(left, right.parents, (left_target, right_target))
                 self.assertNotIn(right, left.parents, (left_target, right_target))
+
+    def test_freellmapi_cutover_archive_covers_rollback_definitions(self) -> None:
+        definition = load_catalog()["freellmapi_onramp"]
+        paths = {item["path"] for item in definition["paths"]}
+        self.assertTrue(definition["backup_quiesce_user_services"])
+        self.assertTrue(definition["paths"][0]["recurse"])
+        self.assertTrue(
+            {
+                "/srv/onramp/freellmapi",
+                "/home/deploy/.config/systemd/user/freellmapi-onramp.service",
+                "/home/deploy/.config/containers/systemd/freellmapi-onramp.container",
+                "/etc/caddy/sites.d/freellmapi.caddy",
+            }.issubset(paths)
+        )
+
+    def test_quadlet_user_service_is_started_without_systemctl_enable(self) -> None:
+        catalog = load_catalog()
+        definition = catalog["freellmapi_onramp"]
+        self.assertEqual(
+            definition["user_services_skip_enable"], ["freellmapi-onramp.service"]
+        )
+        restore = yaml.safe_load(RESTORE_PATH.read_text(encoding="utf-8"))
+        tasks = all_tasks(restore[0]["tasks"])
+        start_tasks = {
+            task.get("name"): task
+            for task in tasks
+            if task.get("name") in {
+                "Restart managed user services after restore",
+                "Restart managed user services after pre-mutation restore failure",
+            }
+        }
+        self.assertEqual(
+            set(start_tasks),
+            {
+                "Restart managed user services after restore",
+                "Restart managed user services after pre-mutation restore failure",
+            },
+        )
+        for task in start_tasks.values():
+            module = task["ansible.builtin.systemd_service"]
+            self.assertEqual(module["scope"], "user")
+            self.assertEqual(module["state"], "started")
+            self.assertEqual(
+                module["enabled"],
+                "{{ omit if item in (service_state_definition.user_services_skip_enable | default([])) else true }}",
+            )
+            self.assertEqual(
+                task["loop"],
+                "{{ service_state_definition.user_services | default([]) | reverse | list }}",
+            )
+        self.assertEqual(
+            start_tasks["Restart managed user services after restore"]["when"],
+            "service_state_definition.user_services | default([]) | length > 0",
+        )
+        self.assertEqual(
+            start_tasks["Restart managed user services after pre-mutation restore failure"]["when"],
+            [
+                "not (service_state_restore_mutation_started | bool)",
+                "service_state_definition.user_services | default([]) | length > 0",
+            ],
+        )
 
     def test_system_and_user_service_scopes_do_not_overlap(self) -> None:
         for target, definition in load_catalog().items():

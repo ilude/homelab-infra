@@ -152,7 +152,7 @@ Ansible manages:
 - Caddy and OpenSSH integration on the Forgejo LXC
 - Forgejo Actions runner installation/registration on a separate LXC
 - Infisical Docker Compose stack on the legacy LXC, or rootless Infisical Podman stack on `onramp_host` when `infisical_onramp` is enabled
-- Rootless FreeLLMAPI Podman service on `onramp_host`, with a loopback-only application port, shared Caddy HTTPS route, BWS-owned encryption key, and persistent SQLite state
+- Rootless FreeLLMAPI Podman Quadlet on `onramp_host`, with a loopback-only application port, shared Caddy HTTPS route, BWS-owned encryption key, and persistent SQLite state. Before the Compose-to-Quadlet cutover, use `scripts/service-state.sh backup freellmapi_onramp`; the archive includes the data directory and currently installed service definitions.
 - Hermes management tooling, SSH-oriented bootstrap directories, the Hermes Agent web dashboard running as `anvil`, and Caddy
 - Herdr LXC bootstrap, pinned Herdr and Pi installation, operator-local SSH context, and onramp stdio relay access
 - App-host SSH hardening, rootless Podman readiness, `anvil` deploy-user setup, shared Caddy setup, default-deny host firewall policy, and deployment directory preparation

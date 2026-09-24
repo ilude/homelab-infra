@@ -963,7 +963,7 @@
             name: "{{ item }}"
             scope: user
             state: started
-            enabled: true
+            enabled: "{{ omit if item in (service_state_definition.user_services_skip_enable | default([])) else true }}"
             daemon_reload: true
           environment:
             XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"
@@ -1032,7 +1032,7 @@
             name: "{{ item }}"
             scope: user
             state: started
-            enabled: true
+            enabled: "{{ omit if item in (service_state_definition.user_services_skip_enable | default([])) else true }}"
             daemon_reload: true
           environment:
             XDG_RUNTIME_DIR: "/run/user/{{ service_state_user_service_uid.stdout | trim }}"

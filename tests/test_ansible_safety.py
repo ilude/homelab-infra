@@ -60,7 +60,7 @@ ROOTLESS_ONRAMP_UNITS = tuple(
     REPO / "infra" / "ansible" / "roles" / role / "templates" / unit
     for role, unit in (
         ("infisical_onramp", "infisical-onramp.service.j2"),
-        ("freellmapi_onramp", "freellmapi-onramp.service.j2"),
+        ("freellmapi_onramp", "freellmapi-onramp.container.j2"),
         ("searxng_onramp", "searxng-onramp.service.j2"),
         ("onclave_onramp", "onclave-onramp.target.j2"),
     )
@@ -837,7 +837,7 @@ class AnsibleSafetyTests(unittest.TestCase):
     def test_freellmapi_onramp_is_private_persistent_and_bws_backed(self) -> None:
         role = REPO / "infra" / "ansible" / "roles" / "freellmapi_onramp"
         tasks = role / "tasks" / "main.yml"
-        compose = (role / "templates" / "docker-compose.yml.j2").read_text(
+        quadlet = (role / "templates" / "freellmapi-onramp.container.j2").read_text(
             encoding="utf-8"
         )
         environment = (role / "templates" / "freellmapi.env.j2").read_text(
@@ -858,7 +858,7 @@ class AnsibleSafetyTests(unittest.TestCase):
 
         self.assertEqual(registry["dependencies"], ["onramp_host"])
         self.assertEqual(registry["execution_resource"], "onramp_host")
-        self.assertFalse(registry["state_capable"])
+        self.assertTrue(registry["state_capable"])
         validate = task_by_name(tasks, "Validate FreeLLMAPI onramp required variables")
         self.assertIn(
             "freellmapi_onramp_bind_address == '127.0.0.1'",
@@ -868,9 +868,41 @@ class AnsibleSafetyTests(unittest.TestCase):
             "freellmapi_image: ghcr.io/tashfeenahmed/freellmapi:v0.8.4@sha256:",
             inventory_fixture,
         )
-        self.assertIn("{{ freellmapi_onramp_bind_address }}:", compose)
-        self.assertIn("./data:/app/server/data:Z,U", compose)
-        self.assertIn("/api/ping", compose)
+        self.assertIn("PublishPort={{ freellmapi_onramp_bind_address }}:", quadlet)
+        self.assertIn("{{ freellmapi_onramp_base_dir }}/data:/app/server/data:Z,U", quadlet)
+        self.assertIn("HealthCmd=node -e", quadlet)
+        self.assertIn("Notify=healthy", quadlet)
+        self.assertIn("[Install]\nWantedBy=default.target", quadlet)
+        names = [
+            task["name"]
+            for task in yaml.safe_load(tasks.read_text(encoding="utf-8"))
+        ]
+        install_quadlet = names.index("Install FreeLLMAPI rootless Quadlet")
+        self.assertLess(
+            names.index("Stop and disable legacy FreeLLMAPI rootless unit"),
+            install_quadlet,
+        )
+        self.assertLess(
+            names.index("Stop and remove legacy FreeLLMAPI Compose container"),
+            install_quadlet,
+        )
+        health_assertion = task_by_name(
+            tasks, "Assert FreeLLMAPI container reached healthy state"
+        )
+        self.assertIn("podman', 'inspect", str(health_assertion))
+        catalog = yaml.safe_load(
+            (REPO / "infra" / "ansible" / "vars" / "service-state.yml").read_text(
+                encoding="utf-8"
+            )
+        )["managed_service_state_catalog"]
+        self.assertIn(
+            "{{ onramp_host_deploy_dir }}/freellmapi",
+            [item["path"] for item in catalog["freellmapi_onramp"]["paths"]],
+        )
+        self.assertEqual(
+            catalog["freellmapi_onramp"]["user_services_skip_enable"],
+            ["freellmapi-onramp.service"],
+        )
         self.assertIn("ENCRYPTION_KEY={{ freellmapi_encryption_key }}", environment)
         self.assertIn("reverse_proxy 127.0.0.1:", caddy)
         self.assertTrue(

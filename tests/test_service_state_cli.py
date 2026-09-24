@@ -198,6 +198,7 @@ class ServiceStateCliTests(unittest.TestCase):
                 "  searxng_onramp",
                 "  onclave_onramp",
                 "  web_fetch_onramp",
+                "  freellmapi_onramp",
             ],
         )
 

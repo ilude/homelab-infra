@@ -27,7 +27,7 @@ argument_specs:
       freellmapi_onramp_bind_address:
         type: str
         required: false
-      freellmapi_onramp_compose_provider_command:
+      freellmapi_onramp_quadlet_dir:
         type: str
         required: false
       freellmapi_onramp_required_packages:

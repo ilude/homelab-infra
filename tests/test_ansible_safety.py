@@ -1044,12 +1044,121 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertEqual(
             enable_unified["ansible.builtin.systemd_service"]["state"],
-            "restarted",
+            "started",
         )
-        handler = yaml.safe_load(
-            (role / "handlers" / "main.yml").read_text(encoding="utf-8")
-        )[0]
-        self.assertIn("onclave_onramp_enable_cutover", handler["when"])
+        handlers = {
+            handler["name"]: handler
+            for handler in yaml.safe_load(
+                (role / "handlers" / "main.yml").read_text(encoding="utf-8")
+            )
+        }
+        changed_service_handler = handlers["Restart changed Onclave service"]
+        self.assertEqual(
+            changed_service_handler["ansible.builtin.systemd_service"]["name"],
+            "{{ item }}",
+        )
+        self.assertIn(
+            "not (onclave_onramp_topology_changed | default(false) | bool)",
+            changed_service_handler["when"],
+        )
+        self.assertNotIn("onclave_onramp_enable_cutover", str(changed_service_handler))
+        target_handler = handlers[
+            "Restart Onclave target after topology change"
+        ]
+        self.assertEqual(
+            target_handler["ansible.builtin.systemd_service"]["name"],
+            "onclave-onramp.target",
+        )
+        self.assertIn(
+            "onclave_onramp_topology_changed | default(false) | bool",
+            target_handler["when"],
+        )
+        environment_contracts = task_by_name(
+            role / "tasks" / "main.yml",
+            "Install native Onclave service environment contracts",
+        )
+        self.assertEqual(
+            environment_contracts["loop"],
+            [
+                {"name": "rabbitmq", "unit": "onclave-rabbitmq.service"},
+                {"name": "postgres", "unit": "onclave-postgres.service"},
+                {"name": "ollama", "unit": "onclave-ollama.service"},
+                {"name": "searxng", "unit": "onclave-searxng.service"},
+                {"name": "docling", "unit": "onclave-docling.service"},
+                {"name": "core", "unit": "onclave-core.service"},
+            ],
+        )
+        authorized_keys = task_by_name(
+            role / "tasks" / "main.yml",
+            "Install unified Onclave authorized public keys",
+        )
+        self.assertNotIn("notify", authorized_keys)
+        key_tracking = task_by_name(
+            role / "tasks" / "main.yml",
+            "Track Onclave core for an authorized-key contract change",
+        )
+        self.assertIn("onclave-core.service", str(key_tracking))
+        self.assertEqual(key_tracking["notify"], "Restart changed Onclave services")
+        container_contracts = task_by_name(
+            role / "tasks" / "main.yml",
+            "Install native Onclave rootless container units",
+        )
+        self.assertEqual(
+            container_contracts["loop"],
+            [
+                {
+                    "template": "onclave-rabbitmq.container",
+                    "unit": "onclave-rabbitmq.service",
+                },
+                {
+                    "template": "onclave-postgres.container",
+                    "unit": "onclave-postgres.service",
+                },
+                {
+                    "template": "onclave-ollama.container",
+                    "unit": "onclave-ollama.service",
+                },
+                {
+                    "template": "onclave-searxng.container",
+                    "unit": "onclave-searxng.service",
+                },
+                {
+                    "template": "onclave-docling.container",
+                    "unit": "onclave-docling.service",
+                },
+                {
+                    "template": "onclave-core.container",
+                    "unit": "onclave-core.service",
+                },
+            ],
+        )
+        network_topology = task_by_name(
+            role / "tasks" / "main.yml",
+            "Track changed Onclave network topology",
+        )
+        self.assertIn(
+            "onclave_onramp_network_contract.changed",
+            network_topology["ansible.builtin.set_fact"][
+                "onclave_onramp_topology_changed"
+            ],
+        )
+        self.assertEqual(network_topology["notify"], "Restart Onclave target")
+        target_contract = task_by_name(
+            role / "tasks" / "main.yml",
+            "Install native Onclave rootless target",
+        )
+        self.assertNotIn("notify", target_contract)
+        target_topology = task_by_name(
+            role / "tasks" / "main.yml",
+            "Track changed Onclave target membership topology",
+        )
+        self.assertEqual(target_topology["notify"], "Restart Onclave target")
+        self.assertIn(
+            "onclave_onramp_target_contract.changed",
+            target_topology["ansible.builtin.set_fact"][
+                "onclave_onramp_topology_changed"
+            ],
+        )
         state_catalog = yaml.safe_load(
             (REPO / "infra" / "ansible" / "vars" / "service-state.yml").read_text(
                 encoding="utf-8"
@@ -1092,12 +1201,81 @@ class AnsibleSafetyTests(unittest.TestCase):
         for task_name in (
             "Remove legacy Onclave containers",
             "Remove retired MinIO containers without touching their data directory",
-            "Install native Onclave rootless Quadlet units",
-            "Install native Onclave rootless target",
-            "Enable native Onclave rootless target",
         ):
             task = task_by_name(role / "tasks" / "main.yml", task_name)
             self.assertIn("onclave_onramp_enable_cutover", str(task.get("when")))
+        for task_name in (
+            "Discover existing Onclave SearXNG volume identities",
+            "Install native Onclave rootless network",
+            "Install native Onclave rootless container units",
+            "Install native Onclave rootless target",
+            "Enable native Onclave rootless target",
+            "Install Onclave Caddy site snippets",
+            "Verify native Onclave rootless target is active",
+        ):
+            task = task_by_name(role / "tasks" / "main.yml", task_name)
+            self.assertNotIn("onclave_onramp_enable_cutover", str(task.get("when")))
+
+    def test_onclave_steady_state_restart_scope_and_observations_are_explicit(self) -> None:
+        role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
+        tasks = load_tasks(role / "tasks" / "main.yml")
+        handlers = load_tasks(role / "handlers" / "main.yml")
+        topology_notifiers = [
+            task["name"]
+            for task in tasks
+            if task.get("notify") == "Restart Onclave target"
+        ]
+        self.assertEqual(
+            topology_notifiers,
+            [
+                "Track changed Onclave network topology",
+                "Track changed Onclave target membership topology",
+            ],
+        )
+        unit_notifiers = [
+            task["name"]
+            for task in tasks
+            if task.get("notify") == "Restart changed Onclave services"
+        ]
+        self.assertEqual(
+            unit_notifiers,
+            [
+                "Track services with changed Onclave environment contracts",
+                "Track Onclave core for an authorized-key contract change",
+                "Track services with changed Onclave container contracts",
+            ],
+        )
+        self.assertIn("item.unit", str(task_by_name(
+            role / "tasks" / "main.yml",
+            "Track services with changed Onclave environment contracts",
+        )))
+        self.assertIn("item.unit", str(task_by_name(
+            role / "tasks" / "main.yml",
+            "Track services with changed Onclave container contracts",
+        )))
+        for handler in handlers:
+            self.assertNotIn("onclave_onramp_enable_cutover", str(handler))
+        lifecycle = task_by_name(
+            role / "tasks" / "main.yml",
+            "Observe post-apply Onclave unit lifecycle state",
+        )
+        self.assertIn("--property=NRestarts", lifecycle["ansible.builtin.command"]["argv"])
+        report = task_by_name(
+            role / "tasks" / "main.yml",
+            "Report safe Onclave steady-state rollout observations",
+        )
+        report_text = str(report["ansible.builtin.debug"]["msg"])
+        for field in (
+            "revision",
+            "affected_units",
+            "requested_restart_actions",
+            "automatic_restart_counter_note",
+            "readiness",
+            "diagnostic_health",
+            "metrics",
+        ):
+            self.assertIn(field, report_text)
+        self.assertIn("not requested restart actions", report_text)
 
     def test_onclave_adopts_existing_storage_and_renders_unified_contract(
         self,
@@ -1144,6 +1322,21 @@ class AnsibleSafetyTests(unittest.TestCase):
             "['docling-serve', 'minio', 'ollama', 'postgres', 'rabbitmq', 'searxng']",
             conditions,
         )
+        self.assertIn(
+            "onclave_onramp_definition.services['onclave-core'].healthcheck.test == "
+            "['CMD', 'wget', '-qO-', 'http://127.0.0.1:8000/live']",
+            conditions,
+        )
+        for variable in (
+            "ONCLAVE_VAULT_JOB_RECOVERY_BATCH_SIZE",
+            "ONCLAVE_VAULT_JOB_LEASE_MS",
+            "ONCLAVE_VAULT_DELIVERY_POLL_INTERVAL_MS",
+            "ONCLAVE_VAULT_DELIVERY_LEASE_MS",
+            "ONCLAVE_VAULT_DELIVERY_RETRY_BASE_MS",
+            "ONCLAVE_VAULT_DELIVERY_RETRY_MAX_MS",
+            "ONCLAVE_VAULT_DELIVERY_BATCH_SIZE",
+        ):
+            self.assertIn(variable, str(conditions))
 
         templates = role / "templates"
         container_templates = tuple(templates.glob("*.container.j2"))
@@ -1185,14 +1378,16 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertIn("PublishPort=127.0.0.1:{{ onclave_onramp_core_port }}:8000", core)
         health_cmd = (
-            "HealthCmd=node -e 'fetch(\"http://127.0.0.1:8000/health\")"
+            "HealthCmd=node -e 'fetch(\"http://127.0.0.1:8000/live\")"
             ".then(response => { if (!response.ok) process.exit(1); })"
             ".catch(() => process.exit(1))'"
         )
         self.assertIn(health_cmd, core)
         self.assertIn("HealthOnFailure=kill", core)
         self.assertIn("Restart=always", core)
+        self.assertIn("Notify=healthy", postgres)
         self.assertIn("Requires=onclave-rabbitmq.service onclave-postgres.service", core)
+        self.assertIn("After=onclave-rabbitmq.service onclave-postgres.service", core)
         self.assertIn(
             "Volume={{ onclave_onramp_searxng_config_volume }}:/etc/searxng",
             searxng,
@@ -1265,6 +1460,29 @@ class AnsibleSafetyTests(unittest.TestCase):
         self.assertEqual(defaults["onclave_onramp_s3_bucket"], "menos")
         self.assertEqual(defaults["onclave_onramp_embedding_provider"], "openrouter")
         self.assertEqual(defaults["onclave_onramp_embedding_model"], "intfloat/e5-large-v2")
+        self.assertEqual(
+            {
+                key: defaults[key]
+                for key in (
+                    "onclave_onramp_job_recovery_batch_size",
+                    "onclave_onramp_job_lease_ms",
+                    "onclave_onramp_delivery_poll_interval_ms",
+                    "onclave_onramp_delivery_lease_ms",
+                    "onclave_onramp_delivery_retry_base_ms",
+                    "onclave_onramp_delivery_retry_max_ms",
+                    "onclave_onramp_delivery_batch_size",
+                )
+            },
+            {
+                "onclave_onramp_job_recovery_batch_size": 50,
+                "onclave_onramp_job_lease_ms": 300000,
+                "onclave_onramp_delivery_poll_interval_ms": 1000,
+                "onclave_onramp_delivery_lease_ms": 300000,
+                "onclave_onramp_delivery_retry_base_ms": 1000,
+                "onclave_onramp_delivery_retry_max_ms": 900000,
+                "onclave_onramp_delivery_batch_size": 50,
+            },
+        )
         for name in (
             "onclave_onramp_authorized_keys",
             "onclave_onramp_postgres_password",
@@ -1301,6 +1519,16 @@ class AnsibleSafetyTests(unittest.TestCase):
             "ONCLAVE_VAULT_S3_BUCKET={{ onclave_onramp_s3_bucket }}",
             "ONCLAVE_VAULT_EMBEDDING_PROVIDER={{ onclave_onramp_embedding_provider }}",
             "ONCLAVE_VAULT_EMBEDDING_MODEL={{ onclave_onramp_embedding_model }}",
+            "ONCLAVE_VAULT_JOB_RECOVERY_BATCH_SIZE={{ onclave_onramp_job_recovery_batch_size }}",
+            "ONCLAVE_VAULT_JOB_LEASE_MS={{ onclave_onramp_job_lease_ms }}",
+            (
+                "ONCLAVE_VAULT_DELIVERY_POLL_INTERVAL_MS="
+                "{{ onclave_onramp_delivery_poll_interval_ms }}"
+            ),
+            "ONCLAVE_VAULT_DELIVERY_LEASE_MS={{ onclave_onramp_delivery_lease_ms }}",
+            "ONCLAVE_VAULT_DELIVERY_RETRY_BASE_MS={{ onclave_onramp_delivery_retry_base_ms }}",
+            "ONCLAVE_VAULT_DELIVERY_RETRY_MAX_MS={{ onclave_onramp_delivery_retry_max_ms }}",
+            "ONCLAVE_VAULT_DELIVERY_BATCH_SIZE={{ onclave_onramp_delivery_batch_size }}",
         ):
             self.assertIn(key, template)
         for retired_key in (
@@ -1319,34 +1547,70 @@ class AnsibleSafetyTests(unittest.TestCase):
         ):
             self.assertNotIn(retired_key, core_template)
 
-    def test_onclave_unified_health_gate_checks_revision_and_dependencies(self) -> None:
+    def test_onclave_operational_gates_separate_liveness_diagnostics_and_readiness(self) -> None:
         role_tasks = ONCLAVE_ONRAMP_TASKS
+        live = task_by_name(role_tasks, "Verify unified Onclave process liveness")
         health = task_by_name(
-            role_tasks, "Verify unified Onclave health and source revision"
+            role_tasks, "Read unified Onclave diagnostic health and source revision"
         )
-        ready = task_by_name(role_tasks, "Verify unified Onclave dependency readiness")
+        health_contract = task_by_name(
+            role_tasks, "Verify safe unified Onclave diagnostic health contract"
+        )
+        ready = task_by_name(
+            role_tasks,
+            "Verify unified Onclave dependency readiness after automatic migration",
+        )
+        metrics = task_by_name(
+            role_tasks, "Verify unified Onclave Prometheus metric families"
+        )
+        self.assertTrue(live["ansible.builtin.uri"]["url"].endswith("/live"))
+        self.assertEqual(health["ansible.builtin.uri"]["status_code"], [200, 503])
+        health_conditions = health_contract["ansible.builtin.assert"]["that"]
         self.assertIn(
-            "onclave_onramp_health.json.git_sha | default('') == onclave_source_git_sha",
-            health["until"],
+            "onclave_onramp_health.json.git_sha == onclave_source_git_sha",
+            health_conditions,
         )
-        self.assertIn(
-            "onclave_onramp_health.json.broker.connected | default(false) | bool",
-            health["until"],
-        )
+        for condition in (
+            "onclave_onramp_health.json.transcript.proxy.mode in ['webshare', 'custom', 'direct']",
+            "onclave_onramp_health.json.transcript.proxy.configured is boolean",
+            (
+                "onclave_onramp_health.json.transcript.proxy.credentialStatus "
+                "in ['present', 'missing', 'not_applicable']"
+            ),
+            (
+                "onclave_onramp_health.json.transcript.proxy.dispatcherStatus "
+                "in ['owned', 'injected', 'none']"
+            ),
+            "onclave_onramp_health.json.transcript.proxy.connectivity == 'not_checked'",
+        ):
+            self.assertIn(condition, health_conditions)
         for condition in (
             "onclave_onramp_ready.json.checks.postgres | default('') == 'ok'",
             "onclave_onramp_ready.json.checks.s3 | default('') == 'ok'",
-            "onclave_onramp_ready.json.checks.ollama | default('') == 'ok'",
+            "onclave_onramp_ready.json.checks.ollama | default('') in ['ok', 'skipped']",
+            "onclave_onramp_ready.json.checks.openrouter | default('') == 'ok'",
+            "onclave_onramp_ready.json.checks.broker | default('') == 'ok'",
         ):
             self.assertIn(condition, ready["until"])
+        self.assertEqual(len(metrics["loop"]), 10)
+        names = task_names(role_tasks)
+        self.assertLess(
+            names.index("Enable native Onclave rootless target"),
+            names.index(
+                "Verify unified Onclave dependency readiness after automatic migration"
+            ),
+        )
         self.assertTrue(
-            task_by_name(role_tasks, "Verify unified Onclave HTTPS route locally").get(
-                "retries"
-            )
+            task_by_name(
+                role_tasks, "Verify unified Onclave HTTPS liveness route locally"
+            ).get("retries")
         )
 
     def test_onclave_signed_api_check_runs_once_on_the_controller(self) -> None:
-        validation = task_by_name(ONCLAVE_ONRAMP_TASKS, "Validate signed Onclave API")
+        validation = task_by_name(
+            ONCLAVE_ONRAMP_TASKS,
+            "Validate public diagnostics and signed Onclave API",
+        )
         command = validation["block"][0]
         self.assertEqual(command.get("delegate_to"), "localhost")
         self.assertFalse(command.get("become"))
@@ -1363,7 +1627,7 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertEqual(
             validation["rescue"][0]["ansible.builtin.fail"]["msg"],
-            "signed Onclave API validation failed",
+            "Onclave diagnostics or signed API validation failed",
         )
 
     def test_onclave_omits_completed_retired_service_and_proxy_cleanup(self) -> None:
@@ -1489,11 +1753,7 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertIn("change_password", reconcile["ansible.builtin.command"]["argv"])
         self.assertEqual(
-            reconcile["when"],
-            [
-                "onclave_onramp_enable_cutover | bool",
-                "onclave_onramp_rabbitmq_auth.rc != 0",
-            ],
+            reconcile["when"], "onclave_onramp_rabbitmq_auth.rc != 0"
         )
         self.assertTrue(reconcile["no_log"])
 

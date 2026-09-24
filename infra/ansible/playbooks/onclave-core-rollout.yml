@@ -18,6 +18,9 @@
       {{ onclave_core_rollout_image_repository }}:{{ onclave_core_rollout_image_tag
       }}@{{ onclave_core_rollout_image_digest }}
     onclave_core_rollout_redactor: /tmp/onclave-core-log-redactor.py
+    onclave_core_rollout_health_command: >-
+      HealthCmd=node -e 'fetch("http://127.0.0.1:8000{{ onclave_core_rollout_health_path }}").then(response =>
+      { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))'
   pre_tasks:
     - name: Validate core-only rollout inputs
       ansible.builtin.assert:
@@ -29,7 +32,18 @@
           - onclave_core_rollout_image_digest is match('^sha256:[0-9a-f]{64}$')
           - onclave_core_rollout_port | int > 0
           - onclave_core_rollout_port | int < 65536
-        fail_msg: "Core-only rollout pins or mode are invalid."
+          - onclave_core_rollout_health_path in ['/health', '/live']
+          - onclave_core_rollout_compatible_installed_health_paths | length > 0
+          - >-
+            onclave_core_rollout_compatible_installed_health_paths |
+            difference(['/health', '/live']) | length == 0
+          - onclave_core_rollout_compatible_installed_revisions | length > 0
+          - >-
+            (onclave_core_rollout_compatible_installed_revisions |
+            select('match', '^[0-9a-f]{40}$') | list | length) ==
+            (onclave_core_rollout_compatible_installed_revisions | length)
+          - onclave_core_rollout_result_path is match('^/[A-Za-z0-9_./-]+$')
+        fail_msg: "Core-only rollout pins, health contract, evidence path, or mode are invalid."
 
     - name: Resolve the rootless deploy user UID
       ansible.builtin.command:
@@ -70,6 +84,177 @@
               - onclave_core_rollout_contract_stats.results | map(attribute='stat.isreg') | min
             fail_msg: "The native Onclave core Quadlet contract is required for a core-only rollout."
 
+        - name: Capture pre-rollout revision, endpoint support, units, and restart observations
+          ansible.builtin.shell: |
+            set -euo pipefail
+            python3 - \
+              "{{ onclave_core_rollout_quadlet }}" \
+              "{{ onclave_core_rollout_env }}" \
+              "{{ onclave_core_rollout_port }}" \
+              "{{ onclave_core_rollout_mode }}" <<'PY'
+            import json
+            import pathlib
+            import subprocess
+            import sys
+            import urllib.error
+            import urllib.request
+
+            quadlet = pathlib.Path(sys.argv[1])
+            environment_file = pathlib.Path(sys.argv[2])
+            port = int(sys.argv[3])
+            mode = sys.argv[4]
+            tolerate_core_unavailable = mode == "rollback"
+            units = {
+                "onclave-core.service": "onclave-core",
+                "onclave-rabbitmq.service": "onclave-rabbitmq",
+                "onclave-postgres.service": "onclave-postgres",
+                "onclave-ollama.service": "onclave-ollama",
+                "onclave-searxng.service": "onclave-searxng",
+                "onclave-docling.service": "onclave-docling",
+            }
+            health_commands = {
+                (
+                    "HealthCmd=node -e 'fetch(\"http://127.0.0.1:8000/health\").then(response => "
+                    "{ if (!response.ok) process.exit(1); }).catch(() => process.exit(1))'"
+                ): "/health",
+                (
+                    "HealthCmd=node -e 'fetch(\"http://127.0.0.1:8000/live\").then(response => "
+                    "{ if (!response.ok) process.exit(1); }).catch(() => process.exit(1))'"
+                ): "/live",
+            }
+
+            def command(*argv):
+                return subprocess.run(argv, check=True, text=True, capture_output=True).stdout
+
+            def unit_snapshot(unit, container, tolerate_unavailable=False):
+                properties = {}
+                try:
+                    for line in command(
+                        "systemctl", "--user", "show", unit,
+                        "--property=ActiveState", "--property=SubState",
+                        "--property=MainPID", "--property=NRestarts",
+                    ).splitlines():
+                        key, value = line.split("=", 1)
+                        properties[key] = value
+                except (OSError, subprocess.CalledProcessError, ValueError):
+                    if not tolerate_unavailable:
+                        raise
+                inspected = None
+                try:
+                    inspected = json.loads(command("podman", "container", "inspect", container))[0]
+                except (OSError, subprocess.CalledProcessError, ValueError, IndexError, TypeError):
+                    if not tolerate_unavailable:
+                        raise
+                state = inspected.get("State", {}) if isinstance(inspected, dict) else {}
+                return {
+                    "runtime_available": bool(properties) and isinstance(inspected, dict),
+                    "active_state": properties.get("ActiveState"),
+                    "sub_state": properties.get("SubState"),
+                    "main_pid": int(properties.get("MainPID", "0")) if properties else None,
+                    "systemd_automatic_restarts": int(properties.get("NRestarts", "0")) if properties else None,
+                    "container_id": inspected.get("Id") if isinstance(inspected, dict) else None,
+                    "container_status": state.get("Status"),
+                    "container_exit_code": state.get("ExitCode"),
+                    "container_automatic_restarts": inspected.get("RestartCount", 0) if isinstance(inspected, dict) else None,
+                }
+
+            def request(path):
+                try:
+                    response = urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}{path}", timeout=5
+                    )
+                except urllib.error.HTTPError as error:
+                    response = error
+                except urllib.error.URLError:
+                    if not tolerate_core_unavailable:
+                        raise
+                    return {
+                        "http_status": None,
+                        "supported": False,
+                        "content_type": "",
+                        "status": None,
+                        **({"revision": None} if path == "/health" else {}),
+                    }
+                try:
+                    body = response.read(1024 * 1024)
+                    content_type = response.headers.get("content-type", "")
+                    status = response.status
+                finally:
+                    response.close()
+                result = {
+                    "http_status": status,
+                    "supported": status != 404,
+                    "content_type": content_type,
+                }
+                if path != "/metrics":
+                    try:
+                        payload = json.loads(body)
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        payload = {}
+                    result["status"] = payload.get("status")
+                    if path == "/health":
+                        result["revision"] = payload.get("git_sha")
+                return result
+
+            lines = [line for line in quadlet.read_text(encoding="utf-8").splitlines() if line.startswith("HealthCmd=")]
+            if len(lines) != 1 or lines[0] not in health_commands:
+                raise SystemExit("installed core HealthCmd is not an exact compatible contract")
+            endpoints = {
+                path.removeprefix("/"): request(path)
+                for path in ("/live", "/health", "/ready", "/metrics")
+            }
+            configured_revisions = [
+                line.split("=", 1)[1]
+                for line in environment_file.read_text(encoding="utf-8").splitlines()
+                if line.startswith("GIT_SHA=")
+            ]
+            if len(configured_revisions) != 1:
+                raise SystemExit("installed core environment has no exact GIT_SHA contract")
+            snapshots = {
+                unit: unit_snapshot(
+                    unit,
+                    container,
+                    tolerate_unavailable=tolerate_core_unavailable and unit == "onclave-core.service",
+                )
+                for unit, container in units.items()
+            }
+            evidence = {
+                "revision": endpoints["health"].get("revision"),
+                "configured_revision": configured_revisions[0],
+                "health_path": health_commands[lines[0]],
+                "endpoints": endpoints,
+                "units": snapshots,
+            }
+            print(json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+            PY
+          args:
+            executable: /bin/bash
+          register: onclave_core_rollout_pre_evidence_raw
+          changed_when: false
+
+        - name: Parse pre-rollout evidence
+          ansible.builtin.set_fact:
+            onclave_core_rollout_pre_evidence: >-
+              {{ onclave_core_rollout_pre_evidence_raw.stdout | from_json }}
+
+        - name: Refuse an installed core contract incompatible with the prior image
+          ansible.builtin.assert:
+            that:
+              - >-
+                onclave_core_rollout_pre_evidence.health_path in
+                onclave_core_rollout_compatible_installed_health_paths
+              - >-
+                onclave_core_rollout_mode != 'rollback' or
+                onclave_core_rollout_pre_evidence.configured_revision in
+                onclave_core_rollout_compatible_installed_revisions
+              - >-
+                onclave_core_rollout_mode == 'rollback' or
+                onclave_core_rollout_pre_evidence.revision in
+                onclave_core_rollout_compatible_installed_revisions
+            fail_msg: >-
+              The installed core revision or HealthCmd does not match the recorded prior-image
+              contract; refusing a core-only rollout.
+
         - name: Pull only the pinned core image
           ansible.builtin.command:
             argv:
@@ -89,6 +274,12 @@
             regexp: '^GIT_SHA='
             line: "GIT_SHA={{ onclave_core_rollout_expected_sha }}"
 
+        - name: Persist the image-compatible core health command
+          ansible.builtin.lineinfile:
+            path: "{{ onclave_core_rollout_quadlet }}"
+            regexp: '^HealthCmd='
+            line: "{{ onclave_core_rollout_health_command }}"
+
         - name: Recreate only the native onclave-core service
           ansible.builtin.systemd_service:
             name: onclave-core.service
@@ -96,50 +287,329 @@
             daemon_reload: true
             state: restarted
 
-        - name: Validate core health, source revision, broker state, and lifecycle
+        - name: Validate lifecycle, operational endpoints, and selected revision
           ansible.builtin.shell: |
             set -euo pipefail
-            systemctl --user is-active --quiet onclave-core.service
-            core_id="$(podman ps --quiet \
-              --filter name=^onclave-core$ \
-              --filter label=io.homelab.onclave.service=onclave-core)"
-            test "$(wc -w <<< "$core_id")" -eq 1
+            last_error='core validation did not run'
             for attempt in $(seq 1 120); do
-              state="$(
-                podman inspect \
-                  --format '{{ '{{' }}.State.Status{{ '}}' }} {{ '{{' }}.State.ExitCode{{ '}}' }} {{ '{{' }}.RestartCount{{ '}}' }}' \
-                  "$core_id" 2>/dev/null || true
-              )"
-              read -r status exit_code restart_count <<< "$state"
-              if [[ "$status" != running || "$exit_code" != 0 || "$restart_count" != 0 ]]; then
-                printf 'core lifecycle failed: status=%s exit=%s restarts=%s\n' "$status" "$exit_code" "$restart_count" >&2
-                exit 1
-              fi
-              if body="$(curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:{{ onclave_core_rollout_port }}/health" 2>/dev/null)" \
-                && python3 - "{{ onclave_core_rollout_expected_sha }}" "$body" <<'PY'
+              if result="$(
+                python3 - \
+                  "{{ onclave_core_rollout_expected_sha }}" \
+                  "{{ onclave_core_rollout_port }}" \
+                  "{{ onclave_core_rollout_health_path }}" \
+                  "{{ onclave_core_rollout_env }}" \
+                  "{{ onclave_core_rollout_quadlet }}" <<'PY'
             import json
+            import subprocess
             import sys
-            try:
-                health = json.loads(sys.argv[2])
-            except (json.JSONDecodeError, IndexError):
-                raise SystemExit(1)
-            raise SystemExit(not (
-                health.get("status") == "ok"
-                and health.get("git_sha") == sys.argv[1]
-                and health.get("broker", {}).get("connected") is True
-            ))
+            import urllib.error
+            import urllib.request
+
+            expected_sha = sys.argv[1]
+            port = int(sys.argv[2])
+            selected_health_path = sys.argv[3]
+            env_path = sys.argv[4]
+            quadlet_path = sys.argv[5]
+            units = {
+                "onclave-core.service": "onclave-core",
+                "onclave-rabbitmq.service": "onclave-rabbitmq",
+                "onclave-postgres.service": "onclave-postgres",
+                "onclave-ollama.service": "onclave-ollama",
+                "onclave-searxng.service": "onclave-searxng",
+                "onclave-docling.service": "onclave-docling",
+            }
+            counters = [
+                "onclave_transcript_attempts_total",
+                "onclave_transcript_health_transitions_total",
+                "onclave_vault_job_events_total",
+                "onclave_vault_pipeline_stage_events_total",
+                "onclave_vault_provider_requests_total",
+                "onclave_vault_delivery_attempts_total",
+            ]
+            summaries = [
+                "onclave_transcript_attempt_duration_seconds",
+                "onclave_vault_pipeline_stage_duration_seconds",
+                "onclave_vault_provider_request_duration_seconds",
+                "onclave_vault_delivery_attempt_duration_seconds",
+            ]
+            safe_tokens = {
+                "ok", "skipped", "error:timeout", "error:unavailable",
+                "error:missing_credential", "error:unauthorized", "error:not_configured",
+            }
+
+            def require(condition, message):
+                if not condition:
+                    raise RuntimeError(message)
+
+            def command(*argv):
+                return subprocess.run(argv, check=True, text=True, capture_output=True).stdout
+
+            def unit_snapshot(unit, container):
+                properties = {}
+                for line in command(
+                    "systemctl", "--user", "show", unit,
+                    "--property=ActiveState", "--property=SubState",
+                    "--property=MainPID", "--property=NRestarts",
+                ).splitlines():
+                    key, value = line.split("=", 1)
+                    properties[key] = value
+                inspected = json.loads(command("podman", "container", "inspect", container))[0]
+                return {
+                    "active_state": properties.get("ActiveState"),
+                    "sub_state": properties.get("SubState"),
+                    "main_pid": int(properties.get("MainPID", "0")),
+                    "systemd_automatic_restarts": int(properties.get("NRestarts", "0")),
+                    "container_id": inspected.get("Id"),
+                    "container_status": inspected.get("State", {}).get("Status"),
+                    "container_exit_code": inspected.get("State", {}).get("ExitCode"),
+                    "container_automatic_restarts": inspected.get("RestartCount", 0),
+                }
+
+            def configured_provider_keys():
+                environment = {}
+                with open(env_path, encoding="utf-8") as handle:
+                    for line in handle:
+                        if line.strip() and not line.lstrip().startswith("#") and "=" in line:
+                            key, value = line.rstrip("\n").split("=", 1)
+                            environment[key] = value
+                require(
+                    environment.get("ONCLAVE_VAULT_UNIFIED_PIPELINE_ENABLED") == "true",
+                    "native core must enable the unified pipeline readiness contract",
+                )
+                require(
+                    environment.get("ONCLAVE_VAULT_UNIFIED_PIPELINE_PROVIDER") == "openrouter",
+                    "native core must select the OpenRouter pipeline readiness contract",
+                )
+                providers = {"openrouter", environment.get("ONCLAVE_VAULT_EMBEDDING_PROVIDER", "ollama")}
+                return providers.intersection({"openai", "anthropic", "openrouter"})
+
+            def fetch(path):
+                try:
+                    response = urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}{path}", timeout=5
+                    )
+                except urllib.error.HTTPError as error:
+                    response = error
+                try:
+                    return response.status, response.headers.get("content-type", ""), response.read(1024 * 1024)
+                finally:
+                    response.close()
+
+            expected_health_command = (
+                f"HealthCmd=node -e 'fetch(\"http://127.0.0.1:8000{selected_health_path}\").then(response => "
+                "{ if (!response.ok) process.exit(1); }).catch(() => process.exit(1))'"
+            )
+            with open(quadlet_path, encoding="utf-8") as handle:
+                health_commands = [line.rstrip("\n") for line in handle if line.startswith("HealthCmd=")]
+            require(health_commands == [expected_health_command], "persisted core HealthCmd is not image-compatible")
+
+            snapshots = {unit: unit_snapshot(unit, container) for unit, container in units.items()}
+            for unit, snapshot in snapshots.items():
+                require(snapshot["active_state"] == "active", f"{unit} is not active")
+                require(snapshot["container_status"] == "running", f"{unit} container is not running")
+                require(snapshot["container_exit_code"] == 0, f"{unit} container has a nonzero exit code")
+            core = snapshots["onclave-core.service"]
+            require(core["systemd_automatic_restarts"] == 0, "core systemd automatic restart count is nonzero")
+            require(core["container_automatic_restarts"] == 0, "core container automatic restart count is nonzero")
+
+            if selected_health_path == "/health":
+                health_status, _, health_body = fetch("/health")
+                health = json.loads(health_body)
+                broker = health.get("broker")
+                require(health_status == 200 and health.get("status") == "ok", "legacy health contract did not pass")
+                require(health.get("git_sha") == expected_sha, "legacy health revision does not match the selected image")
+                require(isinstance(broker, dict) and broker.get("connected") is True, "legacy broker health did not pass")
+                ready_status, _, ready_body = fetch("/ready")
+                ready = json.loads(ready_body)
+                require(ready_status == 200 and ready.get("status") == "ready", "legacy configured readiness checks did not pass")
+                live_status, live_type, _ = fetch("/live")
+                metrics_status, metrics_type, _ = fetch("/metrics")
+                print(json.dumps({
+                    "revision": health["git_sha"],
+                    "health_path": selected_health_path,
+                    "endpoints": {
+                        "live": {"http_status": live_status, "supported": live_status != 404, "content_type": live_type},
+                        "health": {"http_status": health_status, "status": health["status"], "revision": health["git_sha"], "broker_connected": True},
+                        "ready": {"http_status": ready_status, "status": ready["status"], "checks": ready.get("checks", {})},
+                        "metrics": {"http_status": metrics_status, "supported": metrics_status != 404, "content_type": metrics_type},
+                    },
+                    "units": snapshots,
+                }, sort_keys=True, separators=(",", ":")))
+                raise SystemExit(0)
+
+            require(selected_health_path == "/live", "selected health contract is unsupported")
+            live_status, _, live_body = fetch("/live")
+            require(live_status == 200, "live did not return 200")
+            require(json.loads(live_body) == {"status": "ok"}, "live body is not the process-only contract")
+
+            health_status, _, health_body = fetch("/health")
+            health = json.loads(health_body)
+            require(health_status in (200, 503), "health returned an unsupported status")
+            require(health.get("status") in ("ok", "degraded"), "health status token is invalid")
+            require(health_status == (200 if health["status"] == "ok" else 503), "health HTTP and body status disagree")
+            require(health.get("git_sha") == expected_sha, "health revision does not match the selected image")
+            require(isinstance(health.get("build_date"), str), "health build_date is missing")
+            require(isinstance(health.get("app_version"), str), "health app_version is missing")
+            broker = health.get("broker")
+            require(isinstance(broker, dict), "health broker diagnostic is missing")
+            require(isinstance(broker.get("connected"), bool), "health broker connected diagnostic is invalid")
+            require(isinstance(broker.get("topologyDeclared"), bool), "health broker topology diagnostic is invalid")
+            transcript = health.get("transcript")
+            require(isinstance(transcript, dict), "health transcript diagnostic is missing")
+            require(transcript.get("status") in ("ok", "degraded"), "transcript status is invalid")
+            require(isinstance(transcript.get("degraded"), bool), "transcript snapshot is missing degraded")
+            require(isinstance(transcript.get("failureCount"), int), "transcript snapshot is missing failureCount")
+            require(isinstance(transcript.get("recoveryCount"), int), "transcript snapshot is missing recoveryCount")
+            for key in ("degradedSince", "firstFailureAt", "lastFailureAt", "lastRecoveryAt"):
+                require(transcript.get(key) is None or isinstance(transcript.get(key), str), f"transcript snapshot {key} is invalid")
+            require(transcript.get("lastFailure") is None or isinstance(transcript.get("lastFailure"), dict), "transcript snapshot lastFailure is invalid")
+            failures = transcript.get("recentFailures")
+            require(isinstance(failures, list) and len(failures) <= 10, "transcript failure history is invalid")
+            proxy = transcript.get("proxy")
+            require(isinstance(proxy, dict), "transcript proxy diagnostic is missing")
+            require(set(proxy) == {"mode", "configured", "credentialStatus", "dispatcherStatus", "connectivity"}, "transcript proxy diagnostic fields changed")
+            require(isinstance(proxy.get("configured"), bool), "transcript proxy configured diagnostic is invalid")
+            require(proxy.get("mode") in ("webshare", "custom", "direct"), "transcript proxy mode is invalid")
+            require(proxy.get("credentialStatus") in ("present", "missing", "not_applicable"), "transcript proxy credential status is invalid")
+            require(proxy.get("dispatcherStatus") in ("owned", "injected", "none"), "transcript proxy dispatcher status is invalid")
+            require(proxy.get("connectivity") == "not_checked", "transcript proxy connectivity must remain static")
+
+            ready_status, _, ready_body = fetch("/ready")
+            ready = json.loads(ready_body)
+            require(ready_status == 200 and ready.get("status") == "ready", "configured readiness checks did not pass")
+            checks = ready.get("checks")
+            require(isinstance(checks, dict), "readiness checks are missing")
+            expected_readiness_keys = {"postgres", "s3", "ollama", "broker"} | configured_provider_keys()
+            require(set(checks) == expected_readiness_keys, "readiness keys do not match the configured providers")
+            require(all(value in safe_tokens for value in checks.values()), "readiness returned an unsafe status token")
+            require(all(value in ("ok", "skipped") for value in checks.values()), "readiness contains a failed required check")
+            require(checks["postgres"] == checks["s3"] == checks["broker"] == "ok", "required infrastructure readiness failed")
+
+            metrics_status, metrics_type, metrics_body = fetch("/metrics")
+            require(metrics_status == 200, "metrics did not return 200")
+            require(metrics_type == "text/plain; version=0.0.4; charset=utf-8", "metrics content type changed")
+            metrics = metrics_body.decode("utf-8")
+            for family in counters:
+                require(f"# HELP {family} " in metrics, f"metrics HELP missing for {family}")
+                require(f"# TYPE {family} counter" in metrics, f"metrics TYPE missing for {family}")
+            for family in summaries:
+                require(f"# HELP {family} " in metrics, f"metrics HELP missing for {family}")
+                require(f"# TYPE {family} summary" in metrics, f"metrics TYPE missing for {family}")
+
+            print(json.dumps({
+                "revision": health["git_sha"],
+                "health_path": selected_health_path,
+                "endpoints": {
+                    "live": {"http_status": live_status, "status": "ok"},
+                    "health": {
+                        "http_status": health_status,
+                        "status": health["status"],
+                        "revision": health["git_sha"],
+                        "broker_connected": broker["connected"],
+                        "broker_topology_declared": broker["topologyDeclared"],
+                        "transcript_status": transcript["status"],
+                        "recent_failure_count": len(failures),
+                        "proxy": proxy,
+                    },
+                    "ready": {"http_status": ready_status, "status": ready["status"], "checks": checks},
+                    "metrics": {
+                        "http_status": metrics_status,
+                        "content_type": metrics_type,
+                        "counter_families": counters,
+                        "summary_families": summaries,
+                    },
+                },
+                "units": snapshots,
+            }, sort_keys=True, separators=(",", ":")))
             PY
-              then
-                printf 'core health validated\n'
+            )"; then
+                printf '%s\n' "$result"
                 exit 0
+              else
+                last_error="$result"
               fi
               sleep 1
             done
-            printf 'core health validation timed out\n' >&2
+            printf 'core operational validation timed out: %s\n' "$last_error" >&2
             exit 1
           args:
             executable: /bin/bash
+          register: onclave_core_rollout_post_evidence_raw
           changed_when: false
+
+        - name: Parse post-rollout evidence
+          ansible.builtin.set_fact:
+            onclave_core_rollout_post_evidence: >-
+              {{ onclave_core_rollout_post_evidence_raw.stdout | from_json }}
+
+        - name: Prove dependency units were not restarted and build safe rollout evidence
+          ansible.builtin.shell: |
+            set -euo pipefail
+            python3 - <<'PY'
+            import json
+            import os
+
+            pre = json.loads(os.environ["PRE_EVIDENCE"])
+            post = json.loads(os.environ["POST_EVIDENCE"])
+            dependencies = [
+                "onclave-rabbitmq.service",
+                "onclave-postgres.service",
+                "onclave-ollama.service",
+                "onclave-searxng.service",
+                "onclave-docling.service",
+            ]
+            identity_fields = (
+                "main_pid", "container_id", "systemd_automatic_restarts",
+                "container_automatic_restarts",
+            )
+            for unit in dependencies:
+                changed = [field for field in identity_fields if pre["units"][unit][field] != post["units"][unit][field]]
+                if changed:
+                    raise SystemExit(f"dependency unit changed during core-only rollout: {unit}: {','.join(changed)}")
+            core = "onclave-core.service"
+            if pre["units"][core]["container_id"] == post["units"][core]["container_id"]:
+                raise SystemExit("core container identity did not change after the explicit restart")
+            restart_observations = {}
+            for unit in pre["units"]:
+                restart_observations[unit] = {
+                    "systemd_automatic_before": pre["units"][unit]["systemd_automatic_restarts"],
+                    "systemd_automatic_after": post["units"][unit]["systemd_automatic_restarts"],
+                    "container_automatic_before": pre["units"][unit]["container_automatic_restarts"],
+                    "container_automatic_after": post["units"][unit]["container_automatic_restarts"],
+                }
+            evidence = {
+                "mode": os.environ["ROLLOUT_MODE"],
+                "revision": {"before": pre.get("revision"), "after": post["revision"]},
+                "affected_units": [core],
+                "explicit_restart_action_count": 1,
+                "restart_observations": restart_observations,
+                "health_command": {"before": pre["health_path"], "after": post["health_path"]},
+                "endpoints": {"before": pre["endpoints"], "after": post["endpoints"]},
+                "migration_evidence": "startup_and_configured_readiness_passed",
+            }
+            print(json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+            PY
+          args:
+            executable: /bin/bash
+          environment:
+            PRE_EVIDENCE: "{{ onclave_core_rollout_pre_evidence | to_json }}"
+            POST_EVIDENCE: "{{ onclave_core_rollout_post_evidence | to_json }}"
+            ROLLOUT_MODE: "{{ onclave_core_rollout_mode }}"
+          register: onclave_core_rollout_evidence_raw
+          changed_when: false
+
+        - name: Parse safe core rollout evidence
+          ansible.builtin.set_fact:
+            onclave_core_rollout_evidence: >-
+              {{ onclave_core_rollout_evidence_raw.stdout | from_json }}
+
+        - name: Persist safe core rollout evidence for the controller
+          ansible.builtin.copy:
+            content: "{{ onclave_core_rollout_evidence | to_nice_json }}\n"
+            dest: "{{ onclave_core_rollout_result_path }}"
+            mode: "0600"
+          delegate_to: localhost
+          become: false
 
       rescue:
         - name: Capture bounded redacted core logs

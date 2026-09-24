@@ -1,5 +1,23 @@
 ---
-- name: Restart onclave onramp
+- name: Restart changed Onclave service
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    scope: user
+    state: restarted
+    daemon_reload: true
+  loop: "{{ onclave_onramp_changed_services | default([]) | unique }}"
+  register: onclave_onramp_unit_restart_results
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  when:
+    - onclave_onramp_pre_target_state.stdout | default('') | trim == 'active'
+    - not (onclave_onramp_topology_changed | default(false) | bool)
+    - onclave_onramp_changed_services | default([]) | length > 0
+  listen: Restart changed Onclave services
+
+- name: Restart Onclave target after topology change
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.systemd_service:
@@ -7,12 +25,15 @@
     scope: user
     state: restarted
     daemon_reload: true
+  register: onclave_onramp_target_restart_result
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
-  when: onclave_onramp_enable_cutover | bool
+  when:
+    - onclave_onramp_pre_target_state.stdout | default('') | trim == 'active'
+    - onclave_onramp_topology_changed | default(false) | bool
+  listen: Restart Onclave target
 
 - name: Reload caddy
   ansible.builtin.systemd_service:
     name: caddy
     state: reloaded
-  when: onclave_onramp_enable_cutover | bool

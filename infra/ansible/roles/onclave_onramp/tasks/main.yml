@@ -44,6 +44,13 @@
       - onclave_onramp_core_port | int > 0
       - onclave_onramp_core_port | int < 65536
       - onclave_onramp_unified_pipeline_input_budget | int >= 4000
+      - onclave_onramp_job_recovery_batch_size | int > 0
+      - onclave_onramp_job_lease_ms | int >= 1000
+      - onclave_onramp_delivery_poll_interval_ms | int >= 10
+      - onclave_onramp_delivery_lease_ms | int >= 15000
+      - onclave_onramp_delivery_retry_base_ms | int > 0
+      - onclave_onramp_delivery_retry_max_ms | int >= onclave_onramp_delivery_retry_base_ms | int
+      - onclave_onramp_delivery_batch_size | int > 0
       - onclave_onramp_amqp_port | int > 0
       - onclave_onramp_amqp_port | int < 65536
       - onclave_onramp_enable_cutover is boolean
@@ -184,6 +191,7 @@
       - onclave_onramp_definition.services['onclave-core'].depends_on.keys() | sort == ['docling-serve', 'minio', 'ollama', 'postgres', 'rabbitmq', 'searxng']
       - onclave_onramp_definition.services['onclave-core'].volumes == ['onclave-data:/data']
       - onclave_onramp_definition.services['onclave-core'].configs | length == 1
+      - onclave_onramp_definition.services['onclave-core'].healthcheck.test == ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8000/live']
       - onclave_onramp_definition.services['onclave-core'].healthcheck.interval == '10s'
       - onclave_onramp_definition.services['onclave-core'].healthcheck.timeout == '5s'
       - onclave_onramp_definition.services['onclave-core'].healthcheck.retries == 5
@@ -191,26 +199,62 @@
       - onclave_onramp_definition.services['onclave-core'].environment.ONCLAVE_VAULT_POSTGRES_HOST == 'postgres'
       - onclave_onramp_definition.services['onclave-core'].environment.ONCLAVE_VAULT_OLLAMA_URL == 'http://ollama:11434'
       - onclave_onramp_definition.services['onclave-core'].environment.ONCLAVE_VAULT_DOCLING_URL == 'http://docling-serve:5001'
+      - "'ONCLAVE_VAULT_JOB_RECOVERY_BATCH_SIZE' in onclave_onramp_definition.services['onclave-core'].environment"
+      - "'ONCLAVE_VAULT_JOB_LEASE_MS' in onclave_onramp_definition.services['onclave-core'].environment"
+      - "'ONCLAVE_VAULT_DELIVERY_POLL_INTERVAL_MS' in onclave_onramp_definition.services['onclave-core'].environment"
+      - "'ONCLAVE_VAULT_DELIVERY_LEASE_MS' in onclave_onramp_definition.services['onclave-core'].environment"
+      - "'ONCLAVE_VAULT_DELIVERY_RETRY_BASE_MS' in onclave_onramp_definition.services['onclave-core'].environment"
+      - "'ONCLAVE_VAULT_DELIVERY_RETRY_MAX_MS' in onclave_onramp_definition.services['onclave-core'].environment"
+      - "'ONCLAVE_VAULT_DELIVERY_BATCH_SIZE' in onclave_onramp_definition.services['onclave-core'].environment"
     fail_msg: >-
       The pinned Onclave app definition changed a service, health, dependency,
       networking, storage, or runtime seam mapped by the native Quadlet units.
 
+- name: Initialize Onclave steady-state change tracking
+  ansible.builtin.set_fact:
+    onclave_onramp_changed_services: []
+    onclave_onramp_topology_changed: false
+    onclave_onramp_managed_units:
+      - onclave-rabbitmq.service
+      - onclave-postgres.service
+      - onclave-ollama.service
+      - onclave-searxng.service
+      - onclave-docling.service
+      - onclave-core.service
+  changed_when: false
+
 - name: Install native Onclave service environment contracts
   ansible.builtin.template:
-    src: "{{ item }}.env.j2"
-    dest: "{{ onclave_onramp_base_dir }}/env/{{ item }}.env"
+    src: "{{ item.name }}.env.j2"
+    dest: "{{ onclave_onramp_base_dir }}/env/{{ item.name }}.env"
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
     mode: "0600"
   loop:
-    - rabbitmq
-    - postgres
-    - ollama
-    - searxng
-    - docling
-    - core
+    - name: rabbitmq
+      unit: onclave-rabbitmq.service
+    - name: postgres
+      unit: onclave-postgres.service
+    - name: ollama
+      unit: onclave-ollama.service
+    - name: searxng
+      unit: onclave-searxng.service
+    - name: docling
+      unit: onclave-docling.service
+    - name: core
+      unit: onclave-core.service
+  register: onclave_onramp_environment_contracts
   no_log: true
-  notify: Restart onclave onramp
+
+- name: Track services with changed Onclave environment contracts
+  ansible.builtin.set_fact:
+    onclave_onramp_changed_services: >-
+      {{ (onclave_onramp_changed_services | default([])) +
+         (onclave_onramp_environment_contracts.results |
+          selectattr('changed') | map(attribute='item.unit') | list) }}
+  changed_when: >-
+    onclave_onramp_environment_contracts.results | selectattr('changed') | list | length > 0
+  notify: Restart changed Onclave services
 
 - name: Install unified Onclave authorized public keys
   ansible.builtin.template:
@@ -219,8 +263,17 @@
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
     mode: "0640"
+  register: onclave_onramp_authorized_keys_contract
   no_log: true
-  notify: Restart onclave onramp
+
+- name: Track Onclave core for an authorized-key contract change
+  ansible.builtin.set_fact:
+    onclave_onramp_changed_services: >-
+      {{ onclave_onramp_changed_services +
+         (['onclave-core.service']
+          if onclave_onramp_authorized_keys_contract.changed else []) }}
+  changed_when: onclave_onramp_authorized_keys_contract.changed
+  notify: Restart changed Onclave services
 
 - name: Resolve unified Onclave deploy user UID
   ansible.builtin.command:
@@ -229,6 +282,66 @@
       - -u
       - "{{ onramp_host_deploy_user }}"
   register: onclave_onramp_deploy_user_uid
+  changed_when: false
+
+- name: Observe pre-apply Onclave target state
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - is-active
+      - onclave-onramp.target
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_pre_target_state
+  changed_when: false
+  failed_when: false
+
+- name: Observe pre-apply Onclave unit lifecycle state
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - show
+      - --property=LoadState
+      - --property=ActiveState
+      - --property=InvocationID
+      - --property=NRestarts
+      - "{{ item }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  loop: "{{ onclave_onramp_managed_units }}"
+  register: onclave_onramp_pre_unit_lifecycle
+  changed_when: false
+  failed_when: false
+
+- name: Observe pre-apply Onclave core revision when supported
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - onclave-core
+      - printenv
+      - GIT_SHA
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_pre_revision_raw
+  changed_when: false
+  failed_when: false
+
+- name: Normalize pre-apply Onclave core revision observation
+  ansible.builtin.set_fact:
+    onclave_onramp_pre_revision: >-
+      {{ onclave_onramp_pre_revision_raw.stdout
+         if onclave_onramp_pre_revision_raw.rc == 0 and
+            onclave_onramp_pre_revision_raw.stdout is match('^[0-9a-f]{40}$')
+         else 'unsupported' }}
   changed_when: false
 
 - name: Discover existing Onclave SearXNG volume identities
@@ -274,7 +387,6 @@
   register: onclave_onramp_searxng_mounts_raw
   changed_when: false
   no_log: true
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Preserve existing Onclave SearXNG volume identities
   ansible.builtin.set_fact:
@@ -283,7 +395,6 @@
     onclave_onramp_searxng_cache_volume: >-
       {{ (onclave_onramp_searxng_mounts_raw.stdout | from_json)['/var/cache/searxng'] }}
   no_log: true
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Validate preserved Onclave SearXNG volume identities
   ansible.builtin.assert:
@@ -293,7 +404,6 @@
       - onclave_onramp_searxng_config_volume != onclave_onramp_searxng_cache_volume
     quiet: true
   no_log: true
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Detect legacy Onclave target unit
   ansible.builtin.stat:
@@ -613,23 +723,54 @@
   changed_when: true
   when: onclave_onramp_enable_cutover | bool
 
-- name: Install native Onclave rootless Quadlet units
+- name: Install native Onclave rootless network
   ansible.builtin.template:
-    src: "{{ item }}.j2"
-    dest: "{{ onclave_onramp_quadlet_dir }}/{{ item }}"
+    src: onclave.network.j2
+    dest: "{{ onclave_onramp_quadlet_dir }}/onclave.network"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  register: onclave_onramp_network_contract
+
+- name: Track changed Onclave network topology
+  ansible.builtin.set_fact:
+    onclave_onramp_topology_changed: >-
+      {{ onclave_onramp_topology_changed | bool or
+         onclave_onramp_network_contract.changed }}
+  changed_when: onclave_onramp_network_contract.changed
+  notify: Restart Onclave target
+
+- name: Install native Onclave rootless container units
+  ansible.builtin.template:
+    src: "{{ item.template }}.j2"
+    dest: "{{ onclave_onramp_quadlet_dir }}/{{ item.template }}"
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
     mode: "0644"
   loop:
-    - onclave.network
-    - onclave-rabbitmq.container
-    - onclave-postgres.container
-    - onclave-ollama.container
-    - onclave-searxng.container
-    - onclave-docling.container
-    - onclave-core.container
-  notify: Restart onclave onramp
-  when: onclave_onramp_enable_cutover | bool
+    - template: onclave-rabbitmq.container
+      unit: onclave-rabbitmq.service
+    - template: onclave-postgres.container
+      unit: onclave-postgres.service
+    - template: onclave-ollama.container
+      unit: onclave-ollama.service
+    - template: onclave-searxng.container
+      unit: onclave-searxng.service
+    - template: onclave-docling.container
+      unit: onclave-docling.service
+    - template: onclave-core.container
+      unit: onclave-core.service
+  register: onclave_onramp_container_contracts
+
+- name: Track services with changed Onclave container contracts
+  ansible.builtin.set_fact:
+    onclave_onramp_changed_services: >-
+      {{ (onclave_onramp_changed_services | default([])) +
+         (onclave_onramp_container_contracts.results |
+          selectattr('changed') | map(attribute='item.unit') | list) }}
+  changed_when: >-
+    onclave_onramp_container_contracts.results | selectattr('changed') | list | length > 0
+  notify: Restart changed Onclave services
 
 - name: Install native Onclave rootless target
   ansible.builtin.template:
@@ -638,8 +779,23 @@
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
     mode: "0644"
-  notify: Restart onclave onramp
-  when: onclave_onramp_enable_cutover | bool
+  register: onclave_onramp_target_contract
+
+- name: Track changed Onclave target membership topology
+  ansible.builtin.set_fact:
+    onclave_onramp_topology_changed: >-
+      {{ onclave_onramp_topology_changed | bool or
+         onclave_onramp_target_contract.changed }}
+  changed_when: onclave_onramp_target_contract.changed
+  notify: Restart Onclave target
+
+- name: Resolve affected Onclave units before restart handlers
+  ansible.builtin.set_fact:
+    onclave_onramp_affected_units: >-
+      {{ onclave_onramp_managed_units
+         if onclave_onramp_topology_changed | bool
+         else onclave_onramp_changed_services | unique | list }}
+  changed_when: false
 
 - name: Start native RabbitMQ before credential reconciliation
   become: true
@@ -651,7 +807,6 @@
     state: started
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify persisted RabbitMQ password matches BWS
   become: true
@@ -671,7 +826,6 @@
   changed_when: false
   failed_when: false
   no_log: true
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Reconcile persisted RabbitMQ password from BWS
   become: true
@@ -691,9 +845,7 @@
   retries: 24
   delay: 5
   until: onclave_onramp_rabbitmq_reconcile.rc == 0
-  when:
-    - onclave_onramp_enable_cutover | bool
-    - onclave_onramp_rabbitmq_auth.rc != 0
+  when: onclave_onramp_rabbitmq_auth.rc != 0
   no_log: true
 
 - name: Enable native Onclave rootless target
@@ -704,10 +856,9 @@
     scope: user
     daemon_reload: true
     enabled: true
-    state: restarted
+    state: started
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Remove retired inbound Onclave AMQP firewall rules
   ansible.builtin.command:
@@ -737,7 +888,6 @@
 - name: Ensure onramp Caddy supports Cloudflare DNS-01
   ansible.builtin.include_role:
     name: caddy_build
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Install Onclave Caddy site snippets
   ansible.builtin.template:
@@ -747,7 +897,6 @@
     group: root
     mode: "0644"
   notify: Reload caddy
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Validate Onclave Caddy config
   ansible.builtin.command:
@@ -756,11 +905,19 @@
       - -lc
       - set -a && . /etc/caddy/env && set +a && caddy validate --config /etc/caddy/Caddyfile
   changed_when: false
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Flush unified Onclave service restarts before health checks
   ansible.builtin.meta: flush_handlers
-  when: onclave_onramp_enable_cutover | bool
+
+- name: Record requested Onclave restart action count
+  ansible.builtin.set_fact:
+    onclave_onramp_requested_restart_actions: >-
+      {{ 0
+         if onclave_onramp_pre_target_state.stdout | trim != 'active'
+         else (1
+               if onclave_onramp_topology_changed | bool
+               else onclave_onramp_affected_units | length) }}
+  changed_when: false
 
 - name: Verify native Onclave rootless target is active
   become: true
@@ -778,7 +935,6 @@
   retries: 12
   delay: 10
   until: onclave_onramp_service_active.rc == 0
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Resolve running native Onclave core container ID
   become: true
@@ -797,7 +953,6 @@
   register: onclave_onramp_core_container_ids
   changed_when: false
   no_log: true
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Fail closed without exactly one running unified Onclave core container
   ansible.builtin.assert:
@@ -805,7 +960,6 @@
       - onclave_onramp_core_container_ids.stdout_lines | length == 1
     quiet: true
   no_log: true
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify configured Onclave embedding provider
   become: true
@@ -849,7 +1003,6 @@
   register: onclave_onramp_embedding_model
   changed_when: "'\"downloaded\":true' in onclave_onramp_embedding_model.stdout"
   no_log: true
-  when: onclave_onramp_enable_cutover | bool
 
 - name: Verify SeaweedFS application bucket through the Onclave S3 contract
   become: true
@@ -883,40 +1036,122 @@
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   changed_when: false
   no_log: true
-  when: onclave_onramp_enable_cutover | bool
 
-- name: Verify unified Onclave health and source revision
+- name: Verify unified Onclave process liveness
   ansible.builtin.uri:
-    url: "http://127.0.0.1:{{ onclave_onramp_core_port }}/health"
+    url: "http://127.0.0.1:{{ onclave_onramp_core_port }}/live"
     status_code: 200
     return_content: true
-  register: onclave_onramp_health
+  register: onclave_onramp_live
   retries: 60
   delay: 10
   until:
-    - onclave_onramp_health.status == 200
-    - onclave_onramp_health.json.status | default('') == 'ok'
-    - onclave_onramp_health.json.git_sha | default('') == onclave_source_git_sha
-    - onclave_onramp_health.json.broker.connected | default(false) | bool
-  when: onclave_onramp_enable_cutover | bool
+    - onclave_onramp_live.status == 200
+    - "onclave_onramp_live.json == {'status': 'ok'}"
 
-- name: Verify unified Onclave dependency readiness
+- name: Read unified Onclave diagnostic health and source revision
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ onclave_onramp_core_port }}/health"
+    status_code:
+      - 200
+      - 503
+    return_content: true
+  register: onclave_onramp_health
+  no_log: true
+
+- name: Verify safe unified Onclave diagnostic health contract
+  ansible.builtin.assert:
+    that:
+      - onclave_onramp_health.json.status in ['ok', 'degraded']
+      - >-
+        (onclave_onramp_health.status == 200 and
+         onclave_onramp_health.json.status == 'ok') or
+        (onclave_onramp_health.status == 503 and
+         onclave_onramp_health.json.status == 'degraded')
+      - onclave_onramp_health.json.git_sha == onclave_source_git_sha
+      - onclave_onramp_health.json.build_date is string
+      - onclave_onramp_health.json.build_date | length > 0
+      - onclave_onramp_health.json.app_version is string
+      - onclave_onramp_health.json.app_version | length > 0
+      - onclave_onramp_health.json.broker is mapping
+      - onclave_onramp_health.json.transcript is mapping
+      - onclave_onramp_health.json.transcript.status in ['ok', 'degraded']
+      - onclave_onramp_health.json.transcript.recentFailures is sequence
+      - onclave_onramp_health.json.transcript.recentFailures | length <= 10
+      - onclave_onramp_health.json.transcript.proxy is mapping
+      - onclave_onramp_health.json.transcript.proxy.keys() | sort == ['configured', 'connectivity', 'credentialStatus', 'dispatcherStatus', 'mode']
+      - onclave_onramp_health.json.transcript.proxy.mode in ['webshare', 'custom', 'direct']
+      - onclave_onramp_health.json.transcript.proxy.configured is boolean
+      - onclave_onramp_health.json.transcript.proxy.credentialStatus in ['present', 'missing', 'not_applicable']
+      - onclave_onramp_health.json.transcript.proxy.dispatcherStatus in ['owned', 'injected', 'none']
+      - onclave_onramp_health.json.transcript.proxy.connectivity == 'not_checked'
+      - "'url' not in (onclave_onramp_health.json.transcript.proxy.keys() | map('lower') | list)"
+      - "'username' not in (onclave_onramp_health.json.transcript.proxy.keys() | map('lower') | list)"
+      - "'password' not in (onclave_onramp_health.json.transcript.proxy.keys() | map('lower') | list)"
+    fail_msg: Unified Onclave diagnostic health contract failed.
+  no_log: true
+
+- name: Verify unified Onclave dependency readiness after automatic migration
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ onclave_onramp_core_port }}/ready"
     status_code: 200
     return_content: true
   register: onclave_onramp_ready
   retries: 60
+  no_log: true
   delay: 10
   until:
     - onclave_onramp_ready.status == 200
     - onclave_onramp_ready.json.status | default('') == 'ready'
     - onclave_onramp_ready.json.checks.postgres | default('') == 'ok'
     - onclave_onramp_ready.json.checks.s3 | default('') == 'ok'
-    - onclave_onramp_ready.json.checks.ollama | default('') == 'ok'
-  when: onclave_onramp_enable_cutover | bool
+    - onclave_onramp_ready.json.checks.ollama | default('') in ['ok', 'skipped']
+    - onclave_onramp_ready.json.checks.openrouter | default('') == 'ok'
+    - onclave_onramp_ready.json.checks.broker | default('') == 'ok'
+    - onclave_onramp_ready.json.checks.keys() | difference(['postgres', 's3', 'ollama', 'openrouter', 'openai', 'anthropic', 'broker']) | length == 0
+    - onclave_onramp_ready.json.checks.values() | difference(['ok', 'skipped']) | length == 0
 
-- name: Verify unified Onclave HTTPS route locally
+- name: Read unified Onclave Prometheus metrics contract
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ onclave_onramp_core_port }}/metrics"
+    status_code: 200
+    return_content: true
+  register: onclave_onramp_metrics
+  no_log: true
+
+- name: Verify unified Onclave Prometheus metric families
+  ansible.builtin.assert:
+    that:
+      - "'text/plain' in onclave_onramp_metrics.content_type | lower"
+      - "'version=0.0.4' in onclave_onramp_metrics.content_type | lower"
+      - "'charset=utf-8' in onclave_onramp_metrics.content_type | lower"
+      - "('# HELP ' ~ item.name ~ ' ') in onclave_onramp_metrics.content"
+      - "('# TYPE ' ~ item.name ~ ' ' ~ item.type) in onclave_onramp_metrics.content"
+  loop:
+    - name: onclave_transcript_attempts_total
+      type: counter
+    - name: onclave_transcript_health_transitions_total
+      type: counter
+    - name: onclave_vault_job_events_total
+      type: counter
+    - name: onclave_vault_pipeline_stage_events_total
+      type: counter
+    - name: onclave_vault_provider_requests_total
+      type: counter
+    - name: onclave_vault_delivery_attempts_total
+      type: counter
+    - name: onclave_transcript_attempt_duration_seconds
+      type: summary
+    - name: onclave_vault_pipeline_stage_duration_seconds
+      type: summary
+    - name: onclave_vault_provider_request_duration_seconds
+      type: summary
+    - name: onclave_vault_delivery_attempt_duration_seconds
+      type: summary
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Verify unified Onclave HTTPS liveness route locally
   ansible.builtin.command:
     argv:
       - curl
@@ -928,18 +1163,16 @@
       - "10"
       - --resolve
       - "{{ onclave_server_name }}:443:127.0.0.1"
-      - "https://{{ onclave_server_name }}/health"
+      - "https://{{ onclave_server_name }}/live"
   changed_when: false
   register: onclave_onramp_https_check
   retries: 24
   delay: 5
   until: onclave_onramp_https_check.rc == 0
-  when: onclave_onramp_enable_cutover | bool
 
-- name: Validate signed Onclave API
-  when: onclave_onramp_enable_cutover | bool
+- name: Validate public diagnostics and signed Onclave API
   block:
-    - name: Run signed Onclave API validation
+    - name: Run public diagnostics and signed Onclave API validation
       ansible.builtin.command:
         argv:
           - "{{ ansible_playbook_python }}"
@@ -951,6 +1184,43 @@
       changed_when: false
       no_log: true
   rescue:
-    - name: Report signed Onclave API validation failure
+    - name: Report Onclave API validation failure
       ansible.builtin.fail:
-        msg: signed Onclave API validation failed
+        msg: Onclave diagnostics or signed API validation failed
+
+- name: Observe post-apply Onclave unit lifecycle state
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - show
+      - --property=LoadState
+      - --property=ActiveState
+      - --property=InvocationID
+      - --property=NRestarts
+      - "{{ item }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  loop: "{{ onclave_onramp_managed_units }}"
+  register: onclave_onramp_post_unit_lifecycle
+  changed_when: false
+
+- name: Report safe Onclave steady-state rollout observations
+  ansible.builtin.debug:
+    msg:
+      revision: "{{ onclave_onramp_pre_revision }} -> {{ onclave_onramp_health.json.git_sha }}"
+      affected_units: "{{ onclave_onramp_affected_units }}"
+      requested_restart_actions: "{{ onclave_onramp_requested_restart_actions }}"
+      automatic_restart_counter_note: NRestarts records automatic restarts, not requested restart actions.
+      managed_units_in_observation_order: "{{ onclave_onramp_managed_units }}"
+      automatic_restart_observations_before: >-
+        {{ onclave_onramp_pre_unit_lifecycle.results | map(attribute='stdout_lines') | list }}
+      automatic_restart_observations_after: >-
+        {{ onclave_onramp_post_unit_lifecycle.results | map(attribute='stdout_lines') | list }}
+      liveness: "{{ onclave_onramp_live.json.status }}"
+      diagnostic_health: "{{ onclave_onramp_health.json.status }}"
+      readiness: "{{ onclave_onramp_ready.json.status }}"
+      metrics: validated
+      api: validated

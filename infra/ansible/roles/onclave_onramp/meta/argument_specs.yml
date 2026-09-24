@@ -168,6 +168,27 @@ argument_specs:
       onclave_onramp_unified_pipeline_input_budget:
         type: int
         required: false
+      onclave_onramp_job_recovery_batch_size:
+        type: int
+        required: false
+      onclave_onramp_job_lease_ms:
+        type: int
+        required: false
+      onclave_onramp_delivery_poll_interval_ms:
+        type: int
+        required: false
+      onclave_onramp_delivery_lease_ms:
+        type: int
+        required: false
+      onclave_onramp_delivery_retry_base_ms:
+        type: int
+        required: false
+      onclave_onramp_delivery_retry_max_ms:
+        type: int
+        required: false
+      onclave_onramp_delivery_batch_size:
+        type: int
+        required: false
       onclave_onramp_callback_url:
         type: str
         required: false

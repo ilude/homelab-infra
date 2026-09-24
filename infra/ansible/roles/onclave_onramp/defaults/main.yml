@@ -22,6 +22,13 @@ onclave_onramp_embedding_provider: openrouter
 onclave_onramp_embedding_model: intfloat/e5-large-v2
 onclave_onramp_unified_pipeline_model: ""
 onclave_onramp_unified_pipeline_input_budget: 12000
+onclave_onramp_job_recovery_batch_size: 50
+onclave_onramp_job_lease_ms: 300000
+onclave_onramp_delivery_poll_interval_ms: 1000
+onclave_onramp_delivery_lease_ms: 300000
+onclave_onramp_delivery_retry_base_ms: 1000
+onclave_onramp_delivery_retry_max_ms: 900000
+onclave_onramp_delivery_batch_size: 50
 onclave_onramp_callback_url: ""
 onclave_onramp_callback_secret: ""
 # Applying the service is non-destructive by default.  The one-time cutover

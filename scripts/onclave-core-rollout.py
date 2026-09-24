@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import importlib.util
 import json
@@ -37,6 +38,10 @@ SOURCE_URL_RE = re.compile(
     r"[0-9a-f]{40}/deploy/app/onclave/compose\.yaml$"
 )
 Fetch = Callable[[str, Mapping[str, str]], bytes]
+CORE_HEALTHCHECK_TESTS = {
+    "/health": ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"],
+    "/live": ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/live"],
+}
 
 
 class RolloutError(RuntimeError):
@@ -153,6 +158,90 @@ def checksum(body: bytes) -> str:
     return hashlib.sha256(body).hexdigest()
 
 
+def type_sensitive_equal(left: object, right: object) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict) and isinstance(right, dict):
+        if len(left) != len(right):
+            return False
+        unmatched = list(right.items())
+        for left_key, left_value in left.items():
+            match = next(
+                (
+                    index
+                    for index, (right_key, _right_value) in enumerate(unmatched)
+                    if type_sensitive_equal(left_key, right_key)
+                ),
+                None,
+            )
+            if match is None:
+                return False
+            _right_key, right_value = unmatched.pop(match)
+            if not type_sensitive_equal(left_value, right_value):
+                return False
+        return True
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            type_sensitive_equal(left_item, right_item)
+            for left_item, right_item in zip(left, right)
+        )
+    return left == right
+
+
+def core_health_path(compose: object) -> str:
+    try:
+        test = compose["services"]["onclave-core"]["healthcheck"]["test"]  # type: ignore[index]
+    except (KeyError, TypeError) as error:
+        raise RolloutError("Onclave app definition has no core healthcheck command") from error
+    for path, expected in CORE_HEALTHCHECK_TESTS.items():
+        if test == expected:
+            return path
+    raise RolloutError("Onclave core healthcheck command is not a supported exact contract")
+
+
+def compatible_artifact_transition(
+    previous: Mapping[str, bytes],
+    desired: Mapping[str, bytes],
+    parse_yaml,
+) -> tuple[str, str]:
+    required_artifacts = {"compose.yaml", "backup-postgres.sh", "restore-postgres.sh"}
+    if not required_artifacts.issubset(previous) or not required_artifacts.issubset(desired):
+        raise RolloutError("core-only rollout is missing a required app/helper contract")
+    for helper in ("backup-postgres.sh", "restore-postgres.sh"):
+        if previous[helper] != desired[helper]:
+            raise RolloutError(
+                "core-only rollout requires unchanged app/helper contracts; changed: " + helper
+            )
+
+    try:
+        previous_compose = parse_yaml(previous["compose.yaml"].decode("utf-8"), "previous compose")
+        desired_compose = parse_yaml(desired["compose.yaml"].decode("utf-8"), "desired compose")
+    except (KeyError, UnicodeDecodeError) as error:
+        raise RolloutError("Onclave app definition is missing or is not UTF-8 YAML") from error
+    except Exception as error:
+        raise RolloutError("Onclave app definition is not valid YAML") from error
+    previous_path = core_health_path(previous_compose)
+    desired_path = core_health_path(desired_compose)
+    if type_sensitive_equal(previous_compose, desired_compose):
+        return previous_path, desired_path
+
+    normalized_desired = copy.deepcopy(desired_compose)
+    normalized_desired["services"]["onclave-core"]["healthcheck"]["test"] = (  # type: ignore[index]
+        CORE_HEALTHCHECK_TESTS[previous_path]
+    )
+    if (
+        previous_path != "/health"
+        or desired_path != "/live"
+        or not type_sensitive_equal(normalized_desired, previous_compose)
+    ):
+        raise RolloutError(
+            "core-only rollout requires unchanged app/helper contracts except the exact "
+            "one-way onclave-core healthcheck /health to /live transition; use the reviewed "
+            "Onclave role for environment, topology, or dependency changes"
+        )
+    return previous_path, desired_path
+
+
 def source_urls(current_url: str, source_sha: str) -> dict[str, str]:
     match = SOURCE_URL_RE.fullmatch(current_url)
     if not match:
@@ -189,26 +278,56 @@ def write_record(
     status: str,
     previous: Mapping[str, str],
     desired: Mapping[str, str],
+    contract: Mapping[str, object],
+    operation: Mapping[str, object] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, object] = {
+        "status": status,
+        "previous": dict(previous),
+        "desired": dict(desired),
+        "contract": dict(contract),
+    }
+    if operation is not None:
+        payload["operation"] = dict(operation)
     path.write_text(
-        json.dumps(
-            {"status": status, "previous": dict(previous), "desired": dict(desired)},
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
 
-def run_playbook(mode: str, values_dir: Path, pins: Mapping[str, str]) -> None:
+def run_playbook(
+    mode: str,
+    values_dir: Path,
+    pins: Mapping[str, str],
+    health_path: str,
+    compatible_installed_health_paths: Sequence[str],
+    compatible_installed_revisions: Sequence[str],
+) -> dict[str, object]:
+    if health_path not in CORE_HEALTHCHECK_TESTS:
+        raise RolloutError("refusing unsupported core healthcheck path")
+    if not compatible_installed_health_paths or any(
+        path not in CORE_HEALTHCHECK_TESTS for path in compatible_installed_health_paths
+    ):
+        raise RolloutError("refusing unsupported installed core healthcheck path")
+    if not compatible_installed_revisions or any(
+        not SHA_RE.fullmatch(revision) for revision in compatible_installed_revisions
+    ):
+        raise RolloutError("refusing unsupported installed core revision")
+    result_path = values_dir / f".onclave-core-rollout-{mode}.json"
+    result_path.unlink(missing_ok=True)
     extra = {
         "onclave_core_rollout_mode": mode,
         "onclave_core_rollout_expected_sha": pins["onclave_source_git_sha"],
         "onclave_core_rollout_image_repository": pins["onclave_core_image_repository"],
         "onclave_core_rollout_image_tag": pins["onclave_core_image_tag"],
         "onclave_core_rollout_image_digest": pins["onclave_core_image_digest"],
+        "onclave_core_rollout_health_path": health_path,
+        "onclave_core_rollout_compatible_installed_health_paths": list(
+            compatible_installed_health_paths
+        ),
+        "onclave_core_rollout_compatible_installed_revisions": list(compatible_installed_revisions),
+        "onclave_core_rollout_result_path": str(result_path),
     }
     command = [
         "ansible-playbook",
@@ -222,7 +341,17 @@ def run_playbook(mode: str, values_dir: Path, pins: Mapping[str, str]) -> None:
     ]
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
+        result_path.unlink(missing_ok=True)
         raise RolloutError(f"Onclave core playbook failed in {mode} mode")
+    try:
+        evidence = json.loads(result_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RolloutError(f"Onclave core playbook returned no valid {mode} evidence") from error
+    finally:
+        result_path.unlink(missing_ok=True)
+    if not isinstance(evidence, dict):
+        raise RolloutError(f"Onclave core playbook returned invalid {mode} evidence")
+    return evidence
 
 
 def update_bws_inventory(
@@ -331,14 +460,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         "backup-postgres.sh": backup,
         "restore-postgres.sh": restore,
     }
-    changed_artifacts = [
-        name for name in desired_artifacts if desired_artifacts[name] != previous_artifacts[name]
-    ]
-    if changed_artifacts:
-        raise RolloutError(
-            "core-only rollout requires unchanged app/helper contracts; changed: "
-            + ", ".join(changed_artifacts)
-        )
+    previous_health_path, desired_health_path = compatible_artifact_transition(
+        previous_artifacts,
+        desired_artifacts,
+        bws.parse_yaml,
+    )
+    contract: dict[str, object] = {
+        "previous_health_path": previous_health_path,
+        "desired_health_path": desired_health_path,
+        "compose_exception": (
+            "none"
+            if previous_health_path == desired_health_path
+            else "exact_one_way_health_to_live"
+        ),
+    }
     desired = dict(previous)
     desired.update(
         {
@@ -358,7 +493,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     record = record_path(args.record_dir)
-    write_record(record, "planned", previous, desired)
+    write_record(record, "planned", previous, desired, contract)
     inventory_path.write_text(inventory_after, encoding="utf-8")
     old_encoded = ""
     new_encoded = ""
@@ -370,7 +505,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         desired_playbook_pins = dict(desired)
         desired_playbook_pins["onclave_core_image_repository"] = repository
         deployment_started = True
-        run_playbook("desired", values_dir, desired_playbook_pins)
+        desired_evidence = run_playbook(
+            "desired",
+            values_dir,
+            desired_playbook_pins,
+            desired_health_path,
+            [previous_health_path],
+            [previous["onclave_source_git_sha"]],
+        )
     except Exception as error:
         rollback_error = None
         if bws_updated:
@@ -384,17 +526,43 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 old_playbook_pins = dict(previous)
                 old_playbook_pins["onclave_core_image_repository"] = repository
-                run_playbook("rollback", values_dir, old_playbook_pins)
+                rollback_evidence = run_playbook(
+                    "rollback",
+                    values_dir,
+                    old_playbook_pins,
+                    previous_health_path,
+                    [previous_health_path, desired_health_path],
+                    [previous["onclave_source_git_sha"], desired["onclave_source_git_sha"]],
+                )
             except Exception as redeploy_error:
                 rollback_error = rollback_error or redeploy_error
         rollback_status = "rolled_back" if rollback_error is None else "rollback-failed"
-        write_record(record, rollback_status, previous, desired)
+        rollback_operation = (
+            {"rollback": rollback_evidence}
+            if deployment_started and rollback_error is None
+            else None
+        )
+        write_record(
+            record,
+            rollback_status,
+            previous,
+            desired,
+            contract,
+            rollback_operation,
+        )
         detail = f"Onclave core rollout failed and rollback was attempted: {error}"
         if rollback_error is not None:
             detail += f"; rollback failure: {rollback_error}"
         raise RolloutError(detail) from error
 
-    write_record(record, "succeeded", previous, desired)
+    write_record(
+        record,
+        "succeeded",
+        previous,
+        desired,
+        contract,
+        {"desired": desired_evidence},
+    )
     print(f"Onclave core rollout succeeded; previous pins recorded at {record}")
     return 0
 

@@ -17,7 +17,7 @@ PublishPort=127.0.0.1:{{ onclave_onramp_core_port }}:8000
 AddHost={{ onclave_onramp_s3_hostname }}:host-gateway
 Volume={{ onclave_onramp_base_dir }}/data/onclave:/data:Z,U
 Volume={{ onclave_onramp_base_dir }}/authorized_keys:/keys/authorized_keys:ro,Z
-HealthCmd=node -e 'fetch("http://127.0.0.1:8000/health").then(response => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))'
+HealthCmd=node -e 'fetch("http://127.0.0.1:8000/live").then(response => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))'
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=5

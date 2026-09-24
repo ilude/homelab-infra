@@ -37,7 +37,6 @@ ansible-playbook -i tests/fixtures/site-config/ansible/inventory/local.yml -i in
   infra/ansible/playbooks/storage-prep.yml \
   infra/ansible/playbooks/service-state-backup.yml \
   infra/ansible/playbooks/service-state-restore.yml \
-  infra/ansible/playbooks/onclave-core-rollout.yml \
   infra/ansible/playbooks/hermes-state-backup.yml \
   infra/ansible/playbooks/hermes-state-restore.yml \
   "${playbooks[@]}"

@@ -72,6 +72,8 @@
       mode: "0750"
     - path: "{{ onclave_onramp_base_dir }}/bin"
       mode: "0750"
+    - path: "{{ onclave_onramp_base_dir }}/env"
+      mode: "0700"
     - path: "{{ onclave_onramp_base_dir }}/data"
       mode: "0750"
     - path: "{{ onclave_onramp_base_dir }}/data/rabbitmq"
@@ -83,6 +85,10 @@
     - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd"
       mode: "0750"
     - path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user"
+      mode: "0750"
+    - path: "/home/{{ onramp_host_deploy_user }}/.config/containers"
+      mode: "0750"
+    - path: "{{ onclave_onramp_quadlet_dir }}"
       mode: "0750"
 
 - name: Inspect adopted state directories
@@ -104,7 +110,7 @@
 - name: Download pinned unified Onclave app definition
   ansible.builtin.get_url:
     url: "{{ onclave_app_definition_url }}"
-    dest: "{{ onclave_onramp_base_dir }}/compose.upstream.yaml"
+    dest: "{{ onclave_onramp_base_dir }}/app-definition.upstream.yaml"
     checksum: "sha256:{{ onclave_app_definition_sha256 }}"
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
@@ -126,16 +132,16 @@
 
 - name: Read pinned unified Onclave app definition
   ansible.builtin.slurp:
-    src: "{{ onclave_onramp_base_dir }}/compose.upstream.yaml"
-  register: onclave_onramp_upstream_compose
+    src: "{{ onclave_onramp_base_dir }}/app-definition.upstream.yaml"
+  register: onclave_onramp_upstream_definition
 
 - name: Parse pinned unified Onclave app definition
   ansible.builtin.set_fact:
-    onclave_onramp_definition: "{{ onclave_onramp_upstream_compose.content | b64decode | from_yaml }}"
+    onclave_onramp_definition: "{{ onclave_onramp_upstream_definition.content | b64decode | from_yaml }}"
 
 - name: Validate unified Onclave app definition consumer seams
   vars:
-    onclave_onramp_upstream_text: "{{ onclave_onramp_upstream_compose.content | b64decode }}"
+    onclave_onramp_upstream_text: "{{ onclave_onramp_upstream_definition.content | b64decode }}"
   ansible.builtin.assert:
     that:
       - onclave_onramp_definition.name == 'onclave'
@@ -156,150 +162,53 @@
       The pinned unified Onclave app definition changed its required services,
       consumer-owned networking or storage seams, or vault environment contract.
 
-- name: Render unified Onclave app definition for the onramp host
-  vars:
-    onclave_onramp_rootless_healthcheck_command: >-
-      node -e 'fetch("http://127.0.0.1:8000/health").then(response => {
-      if (!response.ok) process.exit(1); }).catch(() => process.exit(1))'
-    onclave_onramp_rootless_healthcheck: >-
-      {{ onclave_onramp_definition.services['onclave-core'].healthcheck
-         | combine({'test': ['CMD-SHELL', onclave_onramp_rootless_healthcheck_command]}) }}
-    # The pinned upstream definition is the source contract, but MinIO is no
-    # longer part of the managed stack after the SeaweedFS cutover.
-    onclave_onramp_services: >-
-      {{ onclave_onramp_definition.services
-         | dict2items
-         | rejectattr('key', 'equalto', 'minio')
-         | list
-         | items2dict }}
-    onclave_onramp_core_environment: >-
-      {{ onclave_onramp_services['onclave-core'].environment | default({})
-         | combine({
-             'ONCLAVE_VAULT_S3_ENDPOINT_URL': onclave_onramp_s3_endpoint,
-             'ONCLAVE_VAULT_S3_ACCESS_KEY': '${ONCLAVE_VAULT_S3_ACCESS_KEY:?}',
-             ('ONCLAVE_VAULT_S3_' ~ 'SECRET_KEY'): '${' ~ 'ONCLAVE_VAULT_S3_SECRET_KEY' ~ ':?}',
-             'ONCLAVE_VAULT_S3_SECURE': (onclave_onramp_s3_secure | string | lower),
-             'ONCLAVE_VAULT_S3_BUCKET': '${ONCLAVE_VAULT_S3_BUCKET:?}',
-             'ONCLAVE_VAULT_S3_REGION': '${ONCLAVE_VAULT_S3_REGION:?}',
-             'ONCLAVE_VAULT_POSTGRES_USER': '${ONCLAVE_VAULT_POSTGRES_USER:?}',
-             ('ONCLAVE_VAULT_POSTGRES_' ~ 'PASSWORD'): '${' ~ 'ONCLAVE_VAULT_POSTGRES_PASSWORD' ~ ':?}',
-             'ONCLAVE_VAULT_POSTGRES_DATABASE': '${ONCLAVE_VAULT_POSTGRES_DATABASE:?}',
-             'ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME': '${ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME:?}',
-             ('ONCLAVE_VAULT_WEBSHARE_PROXY_' ~ 'PASSWORD'): '${' ~ 'ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD' ~ ':?}',
-             ('ONCLAVE_VAULT_YOUTUBE_' ~ 'API_KEY'): '${' ~ 'ONCLAVE_VAULT_YOUTUBE_API_KEY' ~ ':-}',
-             ('ONCLAVE_VAULT_OPENROUTER_' ~ 'API_KEY'): '${' ~ 'ONCLAVE_VAULT_OPENROUTER_API_KEY' ~ ':-}',
-             ('ONCLAVE_VAULT_ANTHROPIC_' ~ 'API_KEY'): '${' ~ 'ONCLAVE_VAULT_ANTHROPIC_API_KEY' ~ ':-}',
-             ('ONCLAVE_VAULT_OPENAI_' ~ 'API_KEY'): '${' ~ 'ONCLAVE_VAULT_OPENAI_API_KEY' ~ ':-}',
-             'ONCLAVE_VAULT_CALLBACK_URL': '${ONCLAVE_VAULT_CALLBACK_URL:-}',
-             ('ONCLAVE_VAULT_CALLBACK_' ~ 'SECRET'): '${' ~ 'ONCLAVE_VAULT_CALLBACK_SECRET' ~ ':-}',
-             'GIT_SHA': onclave_source_git_sha
-           }) }}
-  ansible.builtin.set_fact:
-    onclave_onramp_compose_content: >-
-      {{ onclave_onramp_definition
-         | combine({
-             'configs': {},
-             'volumes': (onclave_onramp_definition.volumes | default({})
-               | dict2items
-               | rejectattr('key', 'equalto', 'minio-data')
-               | list
-               | items2dict),
-             'services': onclave_onramp_services
-               | combine({
-                   'rabbitmq': onclave_onramp_services.rabbitmq
-                     | combine({
-                         'image': onclave_rabbitmq_image,
-                         'volumes': ['./data/rabbitmq:/var/lib/rabbitmq:Z,U']
-                       }),
-                   'postgres': onclave_onramp_services.postgres
-                     | combine({
-                         'ports': [],
-                         'configs': [],
-                         'environment': (onclave_onramp_services.postgres.environment | default({}))
-                           | combine({
-                               'POSTGRES_DB': '${ONCLAVE_VAULT_POSTGRES_DATABASE:?}',
-                               'POSTGRES_USER': '${ONCLAVE_VAULT_POSTGRES_USER:?}',
-                               ('POSTGRES_' ~ 'PASSWORD'): '${' ~ 'ONCLAVE_VAULT_POSTGRES_PASSWORD' ~ ':?}'
-                             }),
-                         'volumes': [onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U']
-                       }),
-                   'ollama': onclave_onramp_services.ollama
-                     | combine({
-                         'ports': [],
-                         'volumes': [onclave_onramp_data_root ~ '/ollama:/root/.ollama:Z,U'],
-                         'environment': (onclave_onramp_services.ollama.environment | default({}))
-                           | combine({'OLLAMA_KEEP_ALIVE': '-1'})
-                       }),
-                   'searxng': onclave_onramp_services.searxng
-                     | combine({'ports': []}),
-                   'docling-serve': onclave_onramp_services['docling-serve']
-                     | combine({'ports': []}),
-                   'onclave-core': onclave_onramp_services['onclave-core']
-                     | combine({
-                         'ports': ['127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8000'],
-                         'configs': [],
-                         'extra_hosts': [onclave_onramp_s3_hostname ~ ':host-gateway'],
-                         'depends_on': (onclave_onramp_services['onclave-core'].depends_on | default({})
-                           | dict2items
-                           | rejectattr('key', 'equalto', 'minio')
-                           | list
-                           | items2dict),
-                         'environment': onclave_onramp_core_environment,
-                         'volumes': [
-                           './data/onclave:/data:Z,U',
-                           './authorized_keys:/keys/authorized_keys:ro,Z'
-                         ],
-                         'healthcheck': onclave_onramp_rootless_healthcheck
-                       })
-                 })
-           })
-         | to_nice_yaml(indent=2, sort_keys=false) }}
-
-- name: Validate rendered unified Onclave network isolation
-  vars:
-    onclave_onramp_rendered_definition: "{{ onclave_onramp_compose_content | from_yaml }}"
+- name: Validate native Onclave Quadlet source contract
   ansible.builtin.assert:
     that:
-      - onclave_onramp_rendered_definition.configs | default({}) | length == 0
-      - onclave_onramp_rendered_definition.services.rabbitmq.ports | default([]) | length == 0
-      - onclave_onramp_rendered_definition.services.postgres.ports | default([]) | length == 0
-      - onclave_onramp_rendered_definition.services.postgres.configs | default([]) | length == 0
-      - onclave_onramp_rendered_definition.services.postgres.volumes == [onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U']
-      - "'minio' not in onclave_onramp_rendered_definition.services"
-      - "'minio-data' not in (onclave_onramp_rendered_definition.volumes | default({}))"
-      - onclave_onramp_rendered_definition.services.ollama.ports | default([]) | length == 0
-      - onclave_onramp_rendered_definition.services.ollama.volumes == [onclave_onramp_data_root ~ '/ollama:/root/.ollama:Z,U']
-      - onclave_onramp_rendered_definition.services.ollama.environment.OLLAMA_KEEP_ALIVE == '-1'
-      - onclave_onramp_rendered_definition.services.searxng.ports | default([]) | length == 0
-      - onclave_onramp_rendered_definition.services['docling-serve'].ports | default([]) | length == 0
-      - "onclave_onramp_rendered_definition.services['onclave-core'].ports == ['127.0.0.1:' ~ (onclave_onramp_core_port | string) ~ ':8000']"
-      - "onclave_onramp_rendered_definition.services['onclave-core'].configs | default([]) | length == 0"
-      - "onclave_onramp_rendered_definition.services['onclave-core'].extra_hosts == [onclave_onramp_s3_hostname ~ ':host-gateway']"
-      - "'minio' not in (onclave_onramp_rendered_definition.services['onclave-core'].depends_on | default({}))"
-      - "onclave_onramp_rendered_definition.services['onclave-core'].environment.ONCLAVE_VAULT_S3_ENDPOINT_URL == onclave_onramp_s3_endpoint"
-      - "onclave_onramp_rendered_definition.services['onclave-core'].volumes == ['./data/onclave:/data:Z,U', './authorized_keys:/keys/authorized_keys:ro,Z']"
-      - "onclave_onramp_rendered_definition.services['onclave-core'].healthcheck.test[0] == 'CMD-SHELL'"
-      - "onclave_onramp_rendered_definition.services['onclave-core'].healthcheck.test[1] is match('^node -e ')"
+      - onclave_onramp_definition.services.rabbitmq.environment.RABBITMQ_DEFAULT_VHOST == 'onclave'
+      - onclave_onramp_definition.services.rabbitmq.healthcheck.test == ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      - onclave_onramp_definition.services.rabbitmq.healthcheck.interval == '10s'
+      - onclave_onramp_definition.services.rabbitmq.healthcheck.timeout == '10s'
+      - onclave_onramp_definition.services.rabbitmq.healthcheck.retries == 30
+      - onclave_onramp_definition.services.rabbitmq.healthcheck.start_period == '60s'
+      - onclave_onramp_definition.services.postgres.healthcheck.test[0] == 'CMD-SHELL'
+      - onclave_onramp_definition.services.postgres.healthcheck.interval == '10s'
+      - onclave_onramp_definition.services.postgres.healthcheck.timeout == '5s'
+      - onclave_onramp_definition.services.postgres.healthcheck.retries == 10
+      - onclave_onramp_definition.services.postgres.healthcheck.start_period == '20s'
+      - onclave_onramp_definition.services.postgres.configs | length == 1
+      - onclave_onramp_definition.services.ollama.volumes == ['ollama-data:/root/.ollama']
+      - onclave_onramp_definition.services.searxng.environment.GRANIAN_HOST == '0.0.0.0'
+      - onclave_onramp_definition.services['docling-serve'].environment.DOCLING_SERVE_ENABLE_UI == '0'
+      - onclave_onramp_definition.services['onclave-core'].ports == ['8000:8000']
+      - onclave_onramp_definition.services['onclave-core'].depends_on.keys() | sort == ['docling-serve', 'minio', 'ollama', 'postgres', 'rabbitmq', 'searxng']
+      - onclave_onramp_definition.services['onclave-core'].volumes == ['onclave-data:/data']
+      - onclave_onramp_definition.services['onclave-core'].configs | length == 1
+      - onclave_onramp_definition.services['onclave-core'].healthcheck.interval == '10s'
+      - onclave_onramp_definition.services['onclave-core'].healthcheck.timeout == '5s'
+      - onclave_onramp_definition.services['onclave-core'].healthcheck.retries == 5
+      - onclave_onramp_definition.services['onclave-core'].healthcheck.start_period == '20s'
+      - onclave_onramp_definition.services['onclave-core'].environment.ONCLAVE_VAULT_POSTGRES_HOST == 'postgres'
+      - onclave_onramp_definition.services['onclave-core'].environment.ONCLAVE_VAULT_OLLAMA_URL == 'http://ollama:11434'
+      - onclave_onramp_definition.services['onclave-core'].environment.ONCLAVE_VAULT_DOCLING_URL == 'http://docling-serve:5001'
     fail_msg: >-
-      The rendered unified Onclave definition must preserve adopted state,
-      expose only the loopback core API port, and bind authorization keys read-only.
+      The pinned Onclave app definition changed a service, health, dependency,
+      networking, storage, or runtime seam mapped by the native Quadlet units.
 
-- name: Install unified Onclave compose file
-  ansible.builtin.copy:
-    content: "{{ onclave_onramp_compose_content }}"
-    dest: "{{ onclave_onramp_base_dir }}/compose.yaml"
-    owner: "{{ onramp_host_deploy_user }}"
-    group: "{{ onramp_host_deploy_user }}"
-    mode: "0640"
-  notify: Restart onclave onramp
-
-- name: Install unified Onclave environment contract
+- name: Install native Onclave service environment contracts
   ansible.builtin.template:
-    src: onclave.env.j2
-    dest: "{{ onclave_onramp_base_dir }}/.env"
+    src: "{{ item }}.env.j2"
+    dest: "{{ onclave_onramp_base_dir }}/env/{{ item }}.env"
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
     mode: "0600"
+  loop:
+    - rabbitmq
+    - postgres
+    - ollama
+    - searxng
+    - docling
+    - core
   no_log: true
   notify: Restart onclave onramp
 
@@ -322,10 +231,79 @@
   register: onclave_onramp_deploy_user_uid
   changed_when: false
 
+- name: Discover existing Onclave SearXNG volume identities
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ids="$({
+      podman ps --all --quiet --filter name=^onclave-searxng$
+      podman ps --all --quiet \
+        --filter label=com.docker.compose.project=onclave \
+        --filter label=com.docker.compose.service=searxng
+      podman ps --all --quiet \
+        --filter label=io.podman.compose.project=onclave \
+        --filter label=com.docker.compose.service=searxng
+      podman ps --all --quiet --filter 'name=^onclave[-_]searxng[-_][0-9]+$'
+    } | sort -u)"
+    test "$(wc -w <<< "$ids")" -eq 1
+    podman inspect $ids | python3 -c '
+    import json, sys
+    mounts = json.load(sys.stdin)[0].get("Mounts", [])
+    expected = ("/etc/searxng", "/var/cache/searxng")
+    found = {}
+    required_options = {"nodev", "exec", "nosuid", "rbind"}
+    for mount in mounts:
+        destination = mount.get("Destination")
+        options = set(mount.get("Options", []))
+        if (
+            destination in expected
+            and mount.get("Type") == "volume"
+            and mount.get("RW") is True
+            and required_options <= options
+            and mount.get("Propagation") == "rprivate"
+        ):
+            found[destination] = mount.get("Name")
+    if set(found) != set(expected) or not all(found.values()):
+        raise SystemExit("required SearXNG volume mounts or options were not found")
+    print(json.dumps(found, sort_keys=True))'
+  args:
+    executable: /bin/bash
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_searxng_mounts_raw
+  changed_when: false
+  no_log: true
+  when: onclave_onramp_enable_cutover | bool
+
+- name: Preserve existing Onclave SearXNG volume identities
+  ansible.builtin.set_fact:
+    onclave_onramp_searxng_config_volume: >-
+      {{ (onclave_onramp_searxng_mounts_raw.stdout | from_json)['/etc/searxng'] }}
+    onclave_onramp_searxng_cache_volume: >-
+      {{ (onclave_onramp_searxng_mounts_raw.stdout | from_json)['/var/cache/searxng'] }}
+  no_log: true
+  when: onclave_onramp_enable_cutover | bool
+
+- name: Validate preserved Onclave SearXNG volume identities
+  ansible.builtin.assert:
+    that:
+      - onclave_onramp_searxng_config_volume is match('^[A-Za-z0-9][A-Za-z0-9_.-]+$')
+      - onclave_onramp_searxng_cache_volume is match('^[A-Za-z0-9][A-Za-z0-9_.-]+$')
+      - onclave_onramp_searxng_config_volume != onclave_onramp_searxng_cache_volume
+    quiet: true
+  no_log: true
+  when: onclave_onramp_enable_cutover | bool
+
 - name: Detect legacy Onclave target unit
   ansible.builtin.stat:
     path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
   register: onclave_onramp_legacy_target
+
+- name: Detect superseded Onclave compose service unit
+  ansible.builtin.stat:
+    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.service"
+  register: onclave_onramp_legacy_compose_service
 
 - name: Stop and disable legacy Onclave target
   become: true
@@ -341,6 +319,20 @@
   when:
     - onclave_onramp_enable_cutover | bool
     - onclave_onramp_legacy_target.stat.exists
+
+- name: Stop and disable superseded Onclave compose service
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: onclave-onramp.service
+    scope: user
+    state: stopped
+    enabled: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  when:
+    - onclave_onramp_enable_cutover | bool
+    - onclave_onramp_legacy_compose_service.stat.exists
 
 - name: Verify legacy Onclave target is stopped before cutover
   become: true
@@ -358,15 +350,44 @@
   failed_when: onclave_onramp_legacy_target_active.rc == 0
   when: onclave_onramp_enable_cutover | bool
 
+- name: Verify superseded Onclave compose service is stopped before cutover
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - --user
+      - is-active
+      - onclave-onramp.service
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  register: onclave_onramp_legacy_compose_active
+  changed_when: false
+  failed_when: onclave_onramp_legacy_compose_active.rc == 0
+  when: onclave_onramp_enable_cutover | bool
+
 - name: Stop legacy Onclave containers before final corpus backup
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.shell: |
     set -euo pipefail
-    for service in rabbitmq onclave-core minio; do
-      ids="$(podman ps --quiet \
-        --filter label=com.docker.compose.project=onclave \
-        --filter "label=com.docker.compose.service=${service}")"
+    compose_ids() {
+      local service="$1"
+      {
+        podman ps --quiet \
+          --filter label=com.docker.compose.project=onclave \
+          --filter "label=com.docker.compose.service=${service}"
+        podman ps --quiet \
+          --filter label=io.podman.compose.project=onclave \
+          --filter "label=com.docker.compose.service=${service}"
+        podman ps --quiet \
+          --filter label=io.podman.compose.project=onclave \
+          --filter "label=io.podman.compose.service=${service}"
+        podman ps --quiet --filter "name=^onclave[-_]${service}[-_][0-9]+$"
+      } | sort -u
+    }
+    for service in rabbitmq postgres ollama searxng docling-serve onclave-core minio; do
+      ids="$(compose_ids "$service")"
       if [[ -n "$ids" ]]; then
         podman stop --time 30 $ids
       fi
@@ -383,15 +404,22 @@
 - name: Verify no legacy Onclave containers are running before backup
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
-  ansible.builtin.command:
-    argv:
-      - podman
-      - ps
-      - --quiet
-      - --filter
-      - label=com.docker.compose.project=onclave
-      - --filter
-      - "label=com.docker.compose.service={{ item }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {
+      podman ps --quiet \
+        --filter label=com.docker.compose.project=onclave \
+        --filter "label=com.docker.compose.service={{ item }}"
+      podman ps --quiet \
+        --filter label=io.podman.compose.project=onclave \
+        --filter "label=com.docker.compose.service={{ item }}"
+      podman ps --quiet \
+        --filter label=io.podman.compose.project=onclave \
+        --filter "label=io.podman.compose.service={{ item }}"
+      podman ps --quiet --filter "name=^onclave[-_]{{ item }}[-_][0-9]+$"
+    } | sort -u
+  args:
+    executable: /bin/bash
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_legacy_running
@@ -399,6 +427,10 @@
   failed_when: onclave_onramp_legacy_running.stdout_lines | length > 0
   loop:
     - rabbitmq
+    - postgres
+    - ollama
+    - searxng
+    - docling-serve
     - onclave-core
     - minio
   when: onclave_onramp_enable_cutover | bool
@@ -467,12 +499,25 @@
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.shell: |
     set -euo pipefail
-    for service in onclave-core rabbitmq; do
-      ids="$(podman ps --all --quiet \
-        --filter label=com.docker.compose.project=onclave \
-        --filter "label=com.docker.compose.service=${service}")"
+    compose_ids() {
+      local service="$1"
+      {
+        podman ps --all --quiet \
+          --filter label=com.docker.compose.project=onclave \
+          --filter "label=com.docker.compose.service=${service}"
+        podman ps --all --quiet \
+          --filter label=io.podman.compose.project=onclave \
+          --filter "label=com.docker.compose.service=${service}"
+        podman ps --all --quiet \
+          --filter label=io.podman.compose.project=onclave \
+          --filter "label=io.podman.compose.service=${service}"
+        podman ps --all --quiet --filter "name=^onclave[-_]${service}[-_][0-9]+$"
+      } | sort -u
+    }
+    for service in rabbitmq postgres ollama searxng docling-serve onclave-core; do
+      ids="$(compose_ids "$service")"
       if [[ -n "$ids" ]]; then
-        podman rm --force $ids
+        timeout --signal=TERM 60 podman rm --force $ids
       fi
     done
   args:
@@ -484,15 +529,38 @@
   no_log: true
   when: onclave_onramp_enable_cutover | bool
 
-- name: Remove legacy Onclave target unit file
-  ansible.builtin.file:
-    path: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
-    state: absent
-  when:
-    - onclave_onramp_enable_cutover | bool
-    - onclave_onramp_legacy_target.stat.exists
+- name: Verify preserved Onclave SearXNG volumes survived container removal
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.command:
+    argv:
+      - podman
+      - volume
+      - exists
+      - "{{ item }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  loop:
+    - "{{ onclave_onramp_searxng_config_volume }}"
+    - "{{ onclave_onramp_searxng_cache_volume }}"
+  changed_when: false
+  no_log: true
+  when: onclave_onramp_enable_cutover | bool
 
-- name: Reload user systemd manager after legacy target removal
+- name: Remove superseded Onclave compose service files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
+    - "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.service"
+    - "{{ onclave_onramp_base_dir }}/compose.yaml"
+    - "{{ onclave_onramp_base_dir }}/compose.upstream.yaml"
+    - "{{ onclave_onramp_base_dir }}/.core-rollout.override.yaml"
+    - "{{ onclave_onramp_base_dir }}/.env"
+  when: onclave_onramp_enable_cutover | bool
+
+- name: Reload user systemd manager after legacy unit removal
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.systemd_service:
@@ -500,9 +568,7 @@
     daemon_reload: true
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
-  when:
-    - onclave_onramp_enable_cutover | bool
-    - onclave_onramp_legacy_target.stat.exists
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Find retired MinIO containers from the previous Onclave stack
   become: true
@@ -526,6 +592,9 @@
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
     argv:
+      - timeout
+      - --signal=TERM
+      - "60"
       - podman
       - rm
       - --force
@@ -536,25 +605,42 @@
   changed_when: true
   when: onclave_onramp_enable_cutover | bool
 
-- name: Install unified Onclave rootless systemd unit
+- name: Install native Onclave rootless Quadlet units
   ansible.builtin.template:
-    src: onclave-onramp.service.j2
-    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.service"
+    src: "{{ item }}.j2"
+    dest: "{{ onclave_onramp_quadlet_dir }}/{{ item }}"
+    owner: "{{ onramp_host_deploy_user }}"
+    group: "{{ onramp_host_deploy_user }}"
+    mode: "0644"
+  loop:
+    - onclave.network
+    - onclave-rabbitmq.container
+    - onclave-postgres.container
+    - onclave-ollama.container
+    - onclave-searxng.container
+    - onclave-docling.container
+    - onclave-core.container
+  notify: Restart onclave onramp
+  when: onclave_onramp_enable_cutover | bool
+
+- name: Install native Onclave rootless target
+  ansible.builtin.template:
+    src: onclave-onramp.target.j2
+    dest: "/home/{{ onramp_host_deploy_user }}/.config/systemd/user/onclave-onramp.target"
     owner: "{{ onramp_host_deploy_user }}"
     group: "{{ onramp_host_deploy_user }}"
     mode: "0644"
   notify: Restart onclave onramp
   when: onclave_onramp_enable_cutover | bool
 
-- name: Enable unified Onclave rootless systemd unit
+- name: Start native RabbitMQ before credential reconciliation
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.systemd_service:
-    name: onclave-onramp.service
+    name: onclave-rabbitmq.service
     scope: user
     daemon_reload: true
-    enabled: true
-    state: restarted
+    state: started
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   when: onclave_onramp_enable_cutover | bool
@@ -564,12 +650,9 @@
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
     argv:
-      - "{{ onclave_onramp_compose_provider_command }}"
-      - -f
-      - "{{ onclave_onramp_base_dir }}/compose.yaml"
+      - podman
       - exec
-      - -T
-      - rabbitmq
+      - onclave-rabbitmq
       - rabbitmqctl
       - authenticate_user
       - "{{ onclave_rabbitmq_default_user }}"
@@ -587,12 +670,9 @@
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
     argv:
-      - "{{ onclave_onramp_compose_provider_command }}"
-      - -f
-      - "{{ onclave_onramp_base_dir }}/compose.yaml"
+      - podman
       - exec
-      - -T
-      - rabbitmq
+      - onclave-rabbitmq
       - rabbitmqctl
       - change_password
       - "{{ onclave_rabbitmq_default_user }}"
@@ -607,6 +687,19 @@
     - onclave_onramp_enable_cutover | bool
     - onclave_onramp_rabbitmq_auth.rc != 0
   no_log: true
+
+- name: Enable native Onclave rootless target
+  become: true
+  become_user: "{{ onramp_host_deploy_user }}"
+  ansible.builtin.systemd_service:
+    name: onclave-onramp.target
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: restarted
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
+  when: onclave_onramp_enable_cutover | bool
 
 - name: Remove retired inbound Onclave AMQP firewall rules
   ansible.builtin.command:
@@ -661,7 +754,7 @@
   ansible.builtin.meta: flush_handlers
   when: onclave_onramp_enable_cutover | bool
 
-- name: Verify unified Onclave rootless service is active
+- name: Verify native Onclave rootless target is active
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
@@ -669,7 +762,7 @@
       - systemctl
       - --user
       - is-active
-      - onclave-onramp.service
+      - onclave-onramp.target
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   changed_when: false
@@ -679,7 +772,7 @@
   until: onclave_onramp_service_active.rc == 0
   when: onclave_onramp_enable_cutover | bool
 
-- name: Resolve running unified Onclave core container ID
+- name: Resolve running native Onclave core container ID
   become: true
   become_user: "{{ onramp_host_deploy_user }}"
   ansible.builtin.command:
@@ -688,9 +781,9 @@
       - ps
       - --quiet
       - --filter
-      - label=io.podman.compose.project=onclave
+      - name=^onclave-core$
       - --filter
-      - label=com.docker.compose.service=onclave-core
+      - label=io.homelab.onclave.service=onclave-core
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ onclave_onramp_deploy_user_uid.stdout | trim }}"
   register: onclave_onramp_core_container_ids

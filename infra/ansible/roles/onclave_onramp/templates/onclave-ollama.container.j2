@@ -1,0 +1,20 @@
+[Unit]
+Description=Onclave Ollama
+PartOf=onclave-onramp.target
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}
+RequiresMountsFor={{ onclave_onramp_data_root }}/ollama
+
+[Container]
+ContainerName=onclave-ollama
+Image={{ onclave_ollama_image }}
+Pull=missing
+Network=onclave.network
+NetworkAlias=ollama
+EnvironmentFile={{ onclave_onramp_base_dir }}/env/ollama.env
+Volume={{ onclave_onramp_data_root }}/ollama:/root/.ollama:Z,U
+Label=io.homelab.onclave.service=ollama
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+TimeoutStopSec=120

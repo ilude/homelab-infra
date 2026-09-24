@@ -1,0 +1,20 @@
+[Unit]
+Description=Onclave SearXNG
+PartOf=onclave-onramp.target
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}
+
+[Container]
+ContainerName=onclave-searxng
+Image={{ onclave_searxng_image }}
+Pull=missing
+Network=onclave.network
+NetworkAlias=searxng
+EnvironmentFile={{ onclave_onramp_base_dir }}/env/searxng.env
+Volume={{ onclave_onramp_searxng_config_volume }}:/etc/searxng
+Volume={{ onclave_onramp_searxng_cache_volume }}:/var/cache/searxng
+Label=io.homelab.onclave.service=searxng
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+TimeoutStopSec=120

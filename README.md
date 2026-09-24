@@ -157,7 +157,7 @@ Ansible manages:
 - Herdr LXC bootstrap, pinned Herdr and Pi installation, operator-local SSH context, and onramp stdio relay access
 - App-host SSH hardening, rootless Podman readiness, `anvil` deploy-user setup, shared Caddy setup, default-deny host firewall policy, and deployment directory preparation
 - Standalone SearXNG on `onramp_host`: Google + Brave general-search defaults, SafeSearch 1, and a five-second request budget. Other upstream engines remain available for explicit selection, including Startpage and GitHub. No proxy or browser solver is required by this configuration. Recheck the merged `/config` engine defaults after image upgrades because upstream can add enabled engines.
-- Onclave app deployment on `onramp_host`, including its internal SearXNG container and runtime contract (separate from the standalone service and its updater exception)
+- Native rootless Podman Quadlet deployment for Onclave's six containers on `onramp_host`, including its private network, loopback-only core API, persistent state, and internal SearXNG contract (separate from the standalone service and its updater exception)
 - Optional Tailscale installation and private backup restore on the Tailscale client LXC
 - Technitium DNS records/settings through `infra/ansible/playbooks/technitium-dns.yml`
 - Minimal rootless SeaweedFS S3 state storage on `onramp_host`, with a dedicated versioned bucket, lifecycle policy, and shared Caddy HTTPS route

@@ -1,0 +1,26 @@
+[Unit]
+Description=Onclave RabbitMQ
+PartOf=onclave-onramp.target
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}
+RequiresMountsFor={{ onclave_onramp_base_dir }}/data/rabbitmq
+
+[Container]
+ContainerName=onclave-rabbitmq
+Image={{ onclave_rabbitmq_image }}
+Pull=missing
+Network=onclave.network
+NetworkAlias=rabbitmq
+EnvironmentFile={{ onclave_onramp_base_dir }}/env/rabbitmq.env
+Volume={{ onclave_onramp_base_dir }}/data/rabbitmq:/var/lib/rabbitmq:Z,U
+HealthCmd=rabbitmq-diagnostics -q ping
+HealthInterval=10s
+HealthTimeout=10s
+HealthRetries=30
+HealthStartPeriod=60s
+Notify=healthy
+Label=io.homelab.onclave.service=rabbitmq
+
+[Service]
+Restart=always
+TimeoutStartSec=420
+TimeoutStopSec=120

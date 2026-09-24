@@ -1,0 +1,18 @@
+[Unit]
+Description=Onclave Docling Serve
+PartOf=onclave-onramp.target
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}
+
+[Container]
+ContainerName=onclave-docling
+Image={{ onclave_docling_image }}
+Pull=missing
+Network=onclave.network
+NetworkAlias=docling-serve
+EnvironmentFile={{ onclave_onramp_base_dir }}/env/docling.env
+Label=io.homelab.onclave.service=docling-serve
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+TimeoutStopSec=120

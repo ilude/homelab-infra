@@ -62,7 +62,7 @@ ROOTLESS_ONRAMP_UNITS = tuple(
         ("infisical_onramp", "infisical-onramp.service.j2"),
         ("freellmapi_onramp", "freellmapi-onramp.service.j2"),
         ("searxng_onramp", "searxng-onramp.service.j2"),
-        ("onclave_onramp", "onclave-onramp.service.j2"),
+        ("onclave_onramp", "onclave-onramp.target.j2"),
     )
 )
 CADDY_TASK_FILES = (
@@ -983,7 +983,7 @@ class AnsibleSafetyTests(unittest.TestCase):
             "Remove legacy Onclave containers",
         )
         self.assertIn(
-            "for service in onclave-core rabbitmq",
+            "for service in rabbitmq postgres ollama searxng docling-serve onclave-core",
             remove_legacy["ansible.builtin.shell"],
         )
         self.assertIn(
@@ -995,14 +995,35 @@ class AnsibleSafetyTests(unittest.TestCase):
             remove_legacy["ansible.builtin.shell"],
         )
         self.assertTrue(remove_legacy["no_log"])
+        role_task_names = task_names(role / "tasks" / "main.yml")
+        self.assertLess(
+            role_task_names.index(
+                "Start native RabbitMQ before credential reconciliation"
+            ),
+            role_task_names.index("Reconcile persisted RabbitMQ password from BWS"),
+        )
+        self.assertLess(
+            role_task_names.index("Reconcile persisted RabbitMQ password from BWS"),
+            role_task_names.index("Enable native Onclave rootless target"),
+        )
         enable_unified = task_by_name(
             role / "tasks" / "main.yml",
-            "Enable unified Onclave rootless systemd unit",
+            "Enable native Onclave rootless target",
         )
         self.assertEqual(
             enable_unified["ansible.builtin.systemd_service"]["state"],
             "restarted",
         )
+        handler = yaml.safe_load(
+            (role / "handlers" / "main.yml").read_text(encoding="utf-8")
+        )[0]
+        self.assertIn("onclave_onramp_enable_cutover", handler["when"])
+        state_catalog = yaml.safe_load(
+            (REPO / "infra" / "ansible" / "vars" / "service-state.yml").read_text(
+                encoding="utf-8"
+            )
+        )["managed_service_state_catalog"]["onclave_onramp"]
+        self.assertEqual(state_catalog["user_services"], ["onclave-onramp.target"])
         rabbitmq_reconcile = task_by_name(
             role / "tasks" / "main.yml",
             "Reconcile persisted RabbitMQ password from BWS",
@@ -1019,13 +1040,14 @@ class AnsibleSafetyTests(unittest.TestCase):
         )
         self.assertIn(
             "label=com.docker.compose.project=onclave",
-            verify_stopped["ansible.builtin.command"]["argv"],
+            verify_stopped["ansible.builtin.shell"],
         )
         for task_name in (
             "Remove legacy Onclave containers",
             "Remove retired MinIO containers without touching their data directory",
-            "Install unified Onclave rootless systemd unit",
-            "Enable unified Onclave rootless systemd unit",
+            "Install native Onclave rootless Quadlet units",
+            "Install native Onclave rootless target",
+            "Enable native Onclave rootless target",
         ):
             task = task_by_name(role / "tasks" / "main.yml", task_name)
             self.assertIn("onclave_onramp_enable_cutover", str(task.get("when")))
@@ -1066,44 +1088,112 @@ class AnsibleSafetyTests(unittest.TestCase):
             "'SEARXNG_SECRET' in onclave_onramp_upstream_text",
         ):
             self.assertIn(mapping, conditions)
-        render = task_by_name(
-            role_tasks, "Render unified Onclave app definition for the onramp host"
+        native_contract = task_by_name(
+            role_tasks, "Validate native Onclave Quadlet source contract"
         )
-        expression = render["ansible.builtin.set_fact"][
-            "onclave_onramp_compose_content"
-        ]
-        self.assertIn("'onclave-core'", expression)
-        self.assertNotIn("onclave_onramp_amqp_port", expression)
-        self.assertNotIn("onclave_onramp_management_port", expression)
-        self.assertEqual(expression.count("'ports': []"), 4)
-        for mount in (
-            "onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U'",
-            "onclave_onramp_data_root ~ '/ollama:/root/.ollama:Z,U'",
-            "'./authorized_keys:/keys/authorized_keys:ro,Z'",
-        ):
-            self.assertIn(mount, expression)
-        self.assertIn("'configs': []", expression)
-        self.assertIn("'OLLAMA_KEEP_ALIVE': '-1'", expression)
-        self.assertIn("onclave_onramp_rootless_healthcheck", expression)
+        conditions = native_contract["ansible.builtin.assert"]["that"]
+        self.assertIn(
+            "onclave_onramp_definition.services['onclave-core'].depends_on.keys() | sort == "
+            "['docling-serve', 'minio', 'ollama', 'postgres', 'rabbitmq', 'searxng']",
+            conditions,
+        )
 
-        validate = task_by_name(
-            role_tasks, "Validate rendered unified Onclave network isolation"
+        templates = role / "templates"
+        container_templates = tuple(templates.glob("*.container.j2"))
+        rabbitmq = (templates / "onclave-rabbitmq.container.j2").read_text(
+            encoding="utf-8"
         )
-        conditions = validate["ansible.builtin.assert"]["that"]
+        postgres = (templates / "onclave-postgres.container.j2").read_text(
+            encoding="utf-8"
+        )
+        ollama = (templates / "onclave-ollama.container.j2").read_text(
+            encoding="utf-8"
+        )
+        searxng = (templates / "onclave-searxng.container.j2").read_text(
+            encoding="utf-8"
+        )
+        core = (templates / "onclave-core.container.j2").read_text(
+            encoding="utf-8"
+        )
+        target = (templates / "onclave-onramp.target.j2").read_text(
+            encoding="utf-8"
+        )
         self.assertIn(
-            "onclave_onramp_rendered_definition.services.rabbitmq.ports | default([]) | length == 0",
-            conditions,
+            "{{ onclave_onramp_base_dir }}/data/rabbitmq:/var/lib/rabbitmq:Z,U",
+            rabbitmq,
         )
         self.assertIn(
-            "onclave_onramp_rendered_definition.services['onclave-core'].volumes == "
-            "['./data/onclave:/data:Z,U', './authorized_keys:/keys/authorized_keys:ro,Z']",
-            conditions,
+            "{{ onclave_onramp_data_root }}/postgres:/var/lib/postgresql/data:Z,U",
+            postgres,
         )
         self.assertIn(
-            "onclave_onramp_rendered_definition.services.postgres.volumes == "
-            "[onclave_onramp_data_root ~ '/postgres:/var/lib/postgresql/data:Z,U']",
-            conditions,
+            "{{ onclave_onramp_data_root }}/ollama:/root/.ollama:Z,U", ollama
         )
+        self.assertIn(
+            "{{ onclave_onramp_base_dir }}/data/onclave:/data:Z,U", core
+        )
+        self.assertIn(
+            "{{ onclave_onramp_base_dir }}/authorized_keys:/keys/authorized_keys:ro,Z",
+            core,
+        )
+        self.assertIn("PublishPort=127.0.0.1:{{ onclave_onramp_core_port }}:8000", core)
+        self.assertIn("HealthOnFailure=kill", core)
+        self.assertIn("Restart=always", core)
+        self.assertIn("Requires=onclave-rabbitmq.service onclave-postgres.service", core)
+        self.assertIn(
+            "Volume={{ onclave_onramp_searxng_config_volume }}:/etc/searxng",
+            searxng,
+        )
+        self.assertIn(
+            "Volume={{ onclave_onramp_searxng_cache_volume }}:/var/cache/searxng",
+            searxng,
+        )
+        required_services = (
+            "onclave-rabbitmq.service onclave-postgres.service "
+            "onclave-ollama.service onclave-searxng.service "
+            "onclave-docling.service onclave-core.service"
+        )
+        self.assertIn(f"Requires={required_services}", target)
+        image_contracts = {
+            "onclave-rabbitmq.container.j2": "Image={{ onclave_rabbitmq_image }}",
+            "onclave-postgres.container.j2": "Image={{ onclave_postgres_image }}",
+            "onclave-ollama.container.j2": "Image={{ onclave_ollama_image }}",
+            "onclave-searxng.container.j2": "Image={{ onclave_searxng_image }}",
+            "onclave-docling.container.j2": "Image={{ onclave_docling_image }}",
+            "onclave-core.container.j2": (
+                "Image={{ onclave_core_image_repository }}:"
+                "{{ onclave_core_image_tag }}@{{ onclave_core_image_digest }}"
+            ),
+        }
+        all_containers = "\n".join(
+            path.read_text(encoding="utf-8") for path in container_templates
+        )
+        self.assertNotIn("minio", all_containers)
+        self.assertEqual(len(container_templates), 6)
+        for path in container_templates:
+            source = path.read_text(encoding="utf-8")
+            self.assertIn(image_contracts[path.name], source, path.name)
+            self.assertIn("Network=onclave.network", source, path.name)
+            self.assertIn("Restart=always", source, path.name)
+            if path.name != "onclave-core.container.j2":
+                self.assertNotIn("PublishPort=", source, path.name)
+        discovery = task_by_name(
+            role_tasks, "Discover existing Onclave SearXNG volume identities"
+        )
+        discovery_source = discovery["ansible.builtin.shell"]
+        self.assertIn('("/etc/searxng", "/var/cache/searxng")', discovery_source)
+        self.assertIn('{"nodev", "exec", "nosuid", "rbind"}', discovery_source)
+        self.assertIn('mount.get("Propagation") == "rprivate"', discovery_source)
+        self.assertTrue(discovery["no_log"])
+        volume_guard = task_by_name(
+            role_tasks,
+            "Verify preserved Onclave SearXNG volumes survived container removal",
+        )
+        self.assertEqual(
+            volume_guard["ansible.builtin.command"]["argv"][:3],
+            ["podman", "volume", "exists"],
+        )
+        self.assertTrue(volume_guard["no_log"])
 
     def test_onclave_env_uses_canonical_vault_inputs(self) -> None:
         role = REPO / "infra" / "ansible" / "roles" / "onclave_onramp"
@@ -1114,7 +1204,11 @@ class AnsibleSafetyTests(unittest.TestCase):
             (role / "meta" / "argument_specs.yml").read_text(encoding="utf-8")
         )
         options = argument_specs["argument_specs"]["main"]["options"]
-        template = (role / "templates" / "onclave.env.j2").read_text(encoding="utf-8")
+        core_template = (role / "templates" / "core.env.j2").read_text(encoding="utf-8")
+        template = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (role / "templates").glob("*.env.j2")
+        )
         self.assertEqual(defaults["onclave_onramp_s3_bucket"], "menos")
         self.assertEqual(defaults["onclave_onramp_embedding_provider"], "openrouter")
         self.assertEqual(defaults["onclave_onramp_embedding_model"], "intfloat/e5-large-v2")
@@ -1135,18 +1229,14 @@ class AnsibleSafetyTests(unittest.TestCase):
             self.assertTrue(options[name]["required"])
             self.assertNotIn(name, defaults)
         for key in (
-            "POSTGRES_IMAGE={{ onclave_postgres_image }}",
-            "OLLAMA_IMAGE={{ onclave_ollama_image }}",
-            "SEARXNG_IMAGE={{ onclave_searxng_image }}",
-            "DOCLING_IMAGE={{ onclave_docling_image }}",
-            "ONCLAVE_AUTHORIZED_KEYS_FILE=./authorized_keys",
+            "ONCLAVE_VAULT_SSH_PUBLIC_KEYS_PATH=/keys/authorized_keys",
             "ONCLAVE_VAULT_POSTGRES_PASSWORD={{ onclave_onramp_postgres_password }}",
             "ONCLAVE_VAULT_POSTGRES_DATABASE={{ onclave_onramp_postgres_database }}",
             "ONCLAVE_VAULT_POSTGRES_USER={{ onclave_onramp_postgres_user }}",
             "ONCLAVE_VAULT_S3_ENDPOINT_URL={{ onclave_onramp_s3_endpoint }}",
             "ONCLAVE_VAULT_S3_ACCESS_KEY={{ onclave_onramp_s3_access_key }}",
             "ONCLAVE_VAULT_S3_SECRET_KEY={{ onclave_onramp_s3_secret_key }}",
-            "ONCLAVE_VAULT_SEARXNG_SECRET={{ onclave_onramp_searxng_secret }}",
+            "SEARXNG_SECRET={{ onclave_onramp_searxng_secret }}",
             "ONCLAVE_VAULT_WEBSHARE_PROXY_USERNAME={{ onclave_onramp_webshare_proxy_username }}",
             "ONCLAVE_VAULT_WEBSHARE_PROXY_PASSWORD={{ onclave_onramp_webshare_proxy_password }}",
             "ONCLAVE_VAULT_YOUTUBE_API_KEY={{ onclave_onramp_youtube_api_key }}",
@@ -1174,7 +1264,7 @@ class AnsibleSafetyTests(unittest.TestCase):
             "\nCALLBACK_URL=",
             "\nCALLBACK_SECRET=",
         ):
-            self.assertNotIn(retired_key, template)
+            self.assertNotIn(retired_key, core_template)
 
     def test_onclave_unified_health_gate_checks_revision_and_dependencies(self) -> None:
         role_tasks = ONCLAVE_ONRAMP_TASKS

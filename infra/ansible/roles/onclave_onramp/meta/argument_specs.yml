@@ -22,11 +22,11 @@ argument_specs:
       onclave_app_definition_url:
         type: str
         required: true
-        description: "Commit-pinned raw URL for Onclave's reusable Compose definition."
+        description: "Commit-pinned raw URL for Onclave's reusable app definition."
       onclave_app_definition_sha256:
         type: str
         required: true
-        description: "SHA-256 checksum for the reusable Compose definition."
+        description: "SHA-256 checksum for the reusable app definition."
       onclave_backup_script_sha256:
         type: str
         required: true
@@ -120,9 +120,10 @@ argument_specs:
         type: str
         required: false
         description: "Existing adopted data root; it is never moved or renamed."
-      onclave_onramp_compose_provider_command:
+      onclave_onramp_quadlet_dir:
         type: str
         required: false
+        description: "Rootless Podman Quadlet source directory for the deploy user."
       onclave_onramp_core_port:
         type: int
         required: false

@@ -1,0 +1,8 @@
+[Unit]
+Description=Onclave rootless Podman workload
+Requires=onclave-rabbitmq.service onclave-postgres.service onclave-ollama.service onclave-searxng.service onclave-docling.service onclave-core.service
+After=onclave-rabbitmq.service onclave-postgres.service onclave-ollama.service onclave-searxng.service onclave-docling.service onclave-core.service
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}
+
+[Install]
+WantedBy=default.target

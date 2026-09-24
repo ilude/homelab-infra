@@ -110,12 +110,12 @@ managed_service_state_catalog:
   onclave_onramp:
     group: onramp_host
     description: >-
-      Onclave app definition, private env, persistent broker/core data, and PostgreSQL data on the onramp host;
+      Onclave app definition, native Quadlet contracts, private env, persistent broker/core data, and PostgreSQL data on the onramp host;
       object assets are backed up from SeaweedFS.
     services:
       - caddy
     user_services:
-      - onclave-onramp.service
+      - onclave-onramp.target
     user_service_owner: "{{ onramp_host_deploy_user }}"
     backup_quiesce_user_services: true
     backup_staging_root: "{{ onramp_host_deploy_dir }}/.service-state-backup-staging"

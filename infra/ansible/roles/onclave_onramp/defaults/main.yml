@@ -1,7 +1,7 @@
 ---
 onclave_onramp_base_dir: "{{ onramp_host_deploy_dir }}/onclave"
 onclave_onramp_data_root: "{{ onramp_host_deploy_dir }}/menos/data"
-onclave_onramp_compose_provider_command: "{{ onramp_host_compose_provider_command | default('podman-compose') }}"
+onclave_onramp_quadlet_dir: "/home/{{ onramp_host_deploy_user }}/.config/containers/systemd"
 onclave_onramp_core_port: 18080
 onclave_onramp_amqp_port: 5672
 onclave_onramp_required_packages: []
@@ -12,7 +12,7 @@ onclave_onramp_max_exchanges: 16
 onclave_onramp_max_total_tokens: 200000
 onclave_onramp_s3_bucket: menos
 onclave_onramp_s3_region: us-east-1
-# SeaweedFS is managed separately. This is the server-side Compose/Podman
+# SeaweedFS is managed separately. This is the server-side Podman
 # endpoint; the workstation endpoint is resolved lazily from BWS by Pi.
 onclave_onramp_s3_hostname: host.containers.internal
 onclave_onramp_s3_endpoint: host.containers.internal:8333

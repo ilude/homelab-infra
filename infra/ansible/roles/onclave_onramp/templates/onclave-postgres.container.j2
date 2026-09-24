@@ -1,0 +1,26 @@
+[Unit]
+Description=Onclave PostgreSQL
+PartOf=onclave-onramp.target
+RequiresMountsFor=/srv/podman/{{ onramp_host_deploy_user }} {{ onramp_host_deploy_dir }}
+RequiresMountsFor={{ onclave_onramp_data_root }}/postgres
+
+[Container]
+ContainerName=onclave-postgres
+Image={{ onclave_postgres_image }}
+Pull=missing
+Network=onclave.network
+NetworkAlias=postgres
+EnvironmentFile={{ onclave_onramp_base_dir }}/env/postgres.env
+Volume={{ onclave_onramp_data_root }}/postgres:/var/lib/postgresql/data:Z,U
+HealthCmd=pg_isready -U $POSTGRES_USER -d $POSTGRES_DB
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=20s
+Notify=healthy
+Label=io.homelab.onclave.service=postgres
+
+[Service]
+Restart=always
+TimeoutStartSec=180
+TimeoutStopSec=120

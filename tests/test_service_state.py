@@ -318,6 +318,21 @@ class ServiceStateCatalogTests(unittest.TestCase):
                 self.assertNotIn(left, right.parents, (left_target, right_target))
                 self.assertNotIn(right, left.parents, (left_target, right_target))
 
+    def test_onclave_backup_quiesces_every_stateful_native_unit(self) -> None:
+        definition = load_catalog()["onclave_onramp"]
+        self.assertEqual(
+            definition["user_services"],
+            [
+                "onclave-onramp.target",
+                "onclave-core.service",
+                "onclave-docling.service",
+                "onclave-searxng.service",
+                "onclave-ollama.service",
+                "onclave-postgres.service",
+                "onclave-rabbitmq.service",
+            ],
+        )
+
     def test_freellmapi_cutover_archive_covers_rollback_definitions(self) -> None:
         definition = load_catalog()["freellmapi_onramp"]
         paths = {item["path"] for item in definition["paths"]}

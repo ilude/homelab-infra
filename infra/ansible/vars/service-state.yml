@@ -145,6 +145,12 @@ managed_service_state_catalog:
       - caddy
     user_services:
       - onclave-onramp.target
+      - onclave-core.service
+      - onclave-docling.service
+      - onclave-searxng.service
+      - onclave-ollama.service
+      - onclave-postgres.service
+      - onclave-rabbitmq.service
     user_service_owner: "{{ onramp_host_deploy_user }}"
     backup_quiesce_user_services: true
     backup_staging_root: "{{ onramp_host_deploy_dir }}/.service-state-backup-staging"

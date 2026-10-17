@@ -29,6 +29,14 @@
   loop: [ZOMBOID_ADMIN_PASSWORD, ZOMBOID_RCON_PASSWORD, ZOMBOID_WEB_PASSWORD]
   no_log: true
 
+- name: Validate single-line join password
+  ansible.builtin.assert:
+    that:
+      - lookup('env', 'ZOMBOID_JOIN_PASSWORD') | length > 0
+      - "'\n' not in lookup('env', 'ZOMBOID_JOIN_PASSWORD')"
+      - "'\r' not in lookup('env', 'ZOMBOID_JOIN_PASSWORD')"
+  no_log: true
+
 - name: Verify existing Docker ingress network
   ansible.builtin.command:
     argv: [docker, network, inspect, "{{ patriot_games_network }}"]
@@ -99,6 +107,47 @@
   changed_when: "'Started' in patriot_games_compose.stderr or 'Created' in patriot_games_compose.stderr or 'Recreated' in patriot_games_compose.stderr"
   no_log: true
   when: not ansible_check_mode
+
+- name: Wait for Zomboid server options to be generated
+  ansible.builtin.wait_for:
+    path: "{{ patriot_games_base_dir }}/server-data/Server/{{ patriot_games_server_name }}.ini"
+    timeout: 60
+  when: not ansible_check_mode
+
+- name: Read persistent Zomboid server options
+  ansible.builtin.slurp:
+    src: "{{ patriot_games_base_dir }}/server-data/Server/{{ patriot_games_server_name }}.ini"
+  register: patriot_games_server_options
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Apply changed join password live and persist it through Zomboid
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - patriot-zomboid
+      - rcon-cli
+      - -c
+      - /home/steam/server/rcon.yml
+      - "{{ 'changeoption Password ' ~ (lookup('env', 'ZOMBOID_JOIN_PASSWORD') | to_json) }}"
+  register: patriot_games_join_password
+  changed_when: true
+  failed_when: >-
+    patriot_games_join_password.rc != 0
+    or 'Option : Password is now :' not in patriot_games_join_password.stdout
+  retries: 12
+  delay: 5
+  until: >-
+    patriot_games_join_password.rc == 0
+    and 'Option : Password is now :' in patriot_games_join_password.stdout
+  no_log: true
+  when:
+    - not ansible_check_mode
+    - >-
+      (patriot_games_server_options.content | b64decode
+       | regex_findall('(?m)^Password=([^\\r\\n]*)'))
+      != [lookup('env', 'ZOMBOID_JOIN_PASSWORD')]
 
 - name: Flush Dozzle credential changes
   ansible.builtin.meta: flush_handlers

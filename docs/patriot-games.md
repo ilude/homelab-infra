@@ -47,6 +47,8 @@ before first rollout, not a shared credential replacement or Caddy restart.
 Store unique generated credentials as standalone BWS runtime keys:
 
 - `ZOMBOID_ADMIN_PASSWORD`: game administrator password.
+- `ZOMBOID_JOIN_PASSWORD`: required nonempty player join password, separate from
+  player-account, administrator and RCON passwords.
 - `ZOMBOID_RCON_PASSWORD`: internal RCON credential.
 - `ZOMBOID_WEB_PASSWORD`: RCON Web Admin initial administrator password.
 - `PATRIOT_DOZZLE_USERS`: single-line JSON representation of Dozzle's `users.yml`,
@@ -55,7 +57,12 @@ Store unique generated credentials as standalone BWS runtime keys:
   plaintext Dozzle password can be retained in BWS separately for operator retrieval.
 
 Secrets are loaded through the scoped `patriot_games` runtime profile, never from
-tracked inventory or `values/`. Game/web credentials must be single-line. RCON Web
+tracked inventory or `values/`. Game/web credentials must be single-line.
+Ansible compares the join password with the persistent server configuration and,
+only when it differs, applies `changeoption Password` through the internal RCON
+client. Zomboid updates the live setting and saves it to its `.ini`, without a
+restart or overwriting other options. Secret tasks and RCON responses are hidden.
+The container has no supported environment variable for the player join password. RCON Web
 Admin's credentials initialize its persisted database; changing its BWS password
 later does not necessarily reset an existing database user. Use its account UI for
 normal changes and keep BWS synchronized.

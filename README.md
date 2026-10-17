@@ -152,6 +152,7 @@ Ansible manages:
 - Caddy and OpenSSH integration on the Forgejo LXC
 - Forgejo Actions runner installation/registration on a separate LXC
 - Infisical Docker Compose stack on the legacy LXC, or rootless Infisical Podman stack on `onramp_host` when `infisical_onramp` is enabled
+- [Project Zomboid, Dozzle and RCON Web Admin](docs/patriot-games.md) on a separate existing Docker VM, managed with `scripts/apply-service.sh patriot_games`; no infrastructure provisioning or changes to `onramp_host`.
 - Rootless FreeLLMAPI Podman Quadlet on `onramp_host`, with a loopback-only application port, shared Caddy HTTPS route, BWS-owned encryption key, and persistent SQLite state. Before the Compose-to-Quadlet cutover, use `scripts/service-state.sh backup freellmapi_onramp`; the archive includes the data directory and currently installed service definitions.
 - Hermes management tooling, SSH-oriented bootstrap directories, the Hermes Agent web dashboard running as `anvil`, and Caddy
 - Herdr LXC bootstrap, pinned Herdr and Pi installation, operator-local SSH context, and onramp stdio relay access

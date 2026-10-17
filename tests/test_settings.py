@@ -102,6 +102,7 @@ class SettingsTests(unittest.TestCase):
             "seaweedfs_onramp": "seaweedfs",
             "freellmapi_onramp": "freellmapi",
             "web_fetch_onramp": "web_fetch",
+            "patriot_games": "patriot_games",
         }
         actual = {
             service: settings_script.runtime_profile(service)

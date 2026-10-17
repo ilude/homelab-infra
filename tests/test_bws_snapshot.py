@@ -90,6 +90,10 @@ class BwsSnapshotTests(unittest.TestCase):
                 "ONCLAVE_VAULT_YOUTUBE_API_KEY": "youtube-key",
                 "ONCLAVE_VAULT_OPENROUTER_API_KEY": "openrouter-key",
                 "ONCLAVE_VAULT_ANTHROPIC_API_KEY": "anthropic-key",
+                "ZOMBOID_ADMIN_PASSWORD": "test-admin-password",
+                "ZOMBOID_RCON_PASSWORD": "test-rcon-password",
+                "ZOMBOID_WEB_PASSWORD": "test-web-password",
+                "PATRIOT_DOZZLE_USERS": '{"users": {}}',
                 "FREELLMAPI_ENCRYPTION_KEY": "a" * 64,
                 "WEB_FETCH_GATEWAY_CLIENT": json.dumps(
                     {"url": "https://fetch.example.com", "token": "a" * 64}
@@ -699,6 +703,14 @@ class BwsSnapshotTests(unittest.TestCase):
         self.assertEqual(
             bws_snapshot.RUNTIME_PROFILES["freellmapi"],
             ("FREELLMAPI_ENCRYPTION_KEY",),
+        )
+
+    def test_patriot_runtime_profile_only_exports_game_and_log_credentials(self) -> None:
+        expected = {"ZOMBOID_ADMIN_PASSWORD", "ZOMBOID_RCON_PASSWORD", "ZOMBOID_WEB_PASSWORD", "PATRIOT_DOZZLE_USERS"}
+        values = {key: "test-value" for key in bws_snapshot.RUNTIME_KEYS}
+        self.assertEqual(
+            set(bws_snapshot.resolve_runtime(values, bws_snapshot.RUNTIME_PROFILES["patriot_games"])),
+            expected,
         )
 
     def test_web_fetch_runtime_profile_only_exports_its_client_record(self) -> None:

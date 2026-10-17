@@ -1,0 +1,6 @@
+---
+- name: Restart Patriot Dozzle
+  ansible.builtin.command:
+    argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", restart, dozzle]
+  changed_when: true
+  when: not ansible_check_mode

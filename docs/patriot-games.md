@@ -100,6 +100,24 @@ still installs missing game files. To update the game, deliberately enable that
 setting for a targeted deployment, then disable it again. Image references are
 BWS digest pins; this service has no managed `just update` discovery support yet.
 
+Optional gameplay configuration belongs in the same BWS inventory group under
+`patriot_games_world_settings`. Its `sandbox` mapping uses dotted paths into the
+generated SandboxVars Lua file, such as `StarterKit: true`,
+`Map.AllowMiniMap: true`, or `ZombieConfig.PopulationMultiplier: 0.325`.
+Only existing numeric or boolean fields are patched; all other options remain
+unchanged. `pvp` is a boolean for the server's PvP rule. `spawn_regions` is a
+list of town directory names with installed `media/maps/<town>/spawnpoints.lua`
+files. Omitting this configuration leaves gameplay and spawn choices unmanaged.
+
+The role compares these files first and stops only Zomboid when changes are
+needed, allowing its normal save/quit before writing and starting it again.
+A regular deployment never deletes a world or resets characters. World
+regeneration is a separate, explicitly authorized operation: stop the game,
+apply settings, remove only `server-data/Saves/Multiplayer/<SERVER_NAME>`, and
+start through the targeted playbook. Keep `server-data/Server/` configuration
+and `server-data/db/` account credentials intact. These settings do not require
+mods, and starter kits apply only to newly created characters.
+
 SIGTERM in Broccoli's entrypoint invokes RCON `save` followed by `quit`, falling
 back to SIGTERM if RCON fails. The configurable grace defaults to 120 seconds for
 saving before Docker can force termination. This does not guarantee save success;

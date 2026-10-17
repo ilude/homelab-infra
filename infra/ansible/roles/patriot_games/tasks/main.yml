@@ -149,6 +149,54 @@
        | regex_findall('(?m)^Password=([^\\r\\n]*)'))
       != [lookup('env', 'ZOMBOID_JOIN_PASSWORD')]
 
+- name: Manage optional world settings
+  when:
+    - patriot_games_world_settings is defined
+    - not ansible_check_mode
+  block:
+    - name: Install world settings helper
+      ansible.builtin.copy:
+        src: configure-world.py
+        dest: "{{ patriot_games_base_dir }}/configure-world.py"
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Compare managed world settings without writing
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ patriot_games_base_dir }}/configure-world.py"
+          - "{{ patriot_games_base_dir }}"
+          - "{{ patriot_games_server_name }}"
+        stdin: "{{ patriot_games_world_settings | to_json }}"
+      register: patriot_games_world_check
+      changed_when: patriot_games_world_check.stdout == 'changed'
+
+    - name: Apply changed world settings with only the game stopped
+      when: patriot_games_world_check.stdout == 'changed'
+      block:
+        - name: Save and stop Zomboid before editing its configuration
+          ansible.builtin.command:
+            argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", stop, zomboid]
+          changed_when: true
+
+        - name: Write only the managed world settings
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ patriot_games_base_dir }}/configure-world.py"
+              - "{{ patriot_games_base_dir }}"
+              - "{{ patriot_games_server_name }}"
+              - --apply
+            stdin: "{{ patriot_games_world_settings | to_json }}"
+          changed_when: true
+
+        - name: Start Zomboid with the saved world settings
+          ansible.builtin.command:
+            argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", up, -d, zomboid]
+          changed_when: true
+
 - name: Flush Dozzle credential changes
   ansible.builtin.meta: flush_handlers
 

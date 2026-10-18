@@ -37,6 +37,16 @@
       - "'\r' not in lookup('env', 'ZOMBOID_JOIN_PASSWORD')"
   no_log: true
 
+- name: Validate optional Playit agent configuration
+  ansible.builtin.assert:
+    that:
+      - patriot_playit_image is match('^ghcr.io/playit-cloud/playit-agent:[^ ]+@sha256:[0-9a-f]{64}$')
+      - lookup('env', 'PATRIOT_PLAYIT_SECRET_KEY') | length > 0
+      - "'\n' not in lookup('env', 'PATRIOT_PLAYIT_SECRET_KEY')"
+      - "'\r' not in lookup('env', 'PATRIOT_PLAYIT_SECRET_KEY')"
+  no_log: true
+  when: patriot_playit_image is defined
+
 - name: Verify existing Docker ingress network
   ansible.builtin.command:
     argv: [docker, network, inspect, "{{ patriot_games_network }}"]
@@ -73,6 +83,16 @@
     mode: "0600"
   loop: [zomboid.env, rcon-web.env]
   no_log: true
+
+- name: Install optional private Playit environment
+  ansible.builtin.template:
+    src: playit.env.j2
+    dest: "{{ patriot_games_base_dir }}/playit.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: patriot_playit_image is defined
 
 - name: Install Dozzle simple-auth users
   ansible.builtin.copy:

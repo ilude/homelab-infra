@@ -707,12 +707,19 @@ class BwsSnapshotTests(unittest.TestCase):
         )
 
     def test_patriot_runtime_profile_only_exports_game_and_log_credentials(self) -> None:
-        expected = {"ZOMBOID_ADMIN_PASSWORD", "ZOMBOID_JOIN_PASSWORD", "ZOMBOID_RCON_PASSWORD", "ZOMBOID_WEB_PASSWORD", "PATRIOT_DOZZLE_USERS"}
+        expected = {"ZOMBOID_ADMIN_PASSWORD", "ZOMBOID_JOIN_PASSWORD", "ZOMBOID_RCON_PASSWORD", "ZOMBOID_WEB_PASSWORD", "PATRIOT_DOZZLE_USERS", "PATRIOT_PLAYIT_SECRET_KEY"}
         values = {key: "test-value" for key in bws_snapshot.RUNTIME_KEYS}
         self.assertEqual(
             set(bws_snapshot.resolve_runtime(values, bws_snapshot.RUNTIME_PROFILES["patriot_games"])),
             expected,
         )
+
+    def test_playit_secret_is_optional_until_agent_is_enabled(self) -> None:
+        values = {key: "test-value" for key in bws_snapshot.RUNTIME_KEYS}
+        values.pop("PATRIOT_PLAYIT_SECRET_KEY")
+        runtime = bws_snapshot.resolve_runtime(values, bws_snapshot.RUNTIME_PROFILES["patriot_games"])
+        self.assertEqual(runtime["PATRIOT_PLAYIT_SECRET_KEY"], "")
+        self.assertNotIn("PATRIOT_PLAYIT_SECRET_KEY", bws_snapshot.RUNTIME_PROFILES["onclave"])
 
     def test_patriot_runtime_profile_requires_nonempty_join_password(self) -> None:
         for value in (None, ""):
@@ -747,7 +754,8 @@ class BwsSnapshotTests(unittest.TestCase):
             ),
         )
         for key in bws_snapshot.OPTIONAL_RUNTIME_KEYS:
-            self.assertEqual(runtime[key], "")
+            if key in bws_snapshot.ONCLAVE_RUNTIME_KEYS:
+                self.assertEqual(runtime[key], "")
 
     def test_migrate_onclave_renames_bws_inputs_without_changing_adopted_storage(
         self,

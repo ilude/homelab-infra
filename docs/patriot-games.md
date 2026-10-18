@@ -100,6 +100,23 @@ still installs missing game files. To update the game, deliberately enable that
 setting for a targeted deployment, then disable it again. Image references are
 BWS digest pins; this service has no managed `just update` discovery support yet.
 
+## Optional Playit relay
+
+To add the Playit agent, set `patriot_playit_image` in the BWS inventory group to
+a digest-pinned `ghcr.io/playit-cloud/playit-agent:<tag>@sha256:<digest>` reference
+and store its agent key as `PATRIOT_PLAYIT_SECRET_KEY` in BWS. The runtime key
+is optional for deployments without Playit; enabling the image requires it.
+Ansible renders a private `playit.env` without logging credentials.
+
+The agent runs persistently with host networking, matching the upstream Docker
+instructions. Configure its provider-side Zomboid/UDP tunnels to reach
+`127.0.0.1:16261` and `127.0.0.1:16262`, the game ports already published on
+the host. Players use the public address and ports allocated by Playit. An agent
+connection does not by itself create tunnels or prove game connectivity. This
+does not require a world reset or game restart, change router forwarding, or
+disable direct connections. Host networking is not a restricted network boundary;
+the agent is a trusted host-network service.
+
 Optional gameplay configuration belongs in the same BWS inventory group under
 `patriot_games_world_settings`. Its `sandbox` mapping uses dotted paths into the
 generated SandboxVars Lua file, such as `StarterKit: true`,

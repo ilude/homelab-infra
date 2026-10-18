@@ -44,6 +44,16 @@ services:
     networks:
       ingress:
         aliases: [patriot-dozzle]
+{% if patriot_playit_image is defined %}
+  playit:
+    image: {{ patriot_playit_image | to_json }}
+    container_name: patriot-playit
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - path: playit.env
+        format: raw
+{% endif %}
 networks:
   game: {}
   ingress:

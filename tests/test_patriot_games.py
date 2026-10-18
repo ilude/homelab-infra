@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
+
+from jinja2 import Environment
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 HELPER = REPO / "infra/ansible/roles/patriot_games/files/manage-caddy.py"
@@ -53,6 +57,32 @@ class PatriotCaddyTests(unittest.TestCase):
     def test_rejects_broken_block_instead_of_overwriting_old_routes(self) -> None:
         with self.assertRaises(ValueError):
             caddy.managed_config(f"{caddy.BEGIN}\nold route\n", "new route")
+
+
+class PatriotComposeTests(unittest.TestCase):
+    def test_optional_playit_uses_host_network_and_private_env_file(self) -> None:
+        env = Environment()
+        env.filters["to_json"] = json.dumps
+        template = env.from_string((HELPER.parent.parent / "templates/compose.yml.j2").read_text())
+        values = {
+            "patriot_games_project": "test-games",
+            "zomboid_image": "test/zomboid:pinned",
+            "zomboid_web_image": "test/rcon:pinned",
+            "patriot_dozzle_image": "test/dozzle:pinned",
+            "patriot_games_stop_grace_period": "120s",
+            "patriot_games_network": "test-network",
+        }
+        without = yaml.safe_load(template.render(**values))
+        self.assertNotIn("playit", without["services"])
+        values["patriot_playit_image"] = "ghcr.io/playit-cloud/playit-agent:1.0@sha256:" + "a" * 64
+        enabled = yaml.safe_load(template.render(**values))
+        playit = enabled["services"]["playit"]
+        self.assertEqual(playit["network_mode"], "host")
+        self.assertEqual(playit["restart"], "unless-stopped")
+        self.assertEqual(playit["env_file"], [{"path": "playit.env", "format": "raw"}])
+        self.assertNotIn("ports", playit)
+        self.assertNotIn("environment", playit)
+        self.assertEqual(enabled["services"]["zomboid"], without["services"]["zomboid"])
 
 
 SANDBOX = """SandboxVars = {

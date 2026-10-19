@@ -21,6 +21,7 @@ SETTINGS_KEYS = {
     "dnssecValidation",
     "preferIPv6",
 }
+OPTIONAL_SETTINGS_KEYS = {"cacheFailureRecordTtl", "clientTimeout", "forwarderRetries"}
 FORWARDER_PROTOCOLS = {"Udp", "Tcp", "Tls", "Https"}
 
 
@@ -73,7 +74,24 @@ def validate_forwarder(value: Any, field: str) -> str:
     return value
 
 
-def zone_for(domain: str, zones: Mapping[str, Sequence[str]]) -> str:
+def validate_zone_forwarder(value: Any, field: str) -> dict[str, Any]:
+    if isinstance(value, str):
+        return {"forwarder": validate_forwarder(value, field), "protocol": "Udp", "priority": 1}
+    if not isinstance(value, dict):
+        raise ConfigError(f"{field} must be a string or forwarder object")
+    if set(value) != {"forwarder", "protocol", "priority"}:
+        raise ConfigError(f"{field} must contain exactly forwarder, protocol, and priority")
+    forwarder = validate_forwarder(value["forwarder"], f"{field}.forwarder")
+    protocol = value["protocol"]
+    if not isinstance(protocol, str) or protocol not in FORWARDER_PROTOCOLS:
+        raise ConfigError(f"{field}.protocol must be one of Udp, Tcp, Tls, Https")
+    priority = value["priority"]
+    if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 255:
+        raise ConfigError(f"{field}.priority must be an integer from 0 to 255")
+    return {"forwarder": forwarder, "protocol": protocol, "priority": priority}
+
+
+def zone_for(domain: str, zones: Mapping[str, Sequence[Any]]) -> str:
     matches = [zone for zone in zones if domain == zone or domain.endswith(f".{zone}")]
     if not matches:
         raise ConfigError(f"No configured zone for {domain}")
@@ -96,13 +114,13 @@ def validate_config(config: Mapping[str, Any]) -> dict[str, Any]:
         raise ConfigError(f"Unknown top-level keys: {', '.join(sorted(unknown))}")
 
     zones_raw = require_object(config, "zones")
-    zones: dict[str, list[str]] = {}
+    zones: dict[str, list[dict[str, Any]]] = {}
     for zone_raw, forwarders_raw in zones_raw.items():
         zone = validate_dns_name(zone_raw, f"zones.{zone_raw}")
         if not isinstance(forwarders_raw, list) or not forwarders_raw:
             raise ConfigError(f"zones.{zone} must be a non-empty list")
         zones[zone] = [
-            validate_forwarder(forwarder, f"zones.{zone}[{index}]")
+            validate_zone_forwarder(forwarder, f"zones.{zone}[{index}]")
             for index, forwarder in enumerate(forwarders_raw)
         ]
 
@@ -143,7 +161,7 @@ def validate_config(config: Mapping[str, Any]) -> dict[str, Any]:
             raise ConfigError(
                 f"Missing settings keys: {', '.join(sorted(missing_settings))}"
             )
-        unknown_settings = set(settings) - SETTINGS_KEYS
+        unknown_settings = set(settings) - SETTINGS_KEYS - OPTIONAL_SETTINGS_KEYS
         if unknown_settings:
             raise ConfigError(
                 f"Unknown settings keys: {', '.join(sorted(unknown_settings))}"
@@ -159,7 +177,7 @@ def validate_config(config: Mapping[str, Any]) -> dict[str, Any]:
         for key in ("concurrentForwarding", "dnssecValidation", "preferIPv6"):
             if not isinstance(settings[key], bool):
                 raise ConfigError(f"settings.{key} must be a boolean")
-        validated["settings"] = {
+        validated_settings: dict[str, Any] = {
             "forwarders": [
                 validate_forwarder(forwarder, f"settings.forwarders[{index}]")
                 for index, forwarder in enumerate(forwarders)
@@ -169,6 +187,40 @@ def validate_config(config: Mapping[str, Any]) -> dict[str, Any]:
             "dnssecValidation": settings["dnssecValidation"],
             "preferIPv6": settings["preferIPv6"],
         }
+        if "cacheFailureRecordTtl" in settings:
+            cache_failure_ttl = settings["cacheFailureRecordTtl"]
+            if (
+                isinstance(cache_failure_ttl, bool)
+                or not isinstance(cache_failure_ttl, int)
+                or cache_failure_ttl < 0
+            ):
+                raise ConfigError(
+                    "settings.cacheFailureRecordTtl must be a non-negative integer"
+                )
+            validated_settings["cacheFailureRecordTtl"] = cache_failure_ttl
+        if "clientTimeout" in settings:
+            client_timeout = settings["clientTimeout"]
+            if (
+                isinstance(client_timeout, bool)
+                or not isinstance(client_timeout, int)
+                or not 1000 <= client_timeout <= 10000
+            ):
+                raise ConfigError(
+                    "settings.clientTimeout must be an integer from 1000 to 10000 milliseconds"
+                )
+            validated_settings["clientTimeout"] = client_timeout
+        if "forwarderRetries" in settings:
+            forwarder_retries = settings["forwarderRetries"]
+            if (
+                isinstance(forwarder_retries, bool)
+                or not isinstance(forwarder_retries, int)
+                or not 1 <= forwarder_retries <= 10
+            ):
+                raise ConfigError(
+                    "settings.forwarderRetries must be an integer from 1 to 10"
+                )
+            validated_settings["forwarderRetries"] = forwarder_retries
+        validated["settings"] = validated_settings
 
     return validated
 
@@ -233,6 +285,11 @@ def apply_config(
                 "concurrentForwarding": bool_param(settings["concurrentForwarding"]),
                 "dnssecValidation": bool_param(settings["dnssecValidation"]),
                 "preferIPv6": bool_param(settings["preferIPv6"]),
+                **{
+                    key: str(settings[key])
+                    for key in OPTIONAL_SETTINGS_KEYS
+                    if key in settings
+                },
             },
         )
         print("configured upstream DNS forwarders")
@@ -267,9 +324,9 @@ def apply_config(
                     "type": "FWD",
                     "ttl": "300",
                     "overwrite": "true" if index == 0 else "false",
-                    "protocol": "Udp",
-                    "forwarder": forwarder,
-                    "forwarderPriority": "1",
+                    "protocol": forwarder["protocol"],
+                    "forwarder": forwarder["forwarder"],
+                    "forwarderPriority": str(forwarder["priority"]),
                     "dnssecValidation": "false",
                     "proxyType": "NoProxy",
                 },

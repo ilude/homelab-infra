@@ -94,7 +94,7 @@ Do not replace this stream with a TCP API, a broad shell key, a privileged conta
 - Herdr stores the persistent transport private key at `~/.ssh/id_ed25519_herdr_onramp`.
 - Herdr stores the persistent known_hosts file at `~/.ssh/known_hosts.herdr-onramp` and the SSH config at `~/.ssh/config`.
 - The Herdr known_hosts file is built only from the verified onramp host keys. The controller's return-handoff known_hosts file is ephemeral and is not the Herdr trust store.
-- `ssh-keyscan`, ambient global known_hosts files, changed host keys, and private-key logging are not acceptable trust or recovery paths.
+- The Herdr-to-onramp transport trust store is populated by the deployment's verified host-key handoff, not `ssh-keyscan` or ambient workstation trust. Never log private keys.
 
 The transport key is not an operator shell credential. It cannot obtain an interactive shell, agent forwarding, X11 forwarding, TCP forwarding, or a second command. The onramp deploy account remains a separate host-management boundary.
 

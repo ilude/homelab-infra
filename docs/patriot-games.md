@@ -58,12 +58,11 @@ Store unique generated credentials as standalone BWS runtime keys:
 
 Secrets are loaded through the scoped `patriot_games` runtime profile, never from
 tracked inventory or `values/`. Game/web credentials must be single-line.
-Ansible compares the join password with the persistent server configuration and,
-only when it differs, applies `changeoption Password` through the internal RCON
-client. Zomboid updates the live setting and saves it to its `.ini`, without a
-restart or overwriting other options. Secret tasks and RCON responses are hidden.
-The container has no supported environment variable for the player join password. RCON Web
-Admin's credentials initialize its persisted database; changing its BWS password
+The join and RCON passwords are rendered into the complete managed server `.ini`.
+A password change follows the same save/stop/render/start path as other server
+configuration changes. Secret contents and comparison output are hidden. The
+container has no supported environment variable for the player join password.
+RCON Web Admin's credentials initialize its persisted database; changing its BWS password
 later does not necessarily reset an existing database user. Use its account UI for
 normal changes and keep BWS synchronized.
 
@@ -117,17 +116,58 @@ does not require a world reset or game restart, change router forwarding, or
 disable direct connections. Host networking is not a restricted network boundary;
 the agent is a trusted host-network service.
 
-Optional gameplay configuration belongs in the same BWS inventory group under
-`patriot_games_world_settings`. Its `sandbox` mapping uses dotted paths into the
-generated SandboxVars Lua file, such as `StarterKit: true`,
-`Map.AllowMiniMap: true`, or `ZombieConfig.PopulationMultiplier: 0.325`.
-Only existing numeric or boolean fields are patched; all other options remain
-unchanged. `pvp` is a boolean for the server's PvP rule. `spawn_regions` is a
-list of town directory names with installed `media/maps/<town>/spawnpoints.lua`
-files. Omitting this configuration leaves gameplay and spawn choices unmanaged.
+## Complete managed game configuration
 
-The role compares these files first and stops only Zomboid when changes are
-needed, allowing its normal save/quit before writing and starting it again.
+The role's version-controlled `server.ini.j2`, `SandboxVars.lua.j2` and
+`spawnregions.lua.j2` are the complete configuration authority, based on the
+captured deployed baseline, not fresh game defaults. Edit these templates for
+future gameplay changes. Remove the retired `patriot_games_world_settings`
+inventory mapping when migrating; there is no per-option override mechanism.
+All existing spawn choices are retained. The only gameplay changes from the
+captured baseline are `MapRemotePlayerVisibility=4` (everyone),
+`PlayerSafehouse=true` and `SafehouseAllowRespawn=true`. `AdminSafehouse=false`,
+`TrashDeleteAll=false`, all safehouse protection/access/claim rules, and
+`MinutesPerPage=0.5` remain unchanged. The baseline also retains the global
+skill multiplier of 2 with its global toggle enabled.
+
+Set `patriot_games_server_identity` in the same BWS inventory group. Every key
+below must be explicit, including empty optional strings. For an existing server,
+copy the values from its actual mounted `.ini`; never generate new identifiers.
+This public example is for a new world only, not migration values:
+
+```yaml
+patriot_games_server_identity:
+  ResetID: 123456789
+  ServerPlayerID: "987654321"
+  Seed: "example-new-world-seed"
+  PublicName: "Private co-op"
+  PublicDescription: ""
+  ServerWelcomeMessage: "Welcome to our private co-op server."
+  DiscordToken: ""
+  DiscordChatChannel: ""
+  DiscordLogChannel: ""
+  DiscordCommandChannel: ""
+  WebhookAddress: ""
+  server_browser_announced_ip: ""
+  BadWordListFile: ""
+  GoodWordListFile: ""
+```
+
+Keep `patriot_games_server_name` unchanged to retain the existing world and
+accounts. The existing `patriot_games_max_players` variable feeds both `.ini`
+and `MAX_PLAYERS`; RCON password and the fixed game/RCON ports likewise match
+Broccoli's startup environment. Upstream `scripts/start.sh` rewrites those
+`.ini` fields on each start, so they must remain aligned with `zomboid.env.j2`.
+It does not manage the join password or the rest of the gameplay configuration.
+
+Before initial startup the role creates the owned `server-data/Server` directory
+and renders all three files, so first launch does not rely on generated gameplay
+defaults. On existing servers it compares configuration first, ignoring generated
+comments and whitespace outside Lua strings (and equivalent Lua numeric
+formatting). An actual option change stops only Zomboid, allows normal save/quit,
+then replaces the complete configuration before Compose starts it again. Comment
+rewrites alone do not cause repeated restarts. Runtime/admin edits are not a
+second authority and are replaced on the next deployment when they differ.
 A regular deployment never deletes a world or resets characters. World
 regeneration is a separate, explicitly authorized operation: stop the game,
 apply settings, remove only `server-data/Saves/Multiplayer/<SERVER_NAME>`, and

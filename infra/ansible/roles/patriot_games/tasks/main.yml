@@ -16,8 +16,32 @@
       - patriot_games_web_username is match('^[A-Za-z0-9_-]+$')
       - patriot_games_memory_xmx_gb | int > 0
       - patriot_games_max_players | int > 0
+      - patriot_games_server_identity is mapping
       - lookup('env', 'PATRIOT_DOZZLE_USERS') | from_yaml is mapping
     fail_msg: Set explicit branch, pinned images, private hostnames and BWS runtime secrets before deployment.
+  no_log: true
+
+- name: Validate explicit single-line server identity values
+  ansible.builtin.assert:
+    that:
+      - item in patriot_games_server_identity
+      - "'\n' not in (patriot_games_server_identity[item] | string)"
+      - "'\r' not in (patriot_games_server_identity[item] | string)"
+  loop:
+    - ResetID
+    - ServerPlayerID
+    - Seed
+    - PublicName
+    - PublicDescription
+    - ServerWelcomeMessage
+    - DiscordToken
+    - DiscordChatChannel
+    - DiscordLogChannel
+    - DiscordCommandChannel
+    - WebhookAddress
+    - server_browser_announced_ip
+    - BadWordListFile
+    - GoodWordListFile
   no_log: true
 
 - name: Validate single-line game and web credentials
@@ -64,6 +88,7 @@
     - { path: '', owner: root, group: root }
     - { path: server-files, owner: "{{ patriot_games_puid }}", group: "{{ patriot_games_pgid }}" }
     - { path: server-data, owner: "{{ patriot_games_puid }}", group: "{{ patriot_games_pgid }}" }
+    - { path: server-data/Server, owner: "{{ patriot_games_puid }}", group: "{{ patriot_games_pgid }}" }
     - { path: rcon-db, owner: root, group: root }
 
 - name: Install game Compose definition
@@ -120,6 +145,60 @@
   no_log: true
   when: not ansible_check_mode
 
+- name: Render complete authoritative Zomboid configuration
+  ansible.builtin.set_fact:
+    patriot_games_rendered_config: >-
+      {{ {
+        (patriot_games_server_name ~ '.ini'): lookup('template', 'server.ini.j2'),
+        (patriot_games_server_name ~ '_SandboxVars.lua'): lookup('template', 'SandboxVars.lua.j2'),
+        (patriot_games_server_name ~ '_spawnregions.lua'): lookup('template', 'spawnregions.lua.j2')
+      } }}
+  no_log: true
+
+- name: Install configuration comparison helper
+  ansible.builtin.copy:
+    src: compare-config.py
+    dest: "{{ patriot_games_base_dir }}/compare-config.py"
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Remove superseded partial world settings helper
+  ansible.builtin.file:
+    path: "{{ patriot_games_base_dir }}/configure-world.py"
+    state: absent
+
+- name: Manage complete server configuration before startup
+  when: not ansible_check_mode
+  block:
+    - name: Compare complete configuration without writing
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ patriot_games_base_dir }}/compare-config.py"
+          - "{{ patriot_games_base_dir }}/server-data/Server"
+        stdin: "{{ patriot_games_rendered_config | to_json }}"
+      register: patriot_games_config_check
+      changed_when: false
+      no_log: true
+
+    - name: Save and stop only Zomboid when configuration differs
+      ansible.builtin.command:
+        argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", stop, zomboid]
+      changed_when: true
+      when: patriot_games_config_check.stdout == 'changed'
+
+    - name: Write complete configuration after normal save and quit
+      ansible.builtin.copy:
+        content: "{{ item.value }}"
+        dest: "{{ patriot_games_base_dir }}/server-data/Server/{{ item.key }}"
+        owner: "{{ patriot_games_puid }}"
+        group: "{{ patriot_games_pgid }}"
+        mode: "0600"
+      loop: "{{ patriot_games_rendered_config | dict2items }}"
+      no_log: true
+      when: patriot_games_config_check.stdout == 'changed'
+
 - name: Start only the dedicated game Compose project
   ansible.builtin.command:
     argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", up, -d]
@@ -127,95 +206,6 @@
   changed_when: "'Started' in patriot_games_compose.stderr or 'Created' in patriot_games_compose.stderr or 'Recreated' in patriot_games_compose.stderr"
   no_log: true
   when: not ansible_check_mode
-
-- name: Wait for Zomboid server options to be generated
-  ansible.builtin.wait_for:
-    path: "{{ patriot_games_base_dir }}/server-data/Server/{{ patriot_games_server_name }}.ini"
-    timeout: 60
-  when: not ansible_check_mode
-
-- name: Read persistent Zomboid server options
-  ansible.builtin.slurp:
-    src: "{{ patriot_games_base_dir }}/server-data/Server/{{ patriot_games_server_name }}.ini"
-  register: patriot_games_server_options
-  no_log: true
-  when: not ansible_check_mode
-
-- name: Apply changed join password live and persist it through Zomboid
-  ansible.builtin.command:
-    argv:
-      - docker
-      - exec
-      - patriot-zomboid
-      - rcon-cli
-      - -c
-      - /home/steam/server/rcon.yml
-      - "{{ 'changeoption Password ' ~ (lookup('env', 'ZOMBOID_JOIN_PASSWORD') | to_json) }}"
-  register: patriot_games_join_password
-  changed_when: true
-  failed_when: >-
-    patriot_games_join_password.rc != 0
-    or 'Option : Password is now :' not in patriot_games_join_password.stdout
-  retries: 12
-  delay: 5
-  until: >-
-    patriot_games_join_password.rc == 0
-    and 'Option : Password is now :' in patriot_games_join_password.stdout
-  no_log: true
-  when:
-    - not ansible_check_mode
-    - >-
-      (patriot_games_server_options.content | b64decode
-       | regex_findall('(?m)^Password=([^\\r\\n]*)'))
-      != [lookup('env', 'ZOMBOID_JOIN_PASSWORD')]
-
-- name: Manage optional world settings
-  when:
-    - patriot_games_world_settings is defined
-    - not ansible_check_mode
-  block:
-    - name: Install world settings helper
-      ansible.builtin.copy:
-        src: configure-world.py
-        dest: "{{ patriot_games_base_dir }}/configure-world.py"
-        owner: root
-        group: root
-        mode: "0700"
-
-    - name: Compare managed world settings without writing
-      ansible.builtin.command:
-        argv:
-          - python3
-          - "{{ patriot_games_base_dir }}/configure-world.py"
-          - "{{ patriot_games_base_dir }}"
-          - "{{ patriot_games_server_name }}"
-        stdin: "{{ patriot_games_world_settings | to_json }}"
-      register: patriot_games_world_check
-      changed_when: patriot_games_world_check.stdout == 'changed'
-
-    - name: Apply changed world settings with only the game stopped
-      when: patriot_games_world_check.stdout == 'changed'
-      block:
-        - name: Save and stop Zomboid before editing its configuration
-          ansible.builtin.command:
-            argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", stop, zomboid]
-          changed_when: true
-
-        - name: Write only the managed world settings
-          ansible.builtin.command:
-            argv:
-              - python3
-              - "{{ patriot_games_base_dir }}/configure-world.py"
-              - "{{ patriot_games_base_dir }}"
-              - "{{ patriot_games_server_name }}"
-              - --apply
-            stdin: "{{ patriot_games_world_settings | to_json }}"
-          changed_when: true
-
-        - name: Start Zomboid with the saved world settings
-          ansible.builtin.command:
-            argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", up, -d, zomboid]
-          changed_when: true
 
 - name: Flush Dozzle credential changes
   ansible.builtin.meta: flush_handlers

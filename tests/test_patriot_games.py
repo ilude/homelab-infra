@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -16,7 +18,7 @@ assert spec and spec.loader
 caddy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(caddy)
 world_spec = importlib.util.spec_from_file_location(
-    "patriot_world", HELPER.with_name("configure-world.py")
+    "patriot_world", HELPER.with_name("compare-config.py")
 )
 assert world_spec and world_spec.loader
 world = importlib.util.module_from_spec(world_spec)
@@ -85,64 +87,91 @@ class PatriotComposeTests(unittest.TestCase):
         self.assertEqual(enabled["services"]["zomboid"], without["services"]["zomboid"])
 
 
-SANDBOX = """SandboxVars = {
-    VERSION = 6,
-    StarterKit = false,
-    FireSpread = true,
-    Map = {
-        AllowMiniMap = false,
-    },
-    ZombieConfig = {
-        PopulationMultiplier = 0.65,
-    },
-}
-"""
-
-
 class PatriotWorldTests(unittest.TestCase):
-    def test_changes_selected_nested_options_and_preserves_other_content(self) -> None:
-        configured = world.sandbox_config(SANDBOX, {
-            "StarterKit": True,
-            "Map.AllowMiniMap": True,
-            "ZombieConfig.PopulationMultiplier": 0.325,
-        })
-        expected = SANDBOX.replace("StarterKit = false", "StarterKit = true").replace(
-            "AllowMiniMap = false", "AllowMiniMap = true"
-        ).replace("PopulationMultiplier = 0.65", "PopulationMultiplier = 0.325")
-        self.assertEqual(configured, expected)
-
-    def test_rejects_unknown_fields_instead_of_appending_invalid_lua(self) -> None:
-        with self.assertRaises(ValueError):
-            world.sandbox_config(SANDBOX, {"Missing.Option": True})
-
-    def test_file_changes_are_idempotent_and_leave_credentials_and_saves_intact(self) -> None:
+    def test_ansible_renders_concrete_profile_filenames_before_comparing(self) -> None:
+        role = HELPER.parent.parent
+        tasks = yaml.safe_load((role / "tasks/main.yml").read_text())
+        render = next(task for task in tasks
+                      if task["name"] == "Render complete authoritative Zomboid configuration")
+        identity = dict.fromkeys([
+            "ResetID", "ServerPlayerID", "Seed", "PublicName", "PublicDescription",
+            "ServerWelcomeMessage", "DiscordToken", "DiscordChatChannel", "DiscordLogChannel",
+            "DiscordCommandChannel", "WebhookAddress", "server_browser_announced_ip",
+            "BadWordListFile", "GoodWordListFile",
+        ], "")
+        expected = ["test-world.ini", "test-world_SandboxVars.lua", "test-world_spawnregions.lua"]
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            server = base / "server-data/Server"
-            server.mkdir(parents=True)
-            ini = server / "pzserver.ini"
-            ini.write_text("PVP=true\nPassword=test-join-password\nOpen=true\n")
-            (server / "pzserver_SandboxVars.lua").write_text(SANDBOX)
-            (server / "pzserver_spawnregions.lua").write_text("old spawn choices\n")
-            save = base / "server-data/Saves/Multiplayer/pzserver/map.bin"
-            save.parent.mkdir(parents=True)
-            save.write_bytes(b"world data")
-            for name in ("Town One", "Town Two"):
-                points = base / "server-files/media/maps" / name / "spawnpoints.lua"
-                points.parent.mkdir(parents=True)
-                points.write_text("function SpawnPoints() return {} end\n")
-            settings = {"sandbox": {"StarterKit": True}, "pvp": False,
-                        "spawn_regions": ["Town One", "Town Two"]}
-            changes = world.configured_files(base, "pzserver", settings)
-            self.assertEqual(len(changes), 3)
-            for path, content in changes.items():
-                path.write_text(content)
-            self.assertEqual(world.configured_files(base, "pzserver", settings), {})
-            self.assertEqual(ini.read_text(), "PVP=false\nPassword=test-join-password\nOpen=true\n")
-            self.assertIn('media/maps/Town Two/spawnpoints.lua', (server / "pzserver_spawnregions.lua").read_text())
-            self.assertEqual(save.read_bytes(), b"world data")
-            with self.assertRaises(ValueError):
-                world.spawn_config(base / "server-files/media/maps", ["Missing Town"])
+            root = Path(directory)
+            (root / "templates").mkdir()
+            for name in ("server.ini.j2", "SandboxVars.lua.j2", "spawnregions.lua.j2"):
+                (root / "templates" / name).write_text((role / "templates" / name).read_text())
+            play = [{
+                "hosts": "localhost", "gather_facts": False,
+                "vars": {"patriot_games_server_name": "test-world",
+                         "patriot_games_max_players": 16,
+                         "patriot_games_server_identity": identity,
+                         "expected_filenames": expected},
+                "tasks": [render, {"name": "Check actual filenames",
+                                   "ansible.builtin.assert": {"that": [
+                                       "patriot_games_rendered_config.keys() | sort == expected_filenames | sort"
+                                   ]}}],
+            }]
+            playbook = root / "render.yml"
+            playbook.write_text(yaml.safe_dump(play, sort_keys=False))
+            result = subprocess.run(
+                ["ansible-playbook", "-i", "localhost,", "-c", "local", str(playbook)],
+                env={**os.environ, "ZOMBOID_JOIN_PASSWORD": "test-join",
+                     "ZOMBOID_RCON_PASSWORD": "test-rcon"},
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_comparison_ignores_generated_comments_but_not_settings_or_strings(self) -> None:
+        self.assertEqual(world.normalized("# generated\nPVP=false\nResetID=123\n", ".ini"),
+                         world.normalized("ResetID=123\n\nPVP=false\n", ".ini"))
+        original = 'SandboxVars = { MinutesPerPage = 0.5, Text = "a -- b", }'
+        rewritten = '-- generated\nSandboxVars={MinutesPerPage=0.50,Text="a -- b",}'
+        self.assertEqual(world.normalized(original, ".lua"), world.normalized(rewritten, ".lua"))
+        self.assertNotEqual(world.normalized(original, ".lua"),
+                            world.normalized(original.replace("0.5", "2.0"), ".lua"))
+        self.assertNotEqual(world.normalized(original, ".lua"),
+                            world.normalized(original.replace("a -- b", "a--b"), ".lua"))
+
+    def test_complete_templates_preserve_baseline_and_render_identity_and_secrets(self) -> None:
+        templates = HELPER.parent.parent / "templates"
+        env = Environment()
+        env.globals["lookup"] = lambda kind, key: {
+            "ZOMBOID_JOIN_PASSWORD": "test-join", "ZOMBOID_RCON_PASSWORD": "test-rcon",
+        }[key]
+        identity = dict.fromkeys([
+            "PublicName", "PublicDescription", "ServerWelcomeMessage", "DiscordToken",
+            "DiscordChatChannel", "DiscordLogChannel", "DiscordCommandChannel", "WebhookAddress",
+            "server_browser_announced_ip", "BadWordListFile", "GoodWordListFile",
+        ], "")
+        identity.update(ResetID=123, ServerPlayerID="456", Seed="preserved-seed")
+        ini = env.from_string((templates / "server.ini.j2").read_text()).render(
+            patriot_games_server_identity=identity, patriot_games_max_players=16)
+        for option in ["MapRemotePlayerVisibility=4", "PlayerSafehouse=true",
+                       "SafehouseAllowRespawn=true", "AdminSafehouse=false", "TrashDeleteAll=false",
+                       "SafehouseAllowTrepass=true", "SafehouseAllowFire=true", "SafehouseAllowLoot=true",
+                       "SafehouseDaySurvivedToClaim=0", "SafeHouseRemovalTime=144",
+                       "SafehouseAllowNonResidential=false", "ResetID=123", "ServerPlayerID=456",
+                       "Seed=preserved-seed", "Password=test-join", "RCONPassword=test-rcon"]:
+            self.assertIn(option + "\n", ini)
+        sandbox = (templates / "SandboxVars.lua.j2").read_text()
+        self.assertIn("MinutesPerPage = 0.5,", sandbox)
+        self.assertIn("Global = 2.0,", sandbox)
+        self.assertIn("GlobalToggle = true,", sandbox)
+        configs = {"pzserver.ini": ini, "pzserver_SandboxVars.lua": sandbox,
+                   "pzserver_spawnregions.lua": (templates / "spawnregions.lua.j2").read_text()}
+        with tempfile.TemporaryDirectory() as directory:
+            server = Path(directory)
+            self.assertTrue(world.differs(server, configs))
+            for filename, content in configs.items():
+                (server / filename).write_text(content)
+            self.assertFalse(world.differs(server, configs))
+            (server / "pzserver.ini").write_text(ini.replace("ResetID=123", "ResetID=789"))
+            self.assertTrue(world.differs(server, configs))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,17 @@
+---
+patriot_games_base_dir: /srv/patriot-games
+patriot_games_project: patriot-games
+patriot_games_network: onramp
+patriot_games_caddy_container: onramp-caddy
+patriot_games_caddy_file: /apps/vNext/etc/caddy/Caddyfile
+patriot_games_puid: 1000
+patriot_games_pgid: 1000
+patriot_games_server_name: pzserver
+patriot_games_admin_username: admin
+patriot_games_web_username: admin
+patriot_games_max_players: 16
+patriot_games_memory_xmx_gb: 8
+patriot_games_update_on_start: false
+patriot_games_stop_grace_period: 120s
+# Images, hostnames and Steam branch are explicit BWS inventory configuration.
+# An empty zomboid_server_branch selects Steam's default public branch.

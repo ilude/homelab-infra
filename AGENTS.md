@@ -94,6 +94,8 @@ Forgejo Actions deployment monitoring helpers exist as private workflow plumbing
 
 ## Service Access Pattern
 
+For inventory-managed hosts on the trusted LAN, automatically accept new SSH host keys and replace stale ones. Change only matching known-host entries and keep host-key checking enabled. Dedicated deployment-managed trust stores follow their own contracts.
+
 Services are intended to be accessible directly on the LAN by their service DNS names or IPs. Do not present Proxmox host SSH plus `pct enter` as the normal operator access path for services.
 
 Examples:

@@ -108,6 +108,51 @@ class DnsValidationTests(unittest.TestCase):
         with self.assertRaises(apply_dns.ConfigError):
             apply_dns.validate_config(config)
 
+    def test_cache_failure_ttl_accepts_nonnegative_integer_only(self) -> None:
+        for value in (0, 23):
+            with self.subTest(value=value):
+                config = dict(VALID_CONFIG)
+                config["settings"] = dict(VALID_CONFIG["settings"], cacheFailureRecordTtl=value)
+                validated = apply_dns.validate_config(config)
+                self.assertEqual(validated["settings"]["cacheFailureRecordTtl"], value)
+
+        for value in (True, False, -1, 1.5, "0"):
+            with self.subTest(value=value):
+                config = dict(VALID_CONFIG)
+                config["settings"] = dict(VALID_CONFIG["settings"], cacheFailureRecordTtl=value)
+                with self.assertRaises(apply_dns.ConfigError):
+                    apply_dns.validate_config(config)
+
+    def test_client_timeout_uses_native_millisecond_range(self) -> None:
+        for value in (1000, 10000):
+            with self.subTest(value=value):
+                config = dict(VALID_CONFIG)
+                config["settings"] = dict(VALID_CONFIG["settings"], clientTimeout=value)
+                validated = apply_dns.validate_config(config)
+                self.assertEqual(validated["settings"]["clientTimeout"], value)
+
+        for value in (True, False, 999, 10001, 2000.5, "10000"):
+            with self.subTest(value=value):
+                config = dict(VALID_CONFIG)
+                config["settings"] = dict(VALID_CONFIG["settings"], clientTimeout=value)
+                with self.assertRaises(apply_dns.ConfigError):
+                    apply_dns.validate_config(config)
+
+    def test_forwarder_retries_uses_native_range(self) -> None:
+        for value in (1, 10):
+            with self.subTest(value=value):
+                config = dict(VALID_CONFIG)
+                config["settings"] = dict(VALID_CONFIG["settings"], forwarderRetries=value)
+                validated = apply_dns.validate_config(config)
+                self.assertEqual(validated["settings"]["forwarderRetries"], value)
+
+        for value in (True, False, 0, 11, 1.5, "1"):
+            with self.subTest(value=value):
+                config = dict(VALID_CONFIG)
+                config["settings"] = dict(VALID_CONFIG["settings"], forwarderRetries=value)
+                with self.assertRaises(apply_dns.ConfigError):
+                    apply_dns.validate_config(config)
+
 
 class FakeClient:
     def __init__(self, records: dict[tuple[str, str, str], dict[str, str]] | None = None) -> None:
@@ -164,6 +209,9 @@ class DnsApplyTests(unittest.TestCase):
         self.assertEqual(settings[1]["concurrentForwarding"], "false")
         self.assertEqual(settings[1]["dnssecValidation"], "true")
         self.assertIn(",", settings[1]["forwarders"])
+        self.assertNotIn("cacheFailureRecordTtl", settings[1])
+        self.assertNotIn("clientTimeout", settings[1])
+        self.assertNotIn("forwarderRetries", settings[1])
 
         zone_create = next(
             params for path, params in client.calls if path == "/zones/create"
@@ -181,6 +229,8 @@ class DnsApplyTests(unittest.TestCase):
         self.assertEqual(fwd_records[0]["overwrite"], "true")
         self.assertEqual(fwd_records[1]["overwrite"], "false")
         self.assertEqual(fwd_records[0]["protocol"], "Udp")
+        self.assertEqual(fwd_records[0]["forwarderPriority"], "1")
+        self.assertEqual(fwd_records[0]["forwarder"], "192.0.2.10:54")
         self.assertEqual(fwd_records[0]["ttl"], "300")
         self.assertEqual(fwd_records[0]["proxyType"], "NoProxy")
 
@@ -200,6 +250,71 @@ class DnsApplyTests(unittest.TestCase):
         )
         self.assertEqual(cname_record["zone"], "example.internal")
         self.assertEqual(cname_record["cname"], "dns.example.internal")
+
+    def test_zone_forwarder_objects_set_ordered_protocol_and_priority(self) -> None:
+        config = dict(VALID_CONFIG)
+        config["zones"] = {
+            "example.internal": [
+                {"forwarder": "joyride.example.net", "protocol": "Udp", "priority": 1},
+                {"forwarder": "192.0.2.10:853", "protocol": "Tls", "priority": 2},
+            ]
+        }
+        config["a_records"] = {}
+        config["cname_records"] = {}
+        client = FakeClient()
+        apply_dns.apply_config(apply_dns.validate_config(config), client)
+        records = [
+            params for path, params in client.calls
+            if path == "/zones/records/add" and params["type"] == "FWD"
+        ]
+        self.assertEqual(
+            [(record["forwarder"], record["protocol"], record["forwarderPriority"], record["overwrite"])
+             for record in records],
+            [("joyride.example.net", "Udp", "1", "true"),
+             ("192.0.2.10:853", "Tls", "2", "false")],
+        )
+
+    def test_malformed_zone_forwarder_objects_fail(self) -> None:
+        malformed = [
+            {"forwarder": "192.0.2.1", "protocol": "Udp"},
+            {"forwarder": "192.0.2.1", "protocol": "Udp", "priority": True},
+            {"forwarder": "192.0.2.1", "protocol": "Udp", "priority": -1},
+            {"forwarder": "192.0.2.1", "protocol": "Udp", "priority": 256},
+            {"forwarder": "192.0.2.1", "protocol": "udp", "priority": 1},
+            {"forwarder": "192.0.2.1", "protocol": "Udp", "priority": 1, "extra": 0},
+        ]
+        for forwarder in malformed:
+            with self.subTest(forwarder=forwarder):
+                config = dict(VALID_CONFIG)
+                config["zones"] = {"example.internal": [forwarder]}
+                with self.assertRaises(apply_dns.ConfigError):
+                    apply_dns.validate_config(config)
+
+    def test_apply_sends_optional_cache_failure_ttl_as_string(self) -> None:
+        for value in (0, 23):
+            with self.subTest(value=value):
+                config = dict(VALID_CONFIG)
+                config["settings"] = dict(VALID_CONFIG["settings"], cacheFailureRecordTtl=value)
+                client = FakeClient()
+                apply_dns.apply_config(apply_dns.validate_config(config), client)
+                settings = next(params for path, params in client.calls if path == "/settings/set")
+                self.assertEqual(settings["cacheFailureRecordTtl"], str(value))
+
+    def test_apply_sends_client_timeout_as_milliseconds(self) -> None:
+        config = dict(VALID_CONFIG)
+        config["settings"] = dict(VALID_CONFIG["settings"], clientTimeout=10000)
+        client = FakeClient()
+        apply_dns.apply_config(apply_dns.validate_config(config), client)
+        settings = next(params for path, params in client.calls if path == "/settings/set")
+        self.assertEqual(settings["clientTimeout"], "10000")
+
+    def test_apply_sends_forwarder_retries_as_string(self) -> None:
+        config = dict(VALID_CONFIG)
+        config["settings"] = dict(VALID_CONFIG["settings"], forwarderRetries=1)
+        client = FakeClient()
+        apply_dns.apply_config(apply_dns.validate_config(config), client)
+        settings = next(params for path, params in client.calls if path == "/settings/set")
+        self.assertEqual(settings["forwarderRetries"], "1")
 
     def test_matching_a_and_cname_records_are_not_upserted(self) -> None:
         client = FakeClient(

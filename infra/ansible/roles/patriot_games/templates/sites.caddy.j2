@@ -1,0 +1,18 @@
+{{ patriot_dozzle_server_name }} {
+    tls {
+        dns cloudflare {{ lookup('env', 'CF_DNS_API_TOKEN') | to_json }}
+    }
+    reverse_proxy patriot-dozzle:8080
+}
+
+{{ zomboid_admin_server_name }} {
+    tls {
+        dns cloudflare {{ lookup('env', 'CF_DNS_API_TOKEN') | to_json }}
+    }
+    handle_path /ws {
+        reverse_proxy patriot-zomboid-admin:4327
+    }
+    handle {
+        reverse_proxy patriot-zomboid-admin:4326
+    }
+}

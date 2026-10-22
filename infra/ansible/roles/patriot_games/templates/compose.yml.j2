@@ -1,0 +1,61 @@
+name: {{ patriot_games_project }}
+services:
+  zomboid:
+    image: {{ zomboid_image | to_json }}
+    container_name: patriot-zomboid
+    restart: unless-stopped
+    stop_grace_period: {{ patriot_games_stop_grace_period }}
+    env_file:
+      - path: zomboid.env
+        format: raw
+    ports:
+      - "16261:16261/udp"
+      - "16262:16262/udp"
+    volumes:
+      - ./server-files:/project-zomboid
+      - ./server-data:/project-zomboid-config
+    networks:
+      game:
+        aliases: [patriot-zomboid]
+  rcon-web:
+    image: {{ zomboid_web_image | to_json }}
+    container_name: patriot-zomboid-admin
+    restart: unless-stopped
+    env_file:
+      - path: rcon-web.env
+        format: raw
+    volumes:
+      - ./rcon-db:/opt/rcon-web-admin/db
+    networks:
+      game: {}
+      ingress:
+        aliases: [patriot-zomboid-admin]
+  dozzle:
+    image: {{ patriot_dozzle_image | to_json }}
+    container_name: patriot-dozzle
+    restart: unless-stopped
+    environment:
+      DOZZLE_AUTH_PROVIDER: simple
+      DOZZLE_ENABLE_ACTIONS: "false"
+      DOZZLE_ENABLE_SHELL: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dozzle-users.yml:/data/users.yml:ro
+    networks:
+      ingress:
+        aliases: [patriot-dozzle]
+{% if patriot_playit_image is defined %}
+  playit:
+    image: {{ patriot_playit_image | to_json }}
+    container_name: patriot-playit
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - path: playit.env
+        format: raw
+{% endif %}
+networks:
+  game: {}
+  ingress:
+    external: true
+    name: {{ patriot_games_network | to_json }}

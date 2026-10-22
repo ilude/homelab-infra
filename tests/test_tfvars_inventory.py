@@ -21,6 +21,12 @@ spec.loader.exec_module(tfvars_inventory)
 
 
 class TfvarsInventoryTests(unittest.TestCase):
+    def test_existing_static_host_does_not_require_or_override_tfvars(self) -> None:
+        inventory = tfvars_inventory.build_inventory({}, ["patriot_games"])
+        self.assertEqual(inventory["_meta"]["hostvars"], {})
+        self.assertEqual(inventory["all"]["vars"], {})
+        self.assertNotIn("pve", inventory)
+
     def test_build_inventory_uses_tfvars_addresses_and_vmids(self) -> None:
         inventory = tfvars_inventory.build_inventory(
             {

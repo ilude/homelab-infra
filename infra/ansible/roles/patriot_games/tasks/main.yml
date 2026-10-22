@@ -1,0 +1,234 @@
+---
+- name: Validate Patriot game deployment configuration
+  ansible.builtin.assert:
+    that:
+      - lookup('env', 'CF_DNS_API_TOKEN') | length > 0
+      - patriot_games_legacy_tls_site is match('^\\*\\.[A-Za-z0-9.-]+$')
+      - zomboid_server_branch is defined
+      - zomboid_server_branch in ['', 'unstable', 'legacy41']
+      - zomboid_image is match('^indifferentbroccoli/projectzomboid-server-docker:[^ ]+@sha256:[0-9a-f]{64}$')
+      - zomboid_web_image is match('^itzg/rcon:[^ ]+@sha256:[0-9a-f]{64}$')
+      - patriot_dozzle_image is match('^amir20/dozzle:[^ ]+@sha256:[0-9a-f]{64}$')
+      - patriot_dozzle_server_name is match('^[A-Za-z0-9.-]+$')
+      - zomboid_admin_server_name is match('^[A-Za-z0-9.-]+$')
+      - patriot_games_server_name is match('^[A-Za-z0-9_-]+$')
+      - patriot_games_admin_username is match('^[A-Za-z0-9_-]+$')
+      - patriot_games_web_username is match('^[A-Za-z0-9_-]+$')
+      - patriot_games_memory_xmx_gb | int > 0
+      - patriot_games_max_players | int > 0
+      - lookup('env', 'PATRIOT_DOZZLE_USERS') | from_yaml is mapping
+    fail_msg: Set explicit branch, pinned images, private hostnames and BWS runtime secrets before deployment.
+  no_log: true
+
+- name: Validate single-line game and web credentials
+  ansible.builtin.assert:
+    that:
+      - lookup('env', item) | length >= 16
+      - "'\n' not in lookup('env', item)"
+      - "'\r' not in lookup('env', item)"
+  loop: [ZOMBOID_ADMIN_PASSWORD, ZOMBOID_RCON_PASSWORD, ZOMBOID_WEB_PASSWORD]
+  no_log: true
+
+- name: Validate single-line join password
+  ansible.builtin.assert:
+    that:
+      - lookup('env', 'ZOMBOID_JOIN_PASSWORD') | length > 0
+      - "'\n' not in lookup('env', 'ZOMBOID_JOIN_PASSWORD')"
+      - "'\r' not in lookup('env', 'ZOMBOID_JOIN_PASSWORD')"
+  no_log: true
+
+- name: Validate optional Playit agent configuration
+  ansible.builtin.assert:
+    that:
+      - patriot_playit_image is match('^ghcr.io/playit-cloud/playit-agent:[^ ]+@sha256:[0-9a-f]{64}$')
+      - lookup('env', 'PATRIOT_PLAYIT_SECRET_KEY') | length > 0
+      - "'\n' not in lookup('env', 'PATRIOT_PLAYIT_SECRET_KEY')"
+      - "'\r' not in lookup('env', 'PATRIOT_PLAYIT_SECRET_KEY')"
+  no_log: true
+  when: patriot_playit_image is defined
+
+- name: Verify existing Docker ingress network
+  ansible.builtin.command:
+    argv: [docker, network, inspect, "{{ patriot_games_network }}"]
+  changed_when: false
+  no_log: true
+
+- name: Create dedicated game deployment directories
+  ansible.builtin.file:
+    path: "{{ patriot_games_base_dir }}/{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "0700"
+  loop:
+    - { path: '', owner: root, group: root }
+    - { path: server-files, owner: "{{ patriot_games_puid }}", group: "{{ patriot_games_pgid }}" }
+    - { path: server-data, owner: "{{ patriot_games_puid }}", group: "{{ patriot_games_pgid }}" }
+    - { path: rcon-db, owner: root, group: root }
+
+- name: Install game Compose definition
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ patriot_games_base_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Install private game environments
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ patriot_games_base_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: [zomboid.env, rcon-web.env]
+  no_log: true
+
+- name: Install optional private Playit environment
+  ansible.builtin.template:
+    src: playit.env.j2
+    dest: "{{ patriot_games_base_dir }}/playit.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: patriot_playit_image is defined
+
+- name: Install Dozzle simple-auth users
+  ansible.builtin.copy:
+    content: "{{ lookup('env', 'PATRIOT_DOZZLE_USERS') }}"
+    dest: "{{ patriot_games_base_dir }}/dozzle-users.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  no_log: true
+  notify: Restart Patriot Dozzle
+
+- name: Install managed Caddy sites source
+  ansible.builtin.template:
+    src: sites.caddy.j2
+    dest: "{{ patriot_games_base_dir }}/sites.caddy"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Validate dedicated game Compose configuration
+  ansible.builtin.command:
+    argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", config, --quiet]
+  changed_when: false
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Start only the dedicated game Compose project
+  ansible.builtin.command:
+    argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", up, -d]
+  register: patriot_games_compose
+  changed_when: "'Started' in patriot_games_compose.stderr or 'Created' in patriot_games_compose.stderr or 'Recreated' in patriot_games_compose.stderr"
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Wait for Zomboid server options to be generated
+  ansible.builtin.wait_for:
+    path: "{{ patriot_games_base_dir }}/server-data/Server/{{ patriot_games_server_name }}.ini"
+    timeout: 60
+  when: not ansible_check_mode
+
+- name: Read persistent Zomboid server options
+  ansible.builtin.slurp:
+    src: "{{ patriot_games_base_dir }}/server-data/Server/{{ patriot_games_server_name }}.ini"
+  register: patriot_games_server_options
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Apply changed join password live and persist it through Zomboid
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - patriot-zomboid
+      - rcon-cli
+      - -c
+      - /home/steam/server/rcon.yml
+      - "{{ 'changeoption Password ' ~ (lookup('env', 'ZOMBOID_JOIN_PASSWORD') | to_json) }}"
+  register: patriot_games_join_password
+  changed_when: true
+  failed_when: >-
+    patriot_games_join_password.rc != 0
+    or 'Option : Password is now :' not in patriot_games_join_password.stdout
+  retries: 12
+  delay: 5
+  until: >-
+    patriot_games_join_password.rc == 0
+    and 'Option : Password is now :' in patriot_games_join_password.stdout
+  no_log: true
+  when:
+    - not ansible_check_mode
+    - >-
+      (patriot_games_server_options.content | b64decode
+       | regex_findall('(?m)^Password=([^\\r\\n]*)'))
+      != [lookup('env', 'ZOMBOID_JOIN_PASSWORD')]
+
+- name: Manage optional world settings
+  when:
+    - patriot_games_world_settings is defined
+    - not ansible_check_mode
+  block:
+    - name: Install world settings helper
+      ansible.builtin.copy:
+        src: configure-world.py
+        dest: "{{ patriot_games_base_dir }}/configure-world.py"
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Compare managed world settings without writing
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ patriot_games_base_dir }}/configure-world.py"
+          - "{{ patriot_games_base_dir }}"
+          - "{{ patriot_games_server_name }}"
+        stdin: "{{ patriot_games_world_settings | to_json }}"
+      register: patriot_games_world_check
+      changed_when: patriot_games_world_check.stdout == 'changed'
+
+    - name: Apply changed world settings with only the game stopped
+      when: patriot_games_world_check.stdout == 'changed'
+      block:
+        - name: Save and stop Zomboid before editing its configuration
+          ansible.builtin.command:
+            argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", stop, zomboid]
+          changed_when: true
+
+        - name: Write only the managed world settings
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ patriot_games_base_dir }}/configure-world.py"
+              - "{{ patriot_games_base_dir }}"
+              - "{{ patriot_games_server_name }}"
+              - --apply
+            stdin: "{{ patriot_games_world_settings | to_json }}"
+          changed_when: true
+
+        - name: Start Zomboid with the saved world settings
+          ansible.builtin.command:
+            argv: [docker, compose, --project-directory, "{{ patriot_games_base_dir }}", up, -d, zomboid]
+          changed_when: true
+
+- name: Flush Dozzle credential changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Validate and gracefully reload existing Caddy with managed sites
+  ansible.builtin.script:
+    cmd: >-
+      manage-caddy.py {{ patriot_games_caddy_file | quote }}
+      {{ (patriot_games_base_dir ~ '/sites.caddy') | quote }}
+      {{ patriot_games_caddy_container | quote }}
+      --legacy-site {{ patriot_games_legacy_tls_site | quote }}
+    executable: python3
+  register: patriot_games_caddy_update
+  changed_when: "patriot_games_caddy_update.stdout is search('(?m)^changed\\r?$')"
+  no_log: true
+  when: not ansible_check_mode

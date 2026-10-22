@@ -90,6 +90,11 @@ class BwsSnapshotTests(unittest.TestCase):
                 "ONCLAVE_VAULT_YOUTUBE_API_KEY": "youtube-key",
                 "ONCLAVE_VAULT_OPENROUTER_API_KEY": "openrouter-key",
                 "ONCLAVE_VAULT_ANTHROPIC_API_KEY": "anthropic-key",
+                "ZOMBOID_ADMIN_PASSWORD": "test-admin-password",
+                "ZOMBOID_JOIN_PASSWORD": "test-join-password",
+                "ZOMBOID_RCON_PASSWORD": "test-rcon-password",
+                "ZOMBOID_WEB_PASSWORD": "test-web-password",
+                "PATRIOT_DOZZLE_USERS": '{"users": {}}',
                 "FREELLMAPI_ENCRYPTION_KEY": "a" * 64,
                 "WEB_FETCH_GATEWAY_CLIENT": json.dumps(
                     {"url": "https://fetch.example.com", "token": "a" * 64}
@@ -701,6 +706,32 @@ class BwsSnapshotTests(unittest.TestCase):
             ("FREELLMAPI_ENCRYPTION_KEY",),
         )
 
+    def test_patriot_runtime_profile_only_exports_game_and_log_credentials(self) -> None:
+        expected = {"ZOMBOID_ADMIN_PASSWORD", "ZOMBOID_JOIN_PASSWORD", "ZOMBOID_RCON_PASSWORD", "ZOMBOID_WEB_PASSWORD", "PATRIOT_DOZZLE_USERS", "PATRIOT_PLAYIT_SECRET_KEY"}
+        values = {key: "test-value" for key in bws_snapshot.RUNTIME_KEYS}
+        self.assertEqual(
+            set(bws_snapshot.resolve_runtime(values, bws_snapshot.RUNTIME_PROFILES["patriot_games"])),
+            expected,
+        )
+
+    def test_playit_secret_is_optional_until_agent_is_enabled(self) -> None:
+        values = {key: "test-value" for key in bws_snapshot.RUNTIME_KEYS}
+        values.pop("PATRIOT_PLAYIT_SECRET_KEY")
+        runtime = bws_snapshot.resolve_runtime(values, bws_snapshot.RUNTIME_PROFILES["patriot_games"])
+        self.assertEqual(runtime["PATRIOT_PLAYIT_SECRET_KEY"], "")
+        self.assertNotIn("PATRIOT_PLAYIT_SECRET_KEY", bws_snapshot.RUNTIME_PROFILES["onclave"])
+
+    def test_patriot_runtime_profile_requires_nonempty_join_password(self) -> None:
+        for value in (None, ""):
+            with self.subTest(value=value):
+                values = {key: "test-value" for key in bws_snapshot.RUNTIME_PROFILES["patriot_games"]}
+                if value is None:
+                    values.pop("ZOMBOID_JOIN_PASSWORD")
+                else:
+                    values["ZOMBOID_JOIN_PASSWORD"] = value
+                with self.assertRaisesRegex(bws_snapshot.BwsSnapshotError, "ZOMBOID_JOIN_PASSWORD"):
+                    bws_snapshot.resolve_runtime(values, bws_snapshot.RUNTIME_PROFILES["patriot_games"])
+
     def test_web_fetch_runtime_profile_only_exports_its_client_record(self) -> None:
         self.assertEqual(bws_snapshot.RUNTIME_PROFILES["web_fetch"], ("WEB_FETCH_GATEWAY_CLIENT",))
         values = {key: "test-value" for key in bws_snapshot.RUNTIME_KEYS}
@@ -723,7 +754,8 @@ class BwsSnapshotTests(unittest.TestCase):
             ),
         )
         for key in bws_snapshot.OPTIONAL_RUNTIME_KEYS:
-            self.assertEqual(runtime[key], "")
+            if key in bws_snapshot.ONCLAVE_RUNTIME_KEYS:
+                self.assertEqual(runtime[key], "")
 
     def test_migrate_onclave_renames_bws_inputs_without_changing_adopted_storage(
         self,

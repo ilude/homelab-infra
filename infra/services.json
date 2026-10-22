@@ -4,6 +4,18 @@
     "forgejo"
   ],
   "services": {
+    "patriot_games": {
+      "runtime_profile": "patriot_games",
+      "execution_resource": "patriot_docker",
+      "state_capable": false,
+      "playbooks": ["infra/ansible/playbooks/patriot-games.yml"],
+      "dependencies": [],
+      "inventory": {
+        "source": "static",
+        "host": "patriot_docker_vm",
+        "group": "patriot_docker"
+      }
+    },
     "technitium": {
       "runtime_profile": "config",
       "execution_resource": "direct_lxc_known_hosts",

@@ -152,6 +152,7 @@ Ansible manages:
 - Caddy and OpenSSH integration on the Forgejo LXC
 - Forgejo Actions runner installation/registration on a separate LXC
 - Infisical Docker Compose stack on the legacy LXC, or rootless Infisical Podman stack on `onramp_host` when `infisical_onramp` is enabled
+- [Project Zomboid, Dozzle and RCON Web Admin](docs/patriot-games.md) on a separate existing Docker VM, managed with `scripts/apply-service.sh patriot_games`; no infrastructure provisioning or changes to `onramp_host`.
 - Rootless FreeLLMAPI Podman Quadlet on `onramp_host`, with a loopback-only application port, shared Caddy HTTPS route, BWS-owned encryption key, and persistent SQLite state. Before the Compose-to-Quadlet cutover, use `scripts/service-state.sh backup freellmapi_onramp`; the archive includes the data directory and currently installed service definitions.
 - Hermes management tooling, SSH-oriented bootstrap directories, the Hermes Agent web dashboard running as `anvil`, and Caddy
 - Herdr LXC bootstrap, pinned Herdr and Pi installation, operator-local SSH context, and onramp stdio relay access
@@ -161,6 +162,42 @@ Ansible manages:
 - Optional Tailscale installation and private backup restore on the Tailscale client LXC
 - Technitium DNS records/settings through `infra/ansible/playbooks/technitium-dns.yml`
 - Minimal rootless SeaweedFS S3 state storage on `onramp_host`, with a dedicated versioned bucket, lifecycle policy, and shared Caddy HTTPS route
+
+Technitium Forwarder zones accept legacy string forwarders (UDP, priority 1)
+or objects specifying `forwarder`, `protocol`, and `priority`. For example:
+
+```json
+"zones": {
+  "example.internal": [
+    {"forwarder": "192.0.2.53:54", "protocol": "Udp", "priority": 1},
+    {"forwarder": "this-server", "protocol": "Udp", "priority": 2}
+  ]
+}
+```
+
+Lower priority numbers are preferred, allowing an internal discovery resolver
+such as Joyride to run first, with explicit public fallback. Priority values
+range from 0 to 255. The special `this-server` forwarder uses Technitium's normal
+resolution path, including its global forwarders when configured. Its record's
+`protocol` is ignored; the global pool retains its configured protocol, such as
+DNS-over-TLS. Configure that pool with public resolvers for public fallback.
+Failover on timeout or SERVFAIL does not fall through on NXDOMAIN or NODATA;
+those are valid DNS responses. Technitium DNS settings may optionally include the integer
+`cacheFailureRecordTtl` (seconds). Setting it to `0` disables the normal
+failure-cache lifetime; this is separate from negative caching of valid DNS
+responses such as NXDOMAIN. It does not repair recurring upstream timeouts.
+Omit the field to leave the live setting unchanged.
+
+For priority-based fallback, allow enough time for the preferred forwarder's
+attempts before returning failure to clients. Optional `settings.clientTimeout`
+sets that response deadline in milliseconds (1000 to 10000). Optional
+`settings.forwarderRetries` sets retries for all forwarders (1 to 10), including
+the public pool. Transport and EDNS retries can make the actual primary wait
+longer than a simple timeout calculation. A `clientTimeout` of `10000` and
+`forwarderRetries` of `1` can allow fallback within the client deadline without
+shortening the existing per-attempt timeout. Verify with a cold-cache lookup;
+even then an unreachable primary can add several seconds. Omit either field to
+preserve its live setting.
 
 Ansible inventory combines the temporary BWS-rendered inventory with `infra/ansible/inventory/tfvars.py`, which derives service hosts, VMIDs, and addresses from the temporary BWS-rendered tfvars using `python-hcl2`. Normal service diagnostics and steady-state configuration use each service's direct inventory group, such as `technitium`, `forgejo`, `infisical`, or `hermes`; Proxmox access is reserved for lifecycle readiness, storage prep, bootstrap/recovery, and explicit host-boundary work.
 

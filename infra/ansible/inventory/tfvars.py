@@ -208,7 +208,7 @@ def validate_service_play_vars(service: str, tfvars: dict[str, Any]) -> None:
 
 def service_play_vars(service: str, tfvars: dict[str, Any]) -> dict[str, Any]:
     config = SERVICE_HOSTS.get(service)
-    if config is None:
+    if config is None or config.get("source") == "static":
         return {}
     vars_for_play: dict[str, Any] = {}
     validate_service_play_vars(service, tfvars)
@@ -236,7 +236,8 @@ def service_hostvars(
     service: str, tfvars: dict[str, Any]
 ) -> tuple[str, str, dict[str, Any]] | None:
     config = SERVICE_HOSTS.get(service)
-    if config is None:
+    # Existing externally managed hosts are supplied by the BWS static inventory.
+    if config is None or config.get("source") == "static":
         return None
     host = config["host"]
     group = config["group"]

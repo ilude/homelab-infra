@@ -1,0 +1,7 @@
+---
+- name: Configure game services on the existing Patriot Docker host
+  hosts: patriot_docker
+  gather_facts: false
+  become: true
+  roles:
+    - patriot_games

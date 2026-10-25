@@ -123,12 +123,23 @@ The role's version-controlled `server.ini.j2`, `SandboxVars.lua.j2` and
 captured deployed baseline, not fresh game defaults. Edit these templates for
 future gameplay changes. Remove the retired `patriot_games_world_settings`
 inventory mapping when migrating; there is no per-option override mechanism.
-All existing spawn choices are retained. The only gameplay changes from the
-captured baseline are `MapRemotePlayerVisibility=4` (everyone),
-`PlayerSafehouse=true` and `SafehouseAllowRespawn=true`. `AdminSafehouse=false`,
-`TrashDeleteAll=false`, all safehouse protection/access/claim rules, and
-`MinutesPerPage=0.5` remain unchanged. The baseline also retains the global
-skill multiplier of 2 with its global toggle enabled.
+All existing spawn choices are retained. Gameplay changes from the captured
+baseline are `MapRemotePlayerVisibility=4` (everyone), `PlayerSafehouse=true`,
+`SafehouseAllowRespawn=true`, `SafehouseAllowNonResidential=true`,
+`AnnounceDeath=true`, and `MinutesPerPage=0.25`. Players can claim eligible
+non-residential buildings and share a claim using the owner's Add Player invites;
+each member can enable safehouse respawning. Player deaths are announced globally
+in chat; animal-death announcements stay off. Reading now takes half as long as
+the previous 0.5 in-game minutes per page. `AdminSafehouse=false`,
+`TrashDeleteAll=false`, and the other safehouse protection/access/claim rules
+remain unchanged, including the 144-hour inactivity timer. The baseline also
+retains the global skill multiplier of 2 with its global toggle enabled.
+
+Water and electricity use the 2–6 month shutoff presets (`WaterShut=7` and
+`ElecShut=7`). Their corresponding modifier values are separately selected days
+in the game's 60–179 day range, replacing the previous 14-day values. Keep these
+selected days stable across deployments and restarts; the countdown follows the
+world's age, not the time since the last restart. Alarm decay is unchanged.
 
 Set `patriot_games_server_identity` in the same BWS inventory group. Every key
 below must be explicit, including empty optional strings. For an existing server,

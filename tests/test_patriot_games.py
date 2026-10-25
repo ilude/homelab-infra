@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -153,13 +154,19 @@ class PatriotWorldTests(unittest.TestCase):
             patriot_games_server_identity=identity, patriot_games_max_players=16)
         for option in ["MapRemotePlayerVisibility=4", "PlayerSafehouse=true",
                        "SafehouseAllowRespawn=true", "AdminSafehouse=false", "TrashDeleteAll=false",
+                       "AnnounceDeath=true",
                        "SafehouseAllowTrepass=true", "SafehouseAllowFire=true", "SafehouseAllowLoot=true",
                        "SafehouseDaySurvivedToClaim=0", "SafeHouseRemovalTime=144",
-                       "SafehouseAllowNonResidential=false", "ResetID=123", "ServerPlayerID=456",
+                       "SafehouseAllowNonResidential=true", "ResetID=123", "ServerPlayerID=456",
                        "Seed=preserved-seed", "Password=test-join", "RCONPassword=test-rcon"]:
             self.assertIn(option + "\n", ini)
         sandbox = (templates / "SandboxVars.lua.j2").read_text()
-        self.assertIn("MinutesPerPage = 0.5,", sandbox)
+        self.assertIn("MinutesPerPage = 0.25,", sandbox)
+        self.assertIn("WaterShut = 7,", sandbox)
+        self.assertIn("ElecShut = 7,", sandbox)
+        for option in ("WaterShutModifier", "ElecShutModifier"):
+            day = int(re.search(r"\b" + option + r" = (\d+),", sandbox)[1])
+            self.assertTrue(60 <= day < 180, f"{option} must match the 2–6 month preset")
         self.assertIn("Global = 2.0,", sandbox)
         self.assertIn("GlobalToggle = true,", sandbox)
         configs = {"pzserver.ini": ini, "pzserver_SandboxVars.lua": sandbox,

@@ -16,6 +16,8 @@ Public-safe documentation for this homelab infrastructure runbook.
 - [Onclave core-only rollout](onclave-core-rollout.md) documents the bounded managed native core deployment and rollback path.
 - [Service update policy](service-update-policy.md) defines the managed update workflow and the target model for Technitium version/checksum management.
 
+- [Remote workstation access](remote-workstation-access.md) covers native Herdr SSH attachment, Windows Terminal launch context, WinRM credentials, network constraints, and verification limits.
+
 ## Workflow reminder
 
 Use the repository workflow from the main [README](../README.md): check managed version pins with `just update`, validate with `just validate`, review infrastructure changes with `just plan`, and apply only after explicit approval with `just apply`.

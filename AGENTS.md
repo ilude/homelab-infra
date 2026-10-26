@@ -92,6 +92,10 @@ Forgejo Actions deployment monitoring helpers exist as private workflow plumbing
 11. For live diagnostics, use the service's direct endpoint first: SSH to the service DNS name/IP with its configured service user, or use the service HTTPS URL. Use Proxmox `pct exec`/`pct enter` only when debugging Proxmox/container lifecycle, recovering a broken service that cannot be reached directly, or following explicit operator instructions.
 12. After all implementation and live work for the complete request or active plan is otherwise finished, run `just validate` exactly once as the final validation gate.
 
+## Remote workstation access
+
+For Herdr remote attachment, Windows PowerShell remoting, or changes to their network access, read [`docs/remote-workstation-access.md`](docs/remote-workstation-access.md). Preserve its distinction between verified access and untested network paths. Workstation setup and reusable launchers belong in the dotfiles parent; managed inventory and secrets retain the BWS ownership described above.
+
 ## Service Access Pattern
 
 For inventory-managed hosts on the trusted LAN, automatically accept new SSH host keys and replace stale ones. Change only matching known-host entries and keep host-key checking enabled. Dedicated deployment-managed trust stores follow their own contracts.

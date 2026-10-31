@@ -153,7 +153,7 @@ class PatriotWorldTests(unittest.TestCase):
         ini = env.from_string((templates / "server.ini.j2").read_text()).render(
             patriot_games_server_identity=identity, patriot_games_max_players=16)
         for option in ["MapRemotePlayerVisibility=4", "PlayerSafehouse=true",
-                       "SafehouseAllowRespawn=true", "AdminSafehouse=false", "TrashDeleteAll=false",
+                       "SafehouseAllowRespawn=true", "AdminSafehouse=false", "TrashDeleteAll=true",
                        "AnnounceDeath=true",
                        "SafehouseAllowTrepass=true", "SafehouseAllowFire=true", "SafehouseAllowLoot=true",
                        "SafehouseDaySurvivedToClaim=0", "SafeHouseRemovalTime=144",

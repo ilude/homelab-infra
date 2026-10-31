@@ -130,9 +130,9 @@ baseline are `MapRemotePlayerVisibility=4` (everyone), `PlayerSafehouse=true`,
 non-residential buildings and share a claim using the owner's Add Player invites;
 each member can enable safehouse respawning. Player deaths are announced globally
 in chat; animal-death announcements stay off. Reading now takes half as long as
-the previous 0.5 in-game minutes per page. `AdminSafehouse=false`,
-`TrashDeleteAll=false`, and the other safehouse protection/access/claim rules
-remain unchanged, including the 144-hour inactivity timer. The baseline also
+the previous 0.5 in-game minutes per page. `TrashDeleteAll=true` enables the
+Delete All button on garbage bins. `AdminSafehouse=false` and the other safehouse
+protection/access/claim rules remain unchanged, including the 144-hour inactivity timer. The baseline also
 retains the global skill multiplier of 2 with its global toggle enabled.
 
 Water and electricity use the 2–6 month shutoff presets (`WaterShut=7` and
